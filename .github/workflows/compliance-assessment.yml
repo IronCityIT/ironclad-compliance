@@ -1,0 +1,263 @@
+name: Compliance Assessment
+
+on:
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: 'Client ID (required)'
+        required: true
+        type: string
+      framework:
+        description: 'Compliance framework to assess'
+        required: true
+        type: choice
+        options:
+          - soc2
+          - nist-csf
+          - pci-dss
+          - hipaa
+      evidence_path:
+        description: 'GCS path to evidence (gs://bucket/path/)'
+        required: true
+        type: string
+      assessment_type:
+        description: 'Type of assessment'
+        required: false
+        type: choice
+        options:
+          - full
+          - gap-only
+          - readiness
+        default: full
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      client_valid: ${{ steps.validate.outputs.client_valid }}
+      framework_file: ${{ steps.validate.outputs.framework_file }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        id: validate
+        run: |
+          # Validate client ID format
+          if [[ ! "${{ inputs.client_id }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "❌ Invalid client ID format"
+            exit 1
+          fi
+          
+          # Map framework to file
+          case "${{ inputs.framework }}" in
+            soc2) framework_file="soc2-2017.json" ;;
+            nist-csf) framework_file="nist-csf-2.0.json" ;;
+            pci-dss) framework_file="pci-dss-4.0.json" ;;
+            hipaa) framework_file="hipaa.json" ;;
+            *) echo "❌ Unknown framework"; exit 1 ;;
+          esac
+          
+          if [ ! -f "frameworks/$framework_file" ]; then
+            echo "❌ Framework file not found: frameworks/$framework_file"
+            exit 1
+          fi
+          
+          echo "client_valid=true" >> $GITHUB_OUTPUT
+          echo "framework_file=$framework_file" >> $GITHUB_OUTPUT
+
+  fetch-evidence:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    outputs:
+      evidence_count: ${{ steps.fetch.outputs.evidence_count }}
+    
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Fetch evidence from GCS
+        id: fetch
+        run: |
+          mkdir -p evidence
+          gsutil -m cp -r "${{ inputs.evidence_path }}*" evidence/ || true
+          count=$(find evidence -type f | wc -l)
+          echo "evidence_count=$count" >> $GITHUB_OUTPUT
+          echo "📁 Downloaded $count evidence files"
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-evidence
+          path: evidence/
+          retention-days: 7
+
+  assess-controls:
+    needs: [validate-inputs, fetch-evidence]
+    runs-on: ubuntu-latest
+    outputs:
+      findings_json: ${{ steps.assess.outputs.findings_json }}
+      assessment_id: ${{ steps.assess.outputs.assessment_id }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install PyPDF2 python-docx openpyxl
+
+      - name: Download evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: client-evidence
+          path: evidence/
+
+      - name: Run control assessment
+        id: assess
+        run: |
+          assessment_id="${{ inputs.client_id }}-${{ inputs.framework }}-$(date +%Y%m%d%H%M%S)"
+          echo "assessment_id=$assessment_id" >> $GITHUB_OUTPUT
+          
+          python scripts/assess_controls.py \
+            --client-id "${{ inputs.client_id }}" \
+            --framework "frameworks/${{ needs.validate-inputs.outputs.framework_file }}" \
+            --evidence-dir "evidence/" \
+            --assessment-type "${{ inputs.assessment_type }}" \
+            --output "results.json"
+          
+          # Output findings JSON for consensus engine
+          findings_json=$(cat results.json | jq -c '.findings')
+          echo "findings_json=$findings_json" >> $GITHUB_OUTPUT
+
+      - name: Upload initial assessment
+        uses: actions/upload-artifact@v4
+        with:
+          name: initial-assessment
+          path: results.json
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CALL CENTRAL AI CONSENSUS ENGINE
+  # This is the key integration - we don't duplicate AI logic here
+  # ═══════════════════════════════════════════════════════════════════════════
+  ai-consensus:
+    needs: assess-controls
+    uses: IronCityIT/consensus-engine/.github/workflows/analyze.yml@main
+    with:
+      findings_json: ${{ needs.assess-controls.outputs.findings_json }}
+      product: 'ironclad-compliance'
+      client_id: ${{ inputs.client_id }}
+      context: 'compliance-gap-assessment'
+    secrets:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+  generate-report:
+    needs: [validate-inputs, assess-controls, ai-consensus]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install jinja2 weasyprint
+
+      - name: Download initial assessment
+        uses: actions/download-artifact@v4
+        with:
+          name: initial-assessment
+          path: ./
+
+      - name: Merge AI consensus into results
+        run: |
+          # Get consensus results from the reusable workflow
+          CONSENSUS_SEVERITY="${{ needs.ai-consensus.outputs.consensus_severity }}"
+          CONFIDENCE="${{ needs.ai-consensus.outputs.confidence_percent }}"
+          
+          echo "AI Consensus: $CONSENSUS_SEVERITY ($CONFIDENCE% confidence)"
+          
+          # Merge consensus into results
+          jq --arg severity "$CONSENSUS_SEVERITY" \
+             --arg confidence "$CONFIDENCE" \
+             '. + {ai_consensus: {severity: $severity, confidence: $confidence}}' \
+             results.json > results_with_consensus.json
+
+      - name: Generate PDF report
+        run: |
+          python scripts/generate_report.py \
+            --input results_with_consensus.json \
+            --template templates/assessment_report.html \
+            --output "reports/${{ needs.assess-controls.outputs.assessment_id }}.pdf" \
+            --client-id "${{ inputs.client_id }}" \
+            --framework "${{ inputs.framework }}"
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: assessment-report
+          path: reports/*.pdf
+          retention-days: 90
+
+  store-results:
+    needs: [assess-controls, ai-consensus, generate-report]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install firebase-admin google-cloud-firestore google-cloud-storage
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Store in Firestore and GCS
+        run: |
+          python scripts/store_results.py \
+            --client-id "${{ inputs.client_id }}" \
+            --assessment-id "${{ needs.assess-controls.outputs.assessment_id }}" \
+            --results-dir "initial-assessment/" \
+            --report-dir "assessment-report/" \
+            --consensus-severity "${{ needs.ai-consensus.outputs.consensus_severity }}" \
+            --confidence "${{ needs.ai-consensus.outputs.confidence_percent }}"
+        env:
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
+
+      - name: Output summary
+        run: |
+          echo "## Assessment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Client:** ${{ inputs.client_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Framework:** ${{ inputs.framework }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Assessment ID:** ${{ needs.assess-controls.outputs.assessment_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**AI Consensus:** ${{ needs.ai-consensus.outputs.consensus_severity }} (${{ needs.ai-consensus.outputs.confidence_percent }}% confidence)" >> $GITHUB_STEP_SUMMARY
