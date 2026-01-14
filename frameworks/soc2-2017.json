@@ -1,0 +1,431 @@
+{
+  "framework": {
+    "id": "soc2-tsc",
+    "name": "SOC 2 Trust Service Criteria",
+    "version": "2017",
+    "source": "AICPA"
+  },
+  "controls": [
+    {
+      "id": "CC1.1",
+      "name": "Integrity and Ethical Values",
+      "description": "The entity demonstrates a commitment to integrity and ethical values.",
+      "points_of_focus": [
+        {"id": "CC1.1.1", "description": "Sets the Tone at the Top"},
+        {"id": "CC1.1.2", "description": "Establishes Standards of Conduct"},
+        {"id": "CC1.1.3", "description": "Evaluates Adherence to Standards"},
+        {"id": "CC1.1.4", "description": "Addresses Deviations in a Timely Manner"}
+      ],
+      "common_evidence": ["Code of conduct", "Ethics policy", "Training records", "Disciplinary records"]
+    },
+    {
+      "id": "CC1.2",
+      "name": "Board Independence",
+      "description": "The board of directors demonstrates independence from management and exercises oversight.",
+      "points_of_focus": [
+        {"id": "CC1.2.1", "description": "Establishes Oversight Responsibilities"},
+        {"id": "CC1.2.2", "description": "Applies Relevant Expertise"},
+        {"id": "CC1.2.3", "description": "Operates Independently"}
+      ],
+      "common_evidence": ["Board charter", "Meeting minutes", "Independence documentation"]
+    },
+    {
+      "id": "CC1.3",
+      "name": "Organizational Structure",
+      "description": "Management establishes structures, reporting lines, and appropriate authorities.",
+      "points_of_focus": [
+        {"id": "CC1.3.1", "description": "Considers All Structures"},
+        {"id": "CC1.3.2", "description": "Establishes Reporting Lines"},
+        {"id": "CC1.3.3", "description": "Defines Authorities and Responsibilities"}
+      ],
+      "common_evidence": ["Org chart", "Job descriptions", "RACI matrix"]
+    },
+    {
+      "id": "CC1.4",
+      "name": "Competence Commitment",
+      "description": "The entity demonstrates commitment to attract, develop, and retain competent individuals.",
+      "points_of_focus": [
+        {"id": "CC1.4.1", "description": "Establishes Policies and Practices"},
+        {"id": "CC1.4.2", "description": "Evaluates Competence"},
+        {"id": "CC1.4.3", "description": "Attracts and Retains Individuals"},
+        {"id": "CC1.4.4", "description": "Plans for Succession"}
+      ],
+      "common_evidence": ["HR policies", "Training records", "Performance reviews", "Succession plans"]
+    },
+    {
+      "id": "CC1.5",
+      "name": "Accountability",
+      "description": "The entity holds individuals accountable for their internal control responsibilities.",
+      "points_of_focus": [
+        {"id": "CC1.5.1", "description": "Enforces Accountability"},
+        {"id": "CC1.5.2", "description": "Establishes Performance Measures"},
+        {"id": "CC1.5.3", "description": "Evaluates Performance Measures"},
+        {"id": "CC1.5.4", "description": "Considers Excessive Pressures"}
+      ],
+      "common_evidence": ["Performance reviews", "Incentive structures", "Accountability matrix"]
+    },
+    {
+      "id": "CC2.1",
+      "name": "Information Quality",
+      "description": "The entity obtains or generates relevant, quality information to support internal control.",
+      "points_of_focus": [
+        {"id": "CC2.1.1", "description": "Identifies Information Requirements"},
+        {"id": "CC2.1.2", "description": "Captures Internal and External Data"},
+        {"id": "CC2.1.3", "description": "Processes Data Into Information"}
+      ],
+      "common_evidence": ["Data classification policy", "Information flow diagrams", "Data quality procedures"]
+    },
+    {
+      "id": "CC2.2",
+      "name": "Internal Communication",
+      "description": "The entity internally communicates information necessary to support internal control.",
+      "points_of_focus": [
+        {"id": "CC2.2.1", "description": "Communicates Internal Control Information"},
+        {"id": "CC2.2.2", "description": "Communicates With Board"},
+        {"id": "CC2.2.3", "description": "Provides Separate Communication Lines"},
+        {"id": "CC2.2.4", "description": "Selects Relevant Communication Method"}
+      ],
+      "common_evidence": ["Communication policy", "Whistleblower policy", "Policy acknowledgments"]
+    },
+    {
+      "id": "CC2.3",
+      "name": "External Communication",
+      "description": "The entity communicates with external parties regarding matters affecting internal control.",
+      "points_of_focus": [
+        {"id": "CC2.3.1", "description": "Communicates to External Parties"},
+        {"id": "CC2.3.2", "description": "Enables Inbound Communications"},
+        {"id": "CC2.3.3", "description": "Communicates With Board"}
+      ],
+      "common_evidence": ["External communication policy", "Vendor management policy", "Customer procedures"]
+    },
+    {
+      "id": "CC3.1",
+      "name": "Risk Objectives",
+      "description": "The entity specifies objectives with sufficient clarity to enable risk identification.",
+      "points_of_focus": [
+        {"id": "CC3.1.1", "description": "Operations Objectives"},
+        {"id": "CC3.1.2", "description": "Financial Reporting Objectives"},
+        {"id": "CC3.1.3", "description": "Non-Financial Reporting Objectives"},
+        {"id": "CC3.1.4", "description": "Internal Reporting Objectives"},
+        {"id": "CC3.1.5", "description": "Compliance Objectives"}
+      ],
+      "common_evidence": ["Strategic plan", "Risk appetite statement", "Compliance register"]
+    },
+    {
+      "id": "CC3.2",
+      "name": "Risk Identification",
+      "description": "The entity identifies risks to achievement of objectives and analyzes risks.",
+      "points_of_focus": [
+        {"id": "CC3.2.1", "description": "Includes All Entity Levels"},
+        {"id": "CC3.2.2", "description": "Analyzes Internal and External Factors"},
+        {"id": "CC3.2.3", "description": "Involves Appropriate Management"},
+        {"id": "CC3.2.4", "description": "Estimates Risk Significance"},
+        {"id": "CC3.2.5", "description": "Determines Risk Response"}
+      ],
+      "common_evidence": ["Risk assessment methodology", "Risk register", "Risk treatment plans"]
+    },
+    {
+      "id": "CC3.3",
+      "name": "Fraud Risk",
+      "description": "The entity considers the potential for fraud in assessing risks.",
+      "points_of_focus": [
+        {"id": "CC3.3.1", "description": "Considers Types of Fraud"},
+        {"id": "CC3.3.2", "description": "Assesses Incentives and Pressures"},
+        {"id": "CC3.3.3", "description": "Assesses Opportunities"},
+        {"id": "CC3.3.4", "description": "Assesses Attitudes and Rationalizations"}
+      ],
+      "common_evidence": ["Fraud risk assessment", "Anti-fraud policy", "Segregation of duties"]
+    },
+    {
+      "id": "CC3.4",
+      "name": "Change Assessment",
+      "description": "The entity identifies and assesses changes that could significantly impact internal control.",
+      "points_of_focus": [
+        {"id": "CC3.4.1", "description": "Assesses External Environment Changes"},
+        {"id": "CC3.4.2", "description": "Assesses Business Model Changes"},
+        {"id": "CC3.4.3", "description": "Assesses Leadership Changes"}
+      ],
+      "common_evidence": ["Change management policy", "Business impact assessments"]
+    },
+    {
+      "id": "CC4.1",
+      "name": "Control Evaluation",
+      "description": "The entity performs ongoing and/or separate evaluations to ascertain internal control functioning.",
+      "points_of_focus": [
+        {"id": "CC4.1.1", "description": "Considers Mix of Evaluations"},
+        {"id": "CC4.1.2", "description": "Considers Rate of Change"},
+        {"id": "CC4.1.3", "description": "Establishes Baseline"},
+        {"id": "CC4.1.4", "description": "Uses Knowledgeable Personnel"},
+        {"id": "CC4.1.5", "description": "Integrates With Business Processes"},
+        {"id": "CC4.1.6", "description": "Adjusts Scope and Frequency"},
+        {"id": "CC4.1.7", "description": "Objectively Evaluates"}
+      ],
+      "common_evidence": ["Internal audit program", "Monitoring procedures", "Control self-assessments"]
+    },
+    {
+      "id": "CC4.2",
+      "name": "Deficiency Communication",
+      "description": "The entity evaluates and communicates internal control deficiencies in a timely manner.",
+      "points_of_focus": [
+        {"id": "CC4.2.1", "description": "Assesses Results"},
+        {"id": "CC4.2.2", "description": "Communicates Deficiencies"},
+        {"id": "CC4.2.3", "description": "Monitors Corrective Actions"}
+      ],
+      "common_evidence": ["Deficiency tracking", "Management responses", "Remediation timelines"]
+    },
+    {
+      "id": "CC5.1",
+      "name": "Control Activities",
+      "description": "The entity selects and develops control activities that contribute to risk mitigation.",
+      "points_of_focus": [
+        {"id": "CC5.1.1", "description": "Integrates With Risk Assessment"},
+        {"id": "CC5.1.2", "description": "Considers Entity-Specific Factors"},
+        {"id": "CC5.1.3", "description": "Determines Relevant Processes"},
+        {"id": "CC5.1.4", "description": "Evaluates Control Types"},
+        {"id": "CC5.1.5", "description": "Considers Activity Levels"},
+        {"id": "CC5.1.6", "description": "Addresses Segregation of Duties"}
+      ],
+      "common_evidence": ["Control documentation", "Process narratives", "Segregation of duties analysis"]
+    },
+    {
+      "id": "CC5.2",
+      "name": "Technology Controls",
+      "description": "The entity selects and develops general control activities over technology.",
+      "points_of_focus": [
+        {"id": "CC5.2.1", "description": "Determines Technology Dependencies"},
+        {"id": "CC5.2.2", "description": "Establishes Infrastructure Controls"},
+        {"id": "CC5.2.3", "description": "Establishes Security Management Controls"},
+        {"id": "CC5.2.4", "description": "Establishes SDLC Controls"}
+      ],
+      "common_evidence": ["IT general controls", "Access control policy", "Change management", "SDLC"]
+    },
+    {
+      "id": "CC5.3",
+      "name": "Policy Deployment",
+      "description": "The entity deploys control activities through policies and procedures.",
+      "points_of_focus": [
+        {"id": "CC5.3.1", "description": "Establishes Policies and Procedures"},
+        {"id": "CC5.3.2", "description": "Establishes Responsibility"},
+        {"id": "CC5.3.3", "description": "Performs Timely"},
+        {"id": "CC5.3.4", "description": "Takes Corrective Action"},
+        {"id": "CC5.3.5", "description": "Uses Competent Personnel"},
+        {"id": "CC5.3.6", "description": "Reassesses Policies"}
+      ],
+      "common_evidence": ["Policy management system", "Procedure documentation", "Policy acknowledgments"]
+    },
+    {
+      "id": "CC6.1",
+      "name": "Logical and Physical Access",
+      "description": "The entity implements logical access security over protected information assets.",
+      "points_of_focus": [
+        {"id": "CC6.1.1", "description": "Identifies and Manages Asset Inventory"},
+        {"id": "CC6.1.2", "description": "Restricts Logical Access"},
+        {"id": "CC6.1.3", "description": "Identifies and Authenticates Users"},
+        {"id": "CC6.1.4", "description": "Considers Network Segmentation"},
+        {"id": "CC6.1.5", "description": "Manages Points of Access"},
+        {"id": "CC6.1.6", "description": "Restricts Access to Assets"},
+        {"id": "CC6.1.7", "description": "Manages Authentication"},
+        {"id": "CC6.1.8", "description": "Manages Credentials"},
+        {"id": "CC6.1.9", "description": "Uses Encryption"}
+      ],
+      "common_evidence": ["Asset inventory", "Access control policy", "Network diagrams", "Encryption standards"]
+    },
+    {
+      "id": "CC6.2",
+      "name": "Access Provisioning",
+      "description": "The entity registers and authorizes new users; removes access when no longer authorized.",
+      "points_of_focus": [
+        {"id": "CC6.2.1", "description": "Controls Access Credentials"},
+        {"id": "CC6.2.2", "description": "Removes Access When Appropriate"},
+        {"id": "CC6.2.3", "description": "Reviews Access Appropriateness"}
+      ],
+      "common_evidence": ["User provisioning procedures", "Access request forms", "Termination checklists", "Access reviews"]
+    },
+    {
+      "id": "CC6.3",
+      "name": "Role-Based Access",
+      "description": "The entity authorizes access based on roles and responsibilities using least privilege.",
+      "points_of_focus": [
+        {"id": "CC6.3.1", "description": "Creates or Modifies Access"},
+        {"id": "CC6.3.2", "description": "Removes Access"},
+        {"id": "CC6.3.3", "description": "Uses Role-Based Controls"},
+        {"id": "CC6.3.4", "description": "Reviews Access Roles"}
+      ],
+      "common_evidence": ["Role definitions", "RBAC configuration", "Least privilege policy"]
+    },
+    {
+      "id": "CC6.4",
+      "name": "Physical Access",
+      "description": "The entity restricts physical access to facilities and protected information assets.",
+      "points_of_focus": [
+        {"id": "CC6.4.1", "description": "Creates or Modifies Physical Access"},
+        {"id": "CC6.4.2", "description": "Removes Physical Access"},
+        {"id": "CC6.4.3", "description": "Reviews Physical Access"}
+      ],
+      "common_evidence": ["Physical access policy", "Badge access records", "Visitor logs"]
+    },
+    {
+      "id": "CC6.5",
+      "name": "Asset Disposal",
+      "description": "The entity discontinues protections only after data recovery ability is diminished.",
+      "points_of_focus": [
+        {"id": "CC6.5.1", "description": "Identifies Data for Disposal"},
+        {"id": "CC6.5.2", "description": "Removes Data From Control"}
+      ],
+      "common_evidence": ["Data disposal policy", "Media sanitization procedures", "Destruction certificates"]
+    },
+    {
+      "id": "CC6.6",
+      "name": "External Threat Protection",
+      "description": "The entity implements logical access security measures to protect against external threats.",
+      "points_of_focus": [
+        {"id": "CC6.6.1", "description": "Restricts Access"},
+        {"id": "CC6.6.2", "description": "Protects Authentication Credentials"},
+        {"id": "CC6.6.3", "description": "Requires Additional Authentication"},
+        {"id": "CC6.6.4", "description": "Implements Boundary Protection"}
+      ],
+      "common_evidence": ["Firewall configurations", "VPN configuration", "MFA implementation", "IDS/IPS"]
+    },
+    {
+      "id": "CC6.7",
+      "name": "Data Transmission Protection",
+      "description": "The entity restricts and protects data during transmission, movement, or removal.",
+      "points_of_focus": [
+        {"id": "CC6.7.1", "description": "Restricts Transmission Ability"},
+        {"id": "CC6.7.2", "description": "Uses Encryption or Secure Channels"},
+        {"id": "CC6.7.3", "description": "Protects Removable Media"},
+        {"id": "CC6.7.4", "description": "Protects Mobile Devices"}
+      ],
+      "common_evidence": ["DLP policy", "Encryption in transit", "Mobile device policy", "Removable media policy"]
+    },
+    {
+      "id": "CC6.8",
+      "name": "Malware Prevention",
+      "description": "The entity implements controls to prevent or detect unauthorized or malicious software.",
+      "points_of_focus": [
+        {"id": "CC6.8.1", "description": "Restricts Software Installation"},
+        {"id": "CC6.8.2", "description": "Detects Unauthorized Changes"},
+        {"id": "CC6.8.3", "description": "Uses Change Control Process"},
+        {"id": "CC6.8.4", "description": "Uses Antivirus/Anti-Malware"},
+        {"id": "CC6.8.5", "description": "Scans External Assets"}
+      ],
+      "common_evidence": ["Anti-malware policy", "EDR/AV configuration", "Software installation policy", "FIM"]
+    },
+    {
+      "id": "CC7.1",
+      "name": "Security Event Detection",
+      "description": "The entity uses detection and monitoring procedures to identify vulnerabilities.",
+      "points_of_focus": [
+        {"id": "CC7.1.1", "description": "Uses Configuration Standards"},
+        {"id": "CC7.1.2", "description": "Monitors Infrastructure"},
+        {"id": "CC7.1.3", "description": "Implements Change Detection"},
+        {"id": "CC7.1.4", "description": "Detects Unknown Components"},
+        {"id": "CC7.1.5", "description": "Conducts Vulnerability Scans"}
+      ],
+      "common_evidence": ["Configuration standards", "Vulnerability scans", "Change detection alerts", "Asset discovery"]
+    },
+    {
+      "id": "CC7.2",
+      "name": "Security Event Monitoring",
+      "description": "The entity monitors system components for anomalies indicative of security events.",
+      "points_of_focus": [
+        {"id": "CC7.2.1", "description": "Implements Detection Policies"},
+        {"id": "CC7.2.2", "description": "Designs Detection Measures"},
+        {"id": "CC7.2.3", "description": "Implements Filters"},
+        {"id": "CC7.2.4", "description": "Monitors Detection Tools"}
+      ],
+      "common_evidence": ["SIEM configuration", "Log aggregation", "Alert rules", "Monitoring procedures"]
+    },
+    {
+      "id": "CC7.3",
+      "name": "Security Event Evaluation",
+      "description": "The entity evaluates security events to determine if they resulted in failures.",
+      "points_of_focus": [
+        {"id": "CC7.3.1", "description": "Responds to Incidents"},
+        {"id": "CC7.3.2", "description": "Communicates and Reviews Events"},
+        {"id": "CC7.3.3", "description": "Analyzes Incidents"},
+        {"id": "CC7.3.4", "description": "Assesses Impact"},
+        {"id": "CC7.3.5", "description": "Determines Personal Information Impact"}
+      ],
+      "common_evidence": ["Incident response plan", "Security event logs", "Incident analysis reports"]
+    },
+    {
+      "id": "CC7.4",
+      "name": "Incident Response",
+      "description": "The entity responds to identified security incidents with a defined program.",
+      "points_of_focus": [
+        {"id": "CC7.4.1", "description": "Assigns Roles and Responsibilities"},
+        {"id": "CC7.4.2", "description": "Contains Incidents"},
+        {"id": "CC7.4.3", "description": "Mitigates Ongoing Incidents"},
+        {"id": "CC7.4.4", "description": "Ends Threats"},
+        {"id": "CC7.4.5", "description": "Restores Operations"},
+        {"id": "CC7.4.6", "description": "Develops Communication Protocols"},
+        {"id": "CC7.4.7", "description": "Obtains Incident Understanding"},
+        {"id": "CC7.4.8", "description": "Remediates Vulnerabilities"},
+        {"id": "CC7.4.9", "description": "Communicates Remediation"}
+      ],
+      "common_evidence": ["Incident response plan", "IR team roster", "Containment procedures", "Post-incident reviews"]
+    },
+    {
+      "id": "CC7.5",
+      "name": "Incident Recovery",
+      "description": "The entity identifies, develops, and implements activities to recover from incidents.",
+      "points_of_focus": [
+        {"id": "CC7.5.1", "description": "Restores Environment"},
+        {"id": "CC7.5.2", "description": "Communicates Event Information"},
+        {"id": "CC7.5.3", "description": "Determines Root Cause"},
+        {"id": "CC7.5.4", "description": "Implements Prevention Changes"},
+        {"id": "CC7.5.5", "description": "Improves Recovery Procedures"},
+        {"id": "CC7.5.6", "description": "Tests Recovery Plan"}
+      ],
+      "common_evidence": ["Recovery procedures", "Root cause analysis", "Lessons learned", "Recovery testing"]
+    },
+    {
+      "id": "CC8.1",
+      "name": "Change Management",
+      "description": "The entity authorizes, designs, develops, configures, documents, tests, approves, and implements changes.",
+      "points_of_focus": [
+        {"id": "CC8.1.1", "description": "Manages Changes Throughout Lifecycle"},
+        {"id": "CC8.1.2", "description": "Authorizes Changes"},
+        {"id": "CC8.1.3", "description": "Designs and Develops Changes"},
+        {"id": "CC8.1.4", "description": "Documents Changes"},
+        {"id": "CC8.1.5", "description": "Tracks Changes"},
+        {"id": "CC8.1.6", "description": "Configures Software"},
+        {"id": "CC8.1.7", "description": "Tests Changes"},
+        {"id": "CC8.1.8", "description": "Approves Changes"},
+        {"id": "CC8.1.9", "description": "Deploys Changes"},
+        {"id": "CC8.1.10", "description": "Identifies and Evaluates Changes"},
+        {"id": "CC8.1.11", "description": "Identifies Remediation Changes"},
+        {"id": "CC8.1.12", "description": "Creates Baseline Configuration"},
+        {"id": "CC8.1.13", "description": "Provides Emergency Change Process"}
+      ],
+      "common_evidence": ["Change management policy", "Change requests", "CAB minutes", "Test documentation", "Deployment records"]
+    },
+    {
+      "id": "CC9.1",
+      "name": "Risk Mitigation",
+      "description": "The entity identifies, selects, and develops risk mitigation for business disruptions.",
+      "points_of_focus": [
+        {"id": "CC9.1.1", "description": "Considers Mitigation of Disruption Risks"},
+        {"id": "CC9.1.2", "description": "Considers Insurance"}
+      ],
+      "common_evidence": ["Business continuity plan", "Disaster recovery plan", "Insurance policies", "Risk treatment plans"]
+    },
+    {
+      "id": "CC9.2",
+      "name": "Vendor Risk Management",
+      "description": "The entity assesses and manages risks associated with vendors and business partners.",
+      "points_of_focus": [
+        {"id": "CC9.2.1", "description": "Establishes Vendor Requirements"},
+        {"id": "CC9.2.2", "description": "Assesses Vendor Risks"},
+        {"id": "CC9.2.3", "description": "Assigns Vendor Responsibility"},
+        {"id": "CC9.2.4", "description": "Establishes Communication Protocols"},
+        {"id": "CC9.2.5", "description": "Establishes Exception Handling"},
+        {"id": "CC9.2.6", "description": "Assesses Vendor Performance"},
+        {"id": "CC9.2.7", "description": "Addresses Assessment Issues"},
+        {"id": "CC9.2.8", "description": "Terminates Vendor Relationships"}
+      ],
+      "common_evidence": ["Vendor management policy", "Vendor risk assessments", "Due diligence", "Vendor reviews"]
+    }
+  ]
+}

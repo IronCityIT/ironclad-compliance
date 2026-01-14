@@ -1,0 +1,33 @@
+{
+  "frameworks": [
+    {
+      "id": "soc2-tsc",
+      "name": "SOC 2 Trust Service Criteria",
+      "current_version": "2017",
+      "source": "AICPA",
+      "local_file": "soc2-2017.json",
+      "status": "active"
+    },
+    {
+      "id": "nist-csf",
+      "name": "NIST Cybersecurity Framework",
+      "current_version": "2.0",
+      "local_file": "nist-csf-2.0.json",
+      "status": "planned"
+    },
+    {
+      "id": "pci-dss",
+      "name": "PCI Data Security Standard", 
+      "current_version": "4.0",
+      "local_file": "pci-dss-4.0.json",
+      "status": "planned"
+    },
+    {
+      "id": "hipaa",
+      "name": "HIPAA Security Rule",
+      "current_version": "current",
+      "local_file": "hipaa.json",
+      "status": "planned"
+    }
+  ]
+}
