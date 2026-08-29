@@ -158,7 +158,6 @@ jobs:
       findings_json: ${{ needs.assess-controls.outputs.findings_json }}
       product: 'ironclad-compliance'
       client_id: ${{ inputs.client_id }}
-      context: 'compliance-gap-assessment'
     secrets:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
