@@ -11,7 +11,7 @@ on:
         required: false
         type: choice
         options:
-          - ''
+          - all
           - soc2
           - nist-csf
           - pci-dss
@@ -21,6 +21,10 @@ on:
         required: false
         type: boolean
         default: false
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   check-updates:

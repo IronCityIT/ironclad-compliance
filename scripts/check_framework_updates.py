@@ -80,7 +80,11 @@ def main():
     parser.add_argument("--output", default="updates.json")
     args = parser.parse_args()
     
-    frameworks = {args.framework: FRAMEWORK_SOURCES[args.framework]} if args.framework else FRAMEWORK_SOURCES
+    # "" (the scheduled run passes no framework) and "all" both mean every
+    # framework. "all" exists because a workflow_dispatch choice option cannot
+    # be an empty string -- GitHub rejects the workflow file outright.
+    selected = args.framework if args.framework not in ("", "all") else ""
+    frameworks = {selected: FRAMEWORK_SOURCES[selected]} if selected else FRAMEWORK_SOURCES
     
     results = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
