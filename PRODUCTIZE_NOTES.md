@@ -317,8 +317,13 @@ run, repeatedly. Nothing that needs a GitHub runner, a Jenkins agent or a GCP
 project has run at all. The consensus contract fix in §2.1 is the most valuable
 untested path — CI on the PR is the first time it executes for real.
 
-The security gate could not run on this machine and is **not** reported as
-green. `bandit` will not install into an externally-managed Python (PEP 668) and
-`pip-audit` aborts on an unrelated package installed on the host. A manual
-review was done in its place and is recorded in `STATUS.md`; it is not a
-substitute for the tools, and CI in a clean container is the first real result.
+`ci.yml` originally had no security gate at all, despite `CLAUDE.md` listing one
+and the Jenkins pipeline running it. That was fixed rather than explained away:
+CI now audits the declared dependencies, runs static analysis, and fails on a
+credential-shaped literal or a tool name reaching a client-facing surface.
+
+Three of those four run on the build machine and pass. `bandit` does not — it
+will not install into an externally-managed Python (PEP 668) — and it is **not**
+reported as green. A manual review stands in its place and is recorded in
+`STATUS.md`; it is not a substitute for the tool, and CI in a clean container is
+the first real result.

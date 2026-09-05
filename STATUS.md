@@ -23,7 +23,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Audit trail (hash-chained) | **DONE, tested** | `ironclad/model/audit.py` |
 | Reports, exports, auditor package | **DONE, tested** | `ironclad/report/` |
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
-| GitHub workflows | **DONE, not executed** | `.github/workflows/` |
+| GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
 | Cloud Functions | **DONE, not deployed** | `functions/` |
 | Firestore rules | **DONE, not deployed, not emulator-tested** | `firestore.rules` |
@@ -41,21 +41,28 @@ Run on this branch, this machine, 2026-09-05.
 | Test | `pytest --cov=ironclad` | **PASS** — 237 passed, 90% coverage |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Build | `python -m build` | **PASS** — sdist + wheel |
-| Security | `pip-audit`, `bandit` | **NOT RUN — see below** |
+| Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
+| Security — secret literals | CI shell check | **PASS** — no credential-shaped literals |
+| Security — white-label | CI shell check | **PASS** — no tool names on a client surface |
+| Security — static analysis | `bandit` | **NOT RUN — see below** |
 
-**The security gate did not run and is not being reported as green.** `bandit`
-cannot install into this externally-managed Python (PEP 668), and `pip-audit`
-aborts on `assayiq`, an unrelated package installed on this machine that is not
-on PyPI. Neither is a fault in this repository, and neither is evidence that
-this repository is clean. The Jenkins pipeline reports exactly this state as
-UNAVAILABLE and marks the build unstable rather than passing it silently; CI
-runs both in a clean container, so the PR check is the first real result.
+Three of the four security checks run here and pass. `pip-audit` is scoped to
+`requirements.txt` and `requirements-dev.txt` rather than the whole environment,
+which is both more correct — it audits what this repository declares — and what
+made it runnable on this machine, where an unrelated locally-installed package
+had been aborting the whole-environment scan.
 
-A manual review was done in place of the tool: no hardcoded secret matches
-anywhere in the tree; every secret referenced by name only; no underlying tool
-name reaches any client-facing surface (report, dashboard, catalog); report
-rendering escapes all interpolated values; workflow inputs reach shell through
-the environment rather than string interpolation.
+**`bandit` did not run and is not being reported as green.** It will not install
+into this externally-managed Python (PEP 668). That is a fault of the machine,
+not of this repository, and it is also not evidence that this repository is
+clean. The Jenkins pipeline reports exactly this state as UNAVAILABLE and marks
+the build unstable rather than passing it silently, and `ci.yml` runs it in a
+clean container — so the PR check is the first real bandit result.
+
+A manual review stands in its place: report rendering escapes every interpolated
+value; workflow inputs reach shell through the environment rather than string
+interpolation; the one `urllib` call takes an operator-supplied endpoint from a
+secret, never from user input.
 
 ## What is proven, and how
 
