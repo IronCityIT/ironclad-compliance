@@ -67,3 +67,16 @@ def test_committed_artifacts_pass_the_commit_gate() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_the_control_mapping_doc_matches_the_crosswalk_data() -> None:
+    # A crosswalk document that disagrees with the engine is worse than none:
+    # it is the version a client would be shown.
+    completed = subprocess.run(
+        [sys.executable, "tools/build_control_mapping.py", "--check"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
