@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -28,6 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ironclad.ids import slugify  # noqa: E402
 
 TIMEOUT_SECONDS = 60
+
+# The endpoint is operator-supplied (a secret, or --endpoint). urlopen honours
+# file:// and other schemes, so an endpoint that was mistyped -- or tampered with
+# upstream -- could turn this from "publish a result" into "read a local file and
+# report it as an HTTP response". Only real network schemes are opened.
+ALLOWED_SCHEMES = ("https", "http")
 
 
 def find_result(results_dir: Path) -> dict | None:
@@ -47,8 +54,19 @@ def find_result(results_dir: Path) -> dict | None:
 
 def post_result(endpoint: str, payload: dict, api_key: str = "") -> tuple[bool, str]:
     """POST the record to the ingest function. Returns (ok, message)."""
+    scheme = urllib.parse.urlparse(endpoint).scheme.lower()
+    if scheme not in ALLOWED_SCHEMES:
+        return False, (
+            f"refusing to publish to a {scheme or 'schemeless'} endpoint; "
+            f"the ingest endpoint must be one of {', '.join(ALLOWED_SCHEMES)}"
+        )
+    if scheme == "http" and not endpoint.startswith(("http://localhost", "http://127.0.0.1")):
+        # Plain http off the loopback would put an assessment result, and the
+        # ingest key, on the wire in clear.
+        return False, "refusing to publish over plain http to a remote host; use https"
+
     body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(  # noqa: S310 — endpoint is an operator-supplied https URL
+    request = urllib.request.Request(  # noqa: S310 — scheme checked above
         endpoint,
         data=body,
         method="POST",
