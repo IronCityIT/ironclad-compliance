@@ -78,6 +78,11 @@ class EvidenceArtifact:
     valid_until: datetime | None = None
     source_system: str = ""
     classification: str = "confidential"
+    # Controls an operator asserted this artifact supports, from the manifest's
+    # `control_hints`. An assertion about the artifact, so it belongs on the
+    # artifact; it produces a MANUAL link that a report shows as asserted rather
+    # than derived.
+    control_hints: list[str] = field(default_factory=list)
     # Extracted text is held in memory for matching and is deliberately never
     # serialised into a stored result or a client-facing report — the evidence
     # itself stays in the tenant's own bucket.
@@ -115,6 +120,7 @@ class EvidenceArtifact:
             "valid_until": iso(self.effective_valid_until),
             "source_system": self.source_system,
             "classification": self.classification,
+            "control_hints": list(self.control_hints),
             "stale": self.is_stale(),
         }
         if include_text:
