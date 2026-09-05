@@ -72,11 +72,13 @@ def build_parser() -> argparse.ArgumentParser:
     selection = assess.add_mutually_exclusive_group()
     selection.add_argument("--modules", help="comma list of capabilities to run")
     selection.add_argument("--group", help="named group: quick | standard | deep")
-    assess.add_argument("--assessment-type", default="full",
-                        choices=("full", "gap-only", "readiness"))
+    assess.add_argument(
+        "--assessment-type", default="full", choices=("full", "gap-only", "readiness")
+    )
     assess.add_argument("--assessment-id", default="", help="override the generated id")
-    assess.add_argument("--consensus-b64", default="",
-                        help="base64 consensus output to fold into the result")
+    assess.add_argument(
+        "--consensus-b64", default="", help="base64 consensus output to fold into the result"
+    )
     assess.add_argument("--out", default="out", help="output directory")
 
     report = sub.add_parser("report", help="render an HTML report from a stored result")
@@ -310,9 +312,9 @@ class _StoredResult:
             consensus=document.get("consensus") or {},
         )
         summary_raw = document.get("summary", {})
-        summary = AssessmentSummary(**{
-            key: summary_raw[key] for key in AssessmentSummary().__dict__ if key in summary_raw
-        })
+        summary = AssessmentSummary(
+            **{key: summary_raw[key] for key in AssessmentSummary().__dict__ if key in summary_raw}
+        )
         assessment.summary = summary
 
         for raw in document.get("controls", []):
@@ -345,9 +347,7 @@ class _StoredResult:
         self.assessment = assessment
 
         remediation_raw = document.get("remediation", {})
-        plan = RemediationPlan(
-            tenant_id=tenant, assessment_id=assessment.assessment_id
-        )
+        plan = RemediationPlan(tenant_id=tenant, assessment_id=assessment.assessment_id)
         for raw in remediation_raw.get("items", []):
             plan.add(
                 RemediationItem(
@@ -368,7 +368,7 @@ class _StoredResult:
         self.plan = plan
 
         evidence = EvidenceSet(tenant_id=tenant)
-        inventory = (document.get("module_output", {}).get("evidence_inventory") or {})
+        inventory = document.get("module_output", {}).get("evidence_inventory") or {}
         for raw in inventory.get("artifacts", []):
             evidence.add(
                 EvidenceArtifact(

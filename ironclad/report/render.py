@@ -106,15 +106,22 @@ def _score_cards(summary: Any) -> str:
 
 
 def _control_rows(assessment: Any) -> str:
-    order = {s.value: n for n, s in enumerate(
-        (ControlStatus.GAP, ControlStatus.PARTIAL, ControlStatus.PENDING,
-         ControlStatus.ACCEPTED_RISK, ControlStatus.COMPLIANT, ControlStatus.NOT_APPLICABLE)
-    )}
+    order = {
+        s.value: n
+        for n, s in enumerate(
+            (
+                ControlStatus.GAP,
+                ControlStatus.PARTIAL,
+                ControlStatus.PENDING,
+                ControlStatus.ACCEPTED_RISK,
+                ControlStatus.COMPLIANT,
+                ControlStatus.NOT_APPLICABLE,
+            )
+        )
+    }
     rows = []
     for item in sorted(assessment.controls, key=lambda c: (order[str(c.status)], c.control_id)):
-        coverage = (
-            f"{item.points_covered}/{item.points_total}" if item.points_total else "—"
-        )
+        coverage = f"{item.points_covered}/{item.points_total}" if item.points_total else "—"
         notes = "".join(f'<div class="note">{escape(n)}</div>' for n in item.notes)
         rows.append(
             "<tr>"
@@ -155,10 +162,10 @@ def _crosswalk_section(module_output: dict[str, Any]) -> str:
     rows = "".join(
         "<tr>"
         f'<td class="cid">{escape(data["framework"]["name"])}</td>'
-        f'<td>{escape(str(data["framework"]["version"]))}</td>'
-        f'<td>{round(100 * data["mapped_share"])}%</td>'
-        f'<td>{data["projected_satisfied"]} of {data["framework"]["control_count"]}</td>'
-        f'<td>{len(data["unmapped_controls"])}</td>'
+        f"<td>{escape(str(data['framework']['version']))}</td>"
+        f"<td>{round(100 * data['mapped_share'])}%</td>"
+        f"<td>{data['projected_satisfied']} of {data['framework']['control_count']}</td>"
+        f"<td>{len(data['unmapped_controls'])}</td>"
         "</tr>"
         for _, data in sorted(projections.items())
     )
@@ -200,7 +207,8 @@ def render_html(result: Any, client_name: str = "") -> str:
     if result.warnings or result.failed_modules:
         items = "".join(
             f"<li>{escape(w)}</li>"
-            for w in list(result.warnings) + [
+            for w in list(result.warnings)
+            + [
                 f"the {name} stage did not complete: {detail}"
                 for name, detail in result.failed_modules.items()
             ]

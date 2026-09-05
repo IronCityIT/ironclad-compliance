@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -137,7 +138,9 @@ class Crosswalk:
         self._by_source[(inverse.source_framework, inverse.source_control)].append(inverse)
 
     def frameworks(self) -> list[str]:
-        names = {e.source_framework for e in self._edges} | {e.target_framework for e in self._edges}
+        names = {e.source_framework for e in self._edges} | {
+            e.target_framework for e in self._edges
+        }
         return sorted(names)
 
     def map_control(
@@ -171,7 +174,7 @@ class Crosswalk:
     def inherit(
         self,
         source_framework: str,
-        verdicts: dict[str, ControlStatus],
+        verdicts: Mapping[str, ControlStatus],
         target_framework: str,
     ) -> dict[str, InheritedVerdict]:
         """Project assessed verdicts onto another framework's controls.

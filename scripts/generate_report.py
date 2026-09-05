@@ -22,7 +22,9 @@ from ironclad.report.render import render_html  # noqa: E402
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Render a compliance assessment report.")
     parser.add_argument("--input", required=True)
-    parser.add_argument("--output", required=True, help="output path; .pdf is attempted, .html always written")
+    parser.add_argument(
+        "--output", required=True, help="output path; .pdf is attempted, .html always written"
+    )
     parser.add_argument("--client-id", default="")
     parser.add_argument("--client-name", default="")
     parser.add_argument("--framework", default="", help="accepted for compatibility; unused")

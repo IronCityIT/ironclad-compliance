@@ -122,7 +122,11 @@ def main(argv: list[str] | None = None) -> int:
     skipped = 0
 
     for path in targets:
-        label = path.relative_to(REPO_ROOT) if path.is_absolute() and REPO_ROOT in path.parents else path
+        label = (
+            path.relative_to(REPO_ROOT)
+            if path.is_absolute() and REPO_ROOT in path.parents
+            else path
+        )
 
         if not path.exists():
             print(f"FAIL {label}\n       does not exist")
@@ -150,7 +154,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ok   {label}")
 
     checked = len(targets) - skipped
-    print(f"\n{checked - failures}/{checked} artifact(s) valid" + (f", {skipped} skipped" if skipped else ""))
+    print(
+        f"\n{checked - failures}/{checked} artifact(s) valid"
+        + (f", {skipped} skipped" if skipped else "")
+    )
     return 1 if failures else 0
 
 

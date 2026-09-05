@@ -53,9 +53,7 @@ class CrosswalkCoverage(AssessmentModule):
 
             target_ids = [c.id for c in target.controls]
             mapped_share = ctx.crosswalk.coverage(source_id, target.id, target_ids)
-            satisfied = [
-                v for v in inherited.values() if v.status is ControlStatus.COMPLIANT
-            ]
+            satisfied = [v for v in inherited.values() if v.status is ControlStatus.COMPLIANT]
 
             projections[target.id] = {
                 "framework": target.to_dict(),

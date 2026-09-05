@@ -157,9 +157,7 @@ class ComplianceService:
         self.store.save_assessment(tenant_id, result.to_dict())
         self.store.append_audit(tenant_id, [e.to_dict() for e in result.audit.events])
 
-    def get_assessment(
-        self, principal: Any, tenant_id: str, assessment_id: str
-    ) -> ServiceResponse:
+    def get_assessment(self, principal: Any, tenant_id: str, assessment_id: str) -> ServiceResponse:
         try:
             authorize(principal, "assessment:read", tenant_id)
         except AuthorizationError as exc:
@@ -273,14 +271,15 @@ class ComplianceService:
 
         self.store.save_exception(tenant_id, exception)
         self._audit(
-            tenant_id, actor=actor, action="exception.revoked",
-            object_id=exception.exception_id, metadata={"reason": reason},
+            tenant_id,
+            actor=actor,
+            action="exception.revoked",
+            object_id=exception.exception_id,
+            metadata={"reason": reason},
         )
         return ServiceResponse.success(exception=exception.to_dict())
 
-    def list_exceptions(
-        self, principal: Any, tenant_id: str, status: str = ""
-    ) -> ServiceResponse:
+    def list_exceptions(self, principal: Any, tenant_id: str, status: str = "") -> ServiceResponse:
         try:
             authorize(principal, "exception:read", tenant_id)
         except AuthorizationError as exc:
@@ -314,7 +313,11 @@ class ComplianceService:
         return ServiceResponse.success(events=self.store.list_audit(tenant_id, limit))
 
     def _audit(
-        self, tenant_id: str, actor: str, action: str, object_id: str,
+        self,
+        tenant_id: str,
+        actor: str,
+        action: str,
+        object_id: str,
         metadata: dict[str, Any] | None = None,
     ) -> None:
         """Append one service-level event, chained onto what is already stored."""
@@ -325,8 +328,11 @@ class ComplianceService:
             # trail verifies end to end across separate service calls.
             log.events.append(_stub_from(existing[-1]))
         event = log.record(
-            actor=actor, action=action, object_type="risk_exception",
-            object_id=object_id, metadata=metadata or {},
+            actor=actor,
+            action=action,
+            object_type="risk_exception",
+            object_id=object_id,
+            metadata=metadata or {},
         )
         self.store.append_audit(tenant_id, [event.to_dict()])
 

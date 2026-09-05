@@ -35,7 +35,9 @@ class FreshnessCheck(AssessmentModule):
                 if artifact is None or artifact.is_stale(ctx.as_of):
                     continue
 
-                window = (artifact.effective_valid_until - (artifact.valid_from or artifact.collected_at)).days
+                window = (
+                    artifact.effective_valid_until - (artifact.valid_from or artifact.collected_at)
+                ).days
                 if window <= 0:
                     continue
                 elapsed = artifact.age_days(ctx.as_of) / window

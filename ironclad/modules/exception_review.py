@@ -40,7 +40,10 @@ class ExceptionReview(AssessmentModule):
                 action="exception.expired",
                 object_type="risk_exception",
                 object_id=item.exception_id,
-                metadata={"control_id": item.control_id, "expired_at": item.expires_at.isoformat() if item.expires_at else None},
+                metadata={
+                    "control_id": item.control_id,
+                    "expired_at": item.expires_at.isoformat() if item.expires_at else None,
+                },
                 at=ctx.as_of,
             )
             findings.append(

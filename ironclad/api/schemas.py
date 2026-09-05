@@ -67,9 +67,7 @@ def validate_assessment_request(request: AssessmentRequest) -> list[str]:
     if not request.framework:
         errors.append("framework is required")
     elif request.framework not in FRAMEWORK_ALIASES and not request.framework.endswith(".json"):
-        errors.append(
-            f"framework {request.framework!r} is not one of {sorted(FRAMEWORK_ALIASES)}"
-        )
+        errors.append(f"framework {request.framework!r} is not one of {sorted(FRAMEWORK_ALIASES)}")
     if request.assessment_type not in ASSESSMENT_TYPES:
         errors.append(f"assessment_type must be one of {list(ASSESSMENT_TYPES)}")
     if request.modules and request.group:

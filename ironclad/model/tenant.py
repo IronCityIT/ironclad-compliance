@@ -33,6 +33,9 @@ class Role(str, Enum):
 
 
 # Every permission the service surface gates on. Named <object>:<verb>.
+# Grouped one line per object family on purpose: an over-broad grant is
+# visible at a glance in this shape and buried in a flat alphabetical list.
+# fmt: off
 PERMISSIONS: dict[Role, frozenset[str]] = {
     Role.OWNER: frozenset(
         {
@@ -89,6 +92,8 @@ PERMISSIONS: dict[Role, frozenset[str]] = {
         }
     ),
 }
+
+# fmt: on
 
 ALL_PERMISSIONS: frozenset[str] = frozenset().union(*PERMISSIONS.values())
 
@@ -158,6 +163,7 @@ class Principal:
         }
 
 
+# fmt: off
 # The service account the scan workflows run as. It may run assessments and
 # write results for any tenant, because the workflow is the ingestion path; it
 # may not approve a risk acceptance, which is a human decision by design.
@@ -172,6 +178,8 @@ SYSTEM_PERMISSIONS: frozenset[str] = frozenset(
         "tenant:read",
     }
 )
+
+# fmt: on
 
 
 @dataclass(frozen=True)

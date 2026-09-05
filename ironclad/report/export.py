@@ -43,24 +43,40 @@ def export_control_register_csv(result: Any, evidence: Any = None) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
         [
-            "control_id", "control_name", "status", "points_evidenced", "points_total",
-            "coverage", "evidence_items", "confidence", "weight", "exception_id",
-            "rationale", "evidence_names",
+            "control_id",
+            "control_name",
+            "status",
+            "points_evidenced",
+            "points_total",
+            "coverage",
+            "evidence_items",
+            "confidence",
+            "weight",
+            "exception_id",
+            "rationale",
+            "evidence_names",
         ]
     )
     evidence_names = {a.artifact_id: a.name for a in evidence} if evidence is not None else {}
 
     for item in result.assessment.controls:
         names = [
-            evidence_names.get(link.artifact_id, link.artifact_id)
-            for link in item.evidence_links
+            evidence_names.get(link.artifact_id, link.artifact_id) for link in item.evidence_links
         ]
         writer.writerow(
             [
-                item.control_id, item.control_name, str(item.status),
-                item.points_covered, item.points_total, round(item.coverage, 3),
-                len(item.evidence_links), round(item.confidence, 3), item.weight,
-                item.exception_id, item.rationale, "; ".join(names),
+                item.control_id,
+                item.control_name,
+                str(item.status),
+                item.points_covered,
+                item.points_total,
+                round(item.coverage, 3),
+                len(item.evidence_links),
+                round(item.confidence, 3),
+                item.weight,
+                item.exception_id,
+                item.rationale,
+                "; ".join(names),
             ]
         )
     return buffer.getvalue()
@@ -72,17 +88,31 @@ def export_remediation_csv(result: Any) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
         [
-            "item_id", "control_id", "control_name", "severity", "priority", "status",
-            "owner", "due_date", "evidence_required", "guidance",
+            "item_id",
+            "control_id",
+            "control_name",
+            "severity",
+            "priority",
+            "status",
+            "owner",
+            "due_date",
+            "evidence_required",
+            "guidance",
         ]
     )
     for item in result.plan.ordered():
         writer.writerow(
             [
-                item.item_id, item.control_id, item.control_name, str(item.severity),
-                item.priority, str(item.status), item.owner,
+                item.item_id,
+                item.control_id,
+                item.control_name,
+                str(item.severity),
+                item.priority,
+                str(item.status),
+                item.owner,
                 item.due_date.date().isoformat() if item.due_date else "",
-                "; ".join(item.evidence_gap), item.guidance,
+                "; ".join(item.evidence_gap),
+                item.guidance,
             ]
         )
     return buffer.getvalue()
@@ -94,9 +124,18 @@ def export_evidence_index_csv(result: Any, evidence: Any) -> str:
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(
         [
-            "control_id", "artifact_id", "artifact_name", "evidence_type", "uri",
-            "sha256", "collected_at", "valid_until", "stale", "link_method",
-            "relevance", "linked_by",
+            "control_id",
+            "artifact_id",
+            "artifact_name",
+            "evidence_type",
+            "uri",
+            "sha256",
+            "collected_at",
+            "valid_until",
+            "stale",
+            "link_method",
+            "relevance",
+            "linked_by",
         ]
     )
     for item in result.assessment.controls:
@@ -104,7 +143,8 @@ def export_evidence_index_csv(result: Any, evidence: Any) -> str:
             artifact = evidence.get(link.artifact_id)
             writer.writerow(
                 [
-                    item.control_id, link.artifact_id,
+                    item.control_id,
+                    link.artifact_id,
                     artifact.name if artifact else "",
                     artifact.evidence_type if artifact else "",
                     artifact.uri if artifact else "",
@@ -112,7 +152,9 @@ def export_evidence_index_csv(result: Any, evidence: Any) -> str:
                     iso(artifact.collected_at) if artifact else "",
                     iso(artifact.effective_valid_until) if artifact else "",
                     "yes" if artifact and artifact.is_stale() else "no",
-                    str(link.method), round(link.relevance, 3), link.linked_by,
+                    str(link.method),
+                    round(link.relevance, 3),
+                    link.linked_by,
                 ]
             )
     return buffer.getvalue()
@@ -125,8 +167,15 @@ def export_audit_trail_csv(result: Any) -> str:
     writer.writerow(["event_id", "at", "actor", "action", "object_type", "object_id", "hash"])
     for event in result.audit.events:
         writer.writerow(
-            [event.event_id, iso(event.at), event.actor, event.action,
-             event.object_type, event.object_id, event.hash]
+            [
+                event.event_id,
+                iso(event.at),
+                event.actor,
+                event.action,
+                event.object_type,
+                event.object_id,
+                event.hash,
+            ]
         )
     return buffer.getvalue()
 

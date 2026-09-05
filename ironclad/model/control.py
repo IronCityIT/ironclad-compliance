@@ -96,7 +96,11 @@ class Control:
         "policies and procedures") and matching on it produces noise.
         """
         terms: set[str] = set()
-        for phrase in (*self.common_evidence, self.name, *(p.description for p in self.points_of_focus)):
+        for phrase in (
+            *self.common_evidence,
+            self.name,
+            *(p.description for p in self.points_of_focus),
+        ):
             for word in phrase.lower().replace("/", " ").replace("-", " ").split():
                 cleaned = word.strip(".,()")
                 if len(cleaned) > 3 and cleaned not in STOPWORDS:
@@ -120,11 +124,41 @@ class Control:
 # on them would make every artifact look relevant to every control.
 STOPWORDS = frozenset(
     {
-        "the", "and", "for", "with", "that", "this", "from", "into", "their",
-        "entity", "entitys", "organization", "organizations", "system", "systems",
-        "policy", "policies", "procedure", "procedures", "documentation", "records",
-        "management", "process", "processes", "controls", "control", "information",
-        "data", "using", "used", "such", "other", "also", "including", "these",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "their",
+        "entity",
+        "entitys",
+        "organization",
+        "organizations",
+        "system",
+        "systems",
+        "policy",
+        "policies",
+        "procedure",
+        "procedures",
+        "documentation",
+        "records",
+        "management",
+        "process",
+        "processes",
+        "controls",
+        "control",
+        "information",
+        "data",
+        "using",
+        "used",
+        "such",
+        "other",
+        "also",
+        "including",
+        "these",
     }
 )
 

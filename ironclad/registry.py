@@ -45,7 +45,9 @@ def all_groups(registry: dict[str, AssessmentModule]) -> set[str]:
     return {group for module in registry.values() for group in module.groups}
 
 
-def order(registry: dict[str, AssessmentModule], chosen: list[AssessmentModule]) -> list[AssessmentModule]:
+def order(
+    registry: dict[str, AssessmentModule], chosen: list[AssessmentModule]
+) -> list[AssessmentModule]:
     """Order the selection so every declared prerequisite runs first.
 
     Prerequisites are pulled in even when the caller did not select them: asking
@@ -94,9 +96,7 @@ def select(
         chosen = [registry[name] for name in modules]
     else:
         wanted = group or DEFAULT_GROUP
-        chosen = sorted(
-            (m for m in registry.values() if wanted in m.groups), key=lambda m: m.name
-        )
+        chosen = sorted((m for m in registry.values() if wanted in m.groups), key=lambda m: m.name)
         if not chosen:
             raise SelectionError(
                 f"no capabilities in group {wanted!r}; "

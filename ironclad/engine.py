@@ -105,9 +105,7 @@ def run_assessment(
     if evidence.tenant_id != tenant:
         # A tenant mismatch here would mean assessing one client's evidence into
         # another client's record. It is not a warning.
-        raise ValueError(
-            f"evidence set belongs to tenant {evidence.tenant_id!r}, not {tenant!r}"
-        )
+        raise ValueError(f"evidence set belongs to tenant {evidence.tenant_id!r}, not {tenant!r}")
 
     assessment = Assessment(
         assessment_id=assessment_id or mint_assessment_id(tenant, framework.id, now),
@@ -147,7 +145,9 @@ def run_assessment(
 
     result = RunResult(
         assessment=assessment,
-        plan=RemediationPlan(tenant_id=tenant, assessment_id=assessment.assessment_id, generated_at=now),
+        plan=RemediationPlan(
+            tenant_id=tenant, assessment_id=assessment.assessment_id, generated_at=now
+        ),
         audit=audit,
     )
 
@@ -163,7 +163,11 @@ def run_assessment(
                 action="assessment.module_failed",
                 object_type="assessment",
                 object_id=assessment.assessment_id,
-                metadata={"module": module.name, "error": detail, "trace": traceback.format_exc(limit=3)},
+                metadata={
+                    "module": module.name,
+                    "error": detail,
+                    "trace": traceback.format_exc(limit=3),
+                },
                 at=now,
             )
             continue

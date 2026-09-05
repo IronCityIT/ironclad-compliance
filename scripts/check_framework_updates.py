@@ -19,7 +19,9 @@ from ironclad.frameworks.updates import STATE_FILE, check_all  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check official sources for framework updates.")
-    parser.add_argument("--framework", default="", help="one framework, or '' / 'all' for every one")
+    parser.add_argument(
+        "--framework", default="", help="one framework, or '' / 'all' for every one"
+    )
     parser.add_argument("--output", default="updates.json")
     parser.add_argument(
         "--state",
@@ -37,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     Path(args.output).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     for check in report["checks"]:
-        marker = "!" if check["update_detected"] else ("?" if check["status"] == "unchecked" else "-")
+        marker = (
+            "!" if check["update_detected"] else ("?" if check["status"] == "unchecked" else "-")
+        )
         print(f" {marker} {check['name']}: {check['status']} — {check['detail'] or check['error']}")
 
     print(f"\nresults written to {args.output}")

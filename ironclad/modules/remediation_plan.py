@@ -22,7 +22,9 @@ ACTIONABLE = (ControlStatus.GAP, ControlStatus.PARTIAL, ControlStatus.PENDING)
 
 class RemediationPlanning(AssessmentModule):
     name = "remediation_plan"
-    description = "Produce a prioritised remediation plan with owners, due dates and required evidence."
+    description = (
+        "Produce a prioritised remediation plan with owners, due dates and required evidence."
+    )
     groups = ("standard", "deep")
     # exception_review must land first, or this would raise work for controls
     # whose risk has already been formally accepted. Declaring it rather than
@@ -43,11 +45,11 @@ class RemediationPlanning(AssessmentModule):
 
             control = ctx.framework.get(verdict.control_id)
             expected = list(control.common_evidence) if control else []
-            supplied = {
-                ctx.evidence.get(link.artifact_id).evidence_type.lower()
-                for link in verdict.evidence_links
-                if ctx.evidence.get(link.artifact_id) is not None
-            }
+            supplied: set[str] = set()
+            for link in verdict.evidence_links:
+                artifact = ctx.evidence.get(link.artifact_id)
+                if artifact is not None:
+                    supplied.add(artifact.evidence_type.lower())
             missing = [e for e in expected if e.lower() not in supplied]
 
             item = build_item(

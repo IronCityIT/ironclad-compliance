@@ -18,6 +18,8 @@ strength of one document. What changed:
 
 from __future__ import annotations
 
+import re
+
 from ironclad.base import AssessmentContext, AssessmentModule, Finding, ModuleResult
 from ironclad.model.assessment import ControlStatus, blank_control_assessment
 from ironclad.model.evidence import EvidenceArtifact, EvidenceLink, LinkMethod
@@ -33,13 +35,39 @@ RELEVANCE_THRESHOLD = 0.18
 CORROBORATION_MIN = 2
 
 
+_WORD = re.compile(r"[a-z0-9]+")
+
+# Suffixes stripped so a control term matches its inflected forms. Applied to
+# both sides, so exact linguistic accuracy matters less than consistency.
+_SUFFIXES = ("ies", "ing", "ed", "es", "s")
+
+
+def _stem(word: str) -> str:
+    """Light inflection stripping: registers -> register, monitoring -> monitor."""
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) > len(suffix) + 3:
+            return word[: -len(suffix)]
+    return word
+
+
+def _words(text: str) -> set[str]:
+    return {_stem(word) for word in _WORD.findall(text.lower())}
+
+
 def _relevance(control_terms: set[str], text: str) -> tuple[float, list[str]]:
-    """Share of the control's terms present in the text, and which ones."""
+    """Share of the control's terms present in the text, and which ones.
+
+    Matching is on whole words, not substrings. Substring matching made an
+    unrelated control look evidenced whenever one of its terms happened to sit
+    inside a longer word elsewhere in the document -- "act" inside "contract",
+    "audit" inside "auditorium" -- which quietly turned a gap into a pass.
+    """
     if not control_terms:
         return 0.0, []
-    haystack = text.lower()
-    matched = sorted(term for term in control_terms if term in haystack)
-    return len(matched) / len(control_terms), matched
+    stems = {_stem(term) for term in control_terms}
+    present = _words(text)
+    matched = sorted(stems & present)
+    return len(matched) / len(stems), matched
 
 
 class ControlMapping(AssessmentModule):
@@ -146,11 +174,11 @@ class ControlMapping(AssessmentModule):
             # all; treat one linked artifact as full coverage of its single point.
             return 1 if verdict.evidence_links else 0
 
-        texts = [
-            (ctx.evidence.get(link.artifact_id).text or "").lower()
-            for link in verdict.evidence_links
-            if ctx.evidence.get(link.artifact_id) is not None
-        ]
+        texts: list[str] = []
+        for link in verdict.evidence_links:
+            artifact = ctx.evidence.get(link.artifact_id)
+            if artifact is not None:
+                texts.append(artifact.text.lower())
         manual = any(link.method is LinkMethod.MANUAL for link in verdict.evidence_links)
         if manual and not any(texts):
             # An operator asserted the link for evidence the engine cannot read.
