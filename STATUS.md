@@ -35,34 +35,41 @@ Run on this branch, this machine, 2026-09-05.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | **PASS** — 54 files |
+| Format | `ruff format --check .` | **PASS** — 56 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 53 source files |
-| Test | `pytest --cov=ironclad` | **PASS** — 237 passed, 90% coverage |
+| Test | `pytest --cov=ironclad` | **PASS** — 251 passed, 90% coverage |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Build | `python -m build` | **PASS** — sdist + wheel |
 | Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
 | Security — secret literals | CI shell check | **PASS** — no credential-shaped literals |
 | Security — white-label | CI shell check | **PASS** — no tool names on a client surface |
-| Security — static analysis | `bandit` | **NOT RUN — see below** |
+| Security — static analysis | `bandit` | **PASS in CI** — see below |
 
-Three of the four security checks run here and pass. `pip-audit` is scoped to
-`requirements.txt` and `requirements-dev.txt` rather than the whole environment,
-which is both more correct — it audits what this repository declares — and what
-made it runnable on this machine, where an unrelated locally-installed package
-had been aborting the whole-environment scan.
+`ci.yml` had no security gate at all when this branch started, despite
+`CLAUDE.md` listing one and the Jenkins pipeline running it. It has one now, and
+all four checks are green.
 
-**`bandit` did not run and is not being reported as green.** It will not install
-into this externally-managed Python (PEP 668). That is a fault of the machine,
-not of this repository, and it is also not evidence that this repository is
-clean. The Jenkins pipeline reports exactly this state as UNAVAILABLE and marks
-the build unstable rather than passing it silently, and `ci.yml` runs it in a
-clean container — so the PR check is the first real bandit result.
+`bandit` cannot run on this machine — it will not install into an
+externally-managed Python (PEP 668) — so its first real run was in CI, and it
+**found a genuine defect**: `scripts/store_results.py` passed an
+operator-supplied endpoint to `urllib.request.urlopen`, which honours `file://`.
+A mistyped or tampered endpoint would have read a local file and reported it as
+an HTTP response. Rewritten onto `http.client`, which speaks only HTTP, so the
+risk is structurally absent rather than checked. That rewrite also caught a
+second bug: the old code inferred success from "no exception raised", so a 204 or
+a 302 from a misconfigured ingest would have been recorded as stored.
 
-A manual review stands in its place: report rendering escapes every interpolated
-value; workflow inputs reach shell through the environment rather than string
-interpolation; the one `urllib` call takes an operator-supplied endpoint from a
-secret, never from user input.
+`pip-audit` is scoped to `requirements.txt` and `requirements-dev.txt` rather
+than the whole environment — more correct, since it audits what this repository
+declares, and it is also what made it runnable here, where an unrelated
+locally-installed package had been aborting the whole-environment scan.
+
+## CI
+
+Green on `productize/ironclad-compliance` as of run
+[33967567164](https://github.com/IronCityIT/ironclad-compliance/actions/runs/33967567164):
+Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Security gate ✅
 
 ## What is proven, and how
 
@@ -85,7 +92,8 @@ secret, never from user input.
 
 **Not proven — needs a GitHub runner:**
 
-The two workflows have never executed. Their YAML parses and the framework
+`ci.yml` runs green on this branch. The two *product* workflows have never
+executed. Their YAML parses and the framework
 choices are checked against the loader by a test, but no run has fetched
 evidence from GCS, called `consensus-engine`, or posted to the ingest function.
 The consensus contract fix is the highest-value untested path: it is the reason

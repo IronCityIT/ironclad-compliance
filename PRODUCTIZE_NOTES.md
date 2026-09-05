@@ -320,10 +320,16 @@ untested path — CI on the PR is the first time it executes for real.
 `ci.yml` originally had no security gate at all, despite `CLAUDE.md` listing one
 and the Jenkins pipeline running it. That was fixed rather than explained away:
 CI now audits the declared dependencies, runs static analysis, and fails on a
-credential-shaped literal or a tool name reaching a client-facing surface.
+credential-shaped literal or a tool name reaching a client-facing surface. All
+four are green.
 
-Three of those four run on the build machine and pass. `bandit` does not — it
-will not install into an externally-managed Python (PEP 668) — and it is **not**
-reported as green. A manual review stands in its place and is recorded in
-`STATUS.md`; it is not a substitute for the tool, and CI in a clean container is
-the first real result.
+Adding it earned its keep immediately. `bandit`'s first real run — it will not
+install on the build machine under PEP 668, so CI was the first place it ran —
+found that `scripts/store_results.py` handed an operator-supplied endpoint to
+`urllib.request.urlopen`, which honours `file://`. A mistyped or tampered
+endpoint would have read a local file and reported its contents back as an HTTP
+response. Rewriting the publish step onto `http.client`, which speaks only HTTP,
+removed the risk structurally rather than checking for it — and surfaced a second
+bug while it was open: the old code inferred success from "no exception raised",
+so a 204 or a 302 from a misconfigured ingest would have been recorded as a
+stored result.
