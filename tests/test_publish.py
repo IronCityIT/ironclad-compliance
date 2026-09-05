@@ -1,10 +1,10 @@
 """The publish step's endpoint guard.
 
-scripts/store_results.py opens an operator-supplied URL. urlopen honours file://
-and other schemes, so an endpoint that was mistyped — or tampered with upstream —
-could turn "publish a result" into "read a local file and report it as an HTTP
-response". These are the checks that stop that, and the reason the bandit B310
-finding was fixed rather than suppressed.
+scripts/store_results.py publishes to an operator-supplied URL. It uses
+http.client rather than urllib.request, so a file:// endpoint is structurally
+impossible rather than merely rejected — which is how the bandit B310 finding was
+resolved without a suppression. These tests cover the remaining scheme policy and
+the response handling.
 """
 
 from __future__ import annotations
@@ -50,61 +50,62 @@ class TestEndpointGuard:
         assert not ok
         assert "https" in message
 
+    def test_an_endpoint_with_no_host_is_refused(self, store_results: Any) -> None:
+        ok, message = store_results.post_result("https:///no-host", {"a": 1})
+        assert not ok
+        assert "no host" in message
+
     def test_loopback_http_is_allowed_for_the_emulator(
         self, store_results: Any, monkeypatch
     ) -> None:
-        opened: dict[str, Any] = {}
-
-        class FakeResponse:
-            status = 200
-
-            def read(self) -> bytes:
-                return b'{"status":"stored"}'
-
-            def __enter__(self) -> FakeResponse:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-        def fake_urlopen(request: Any, timeout: int = 0) -> FakeResponse:
-            opened["url"] = request.full_url
-            return FakeResponse()
-
-        monkeypatch.setattr(store_results.urllib.request, "urlopen", fake_urlopen)
-        ok, message = store_results.post_result("http://localhost:5001/ingest", {"a": 1})
+        captured = _capture(store_results, monkeypatch, status=200)
+        ok, _ = store_results.post_result("http://localhost:5001/ingest", {"a": 1})
         assert ok
-        assert opened["url"] == "http://localhost:5001/ingest"
+        assert captured["class"] == "HTTPConnection"
+        assert captured["host"] == "localhost"
+        assert captured["port"] == 5001
+        assert captured["path"] == "/ingest"
 
     def test_https_is_allowed_and_carries_the_ingest_key(
         self, store_results: Any, monkeypatch
     ) -> None:
-        captured: dict[str, Any] = {}
-
-        class FakeResponse:
-            status = 200
-
-            def read(self) -> bytes:
-                return b'{"status":"stored"}'
-
-            def __enter__(self) -> FakeResponse:
-                return self
-
-            def __exit__(self, *args: object) -> None:
-                return None
-
-        def fake_urlopen(request: Any, timeout: int = 0) -> FakeResponse:
-            captured["headers"] = dict(request.headers)
-            captured["body"] = json.loads(request.data)
-            return FakeResponse()
-
-        monkeypatch.setattr(store_results.urllib.request, "urlopen", fake_urlopen)
+        captured = _capture(store_results, monkeypatch, status=200)
         ok, _ = store_results.post_result(
-            "https://ingest.example.com/x", {"client_id": "acme"}, api_key="k" * 20
+            "https://ingest.example.com/x?v=1", {"client_id": "acme"}, api_key="k" * 20
         )
         assert ok
-        assert captured["body"]["client_id"] == "acme"
-        assert captured["headers"]["X-ingest-key"] == "k" * 20
+        assert captured["class"] == "HTTPSConnection"
+        assert captured["path"] == "/x?v=1"
+        assert captured["headers"]["X-Ingest-Key"] == "k" * 20
+        assert json.loads(captured["body"])["client_id"] == "acme"
+
+    def test_a_non_2xx_response_is_a_failure_carrying_the_upstream_words(
+        self, store_results: Any, monkeypatch
+    ) -> None:
+        # An ingest misconfiguration has to be diagnosable from the workflow log.
+        _capture(store_results, monkeypatch, status=404, payload=b'{"error":"not found"}')
+        ok, message = store_results.post_result("https://ingest.example.com/x", {"a": 1})
+        assert not ok
+        assert "404" in message
+        assert "not found" in message
+
+    def test_a_transport_failure_is_reported_not_raised(
+        self, store_results: Any, monkeypatch
+    ) -> None:
+        class Exploding:
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pass
+
+            def request(self, *args: object, **kwargs: object) -> None:
+                raise OSError("connection refused")
+
+            def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(store_results.http.client, "HTTPSConnection", Exploding)
+        ok, message = store_results.post_result("https://ingest.example.com/x", {"a": 1})
+        assert not ok
+        assert "connection refused" in message
 
 
 class TestResultDiscovery:
@@ -125,3 +126,40 @@ class TestResultDiscovery:
         (tmp_path / "broken.json").write_text("{ not json")
         (tmp_path / "good.json").write_text(json.dumps({"assessment_id": "found"}))
         assert store_results.find_result(tmp_path)["assessment_id"] == "found"
+
+
+def _capture(store_results: Any, monkeypatch: Any, status: int, payload: bytes = b"{}") -> dict:
+    """Stand in for the HTTP connection and record what would have been sent."""
+    captured: dict[str, Any] = {}
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.status = status
+
+        def read(self) -> bytes:
+            return payload
+
+    def make(name: str):  # type: ignore[no-untyped-def]
+        class FakeConnection:
+            def __init__(self, host: str, port: int | None = None, timeout: int = 0) -> None:
+                captured["class"] = name
+                captured["host"] = host
+                captured["port"] = port
+
+            def request(self, method: str, path: str, body: bytes, headers: dict) -> None:
+                captured["method"] = method
+                captured["path"] = path
+                captured["body"] = body
+                captured["headers"] = headers
+
+            def getresponse(self) -> FakeResponse:
+                return FakeResponse()
+
+            def close(self) -> None:
+                captured["closed"] = True
+
+        return FakeConnection
+
+    monkeypatch.setattr(store_results.http.client, "HTTPSConnection", make("HTTPSConnection"))
+    monkeypatch.setattr(store_results.http.client, "HTTPConnection", make("HTTPConnection"))
+    return captured

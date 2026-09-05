@@ -16,12 +16,11 @@ library or the bucket is not configured.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,10 +29,12 @@ from ironclad.ids import slugify  # noqa: E402
 
 TIMEOUT_SECONDS = 60
 
-# The endpoint is operator-supplied (a secret, or --endpoint). urlopen honours
-# file:// and other schemes, so an endpoint that was mistyped -- or tampered with
-# upstream -- could turn this from "publish a result" into "read a local file and
-# report it as an HTTP response". Only real network schemes are opened.
+# The endpoint is operator-supplied (a secret, or --endpoint). urllib's urlopen
+# honours file:// and every other scheme urllib understands, so a mistyped or
+# tampered endpoint could turn "publish a result" into "read a local file and
+# report it as an HTTP response". http.client speaks only HTTP, which makes that
+# structurally impossible rather than merely checked -- the scheme check below is
+# then about which of the two HTTP schemes is acceptable, not about safety.
 ALLOWED_SCHEMES = ("https", "http")
 
 
@@ -65,23 +66,39 @@ def post_result(endpoint: str, payload: dict, api_key: str = "") -> tuple[bool, 
         # ingest key, on the wire in clear.
         return False, "refusing to publish over plain http to a remote host; use https"
 
+    parsed = urllib.parse.urlparse(endpoint)
+    if not parsed.hostname:
+        return False, "the ingest endpoint has no host"
+
     body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(  # noqa: S310 — scheme checked above
-        endpoint,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": "ironclad-compliance/1.0"},
-    )
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "ironclad-compliance/1.0",
+        "Content-Length": str(len(body)),
+    }
     if api_key:
-        request.add_header("X-Ingest-Key", api_key)
+        headers["X-Ingest-Key"] = api_key
+
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    connection_class = (
+        http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+    )
+    connection = connection_class(parsed.hostname, parsed.port, timeout=TIMEOUT_SECONDS)
 
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
-            return True, f"HTTP {response.status}: {response.read().decode('utf-8')[:400]}"
-    except urllib.error.HTTPError as exc:
-        return False, f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:400]}"
+        connection.request("POST", path, body=body, headers=headers)
+        response = connection.getresponse()
+        detail = response.read().decode("utf-8", "replace")[:400]
+        # 2xx is stored; anything else is reported with the upstream's own words,
+        # which is what makes an ingest misconfiguration diagnosable from the log.
+        return 200 <= response.status < 300, f"HTTP {response.status}: {detail}"
     except Exception as exc:  # noqa: BLE001 — reported, never raised into the workflow log
         return False, f"{type(exc).__name__}: {exc}"
+    finally:
+        connection.close()
 
 
 def upload_reports(bucket_name: str, client_id: str, assessment_id: str, report_dir: Path) -> str:
