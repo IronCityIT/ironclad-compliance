@@ -1,0 +1,59 @@
+"""Identifier helpers.
+
+Every id the engine mints is deterministic and path-safe. Deterministic matters
+for two reasons: a re-run of the same assessment must address the same Firestore
+document rather than accumulating duplicates, and an auditor comparing two
+exports must see stable identifiers for the same object.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from datetime import datetime, timezone
+
+_SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+
+
+def slugify(value: str) -> str:
+    """Normalize free text into a stable, path-safe slug.
+
+    Matches the `toClientId` normalization in functions/index.js exactly, so a
+    tenant slug minted here addresses the same Firestore path the Cloud Function
+    writes to.
+    """
+    return _SLUG_STRIP.sub("-", str(value or "").strip().lower()).strip("-")
+
+
+def utc_now() -> datetime:
+    """Timezone-aware now. The engine never handles a naive datetime."""
+    return datetime.now(timezone.utc)
+
+
+def iso(moment: datetime) -> str:
+    """Serialize a datetime as UTC ISO-8601, normalizing any input offset."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).isoformat()
+
+
+def content_hash(*parts: str) -> str:
+    """Short stable digest over the given parts, for deterministic ids."""
+    digest = hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+    return digest[:16]
+
+
+def assessment_id(tenant_id: str, framework_id: str, started_at: datetime) -> str:
+    """`<tenant>-<framework>-<UTC timestamp>` — sortable and human-readable."""
+    stamp = started_at.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{slugify(tenant_id)}-{slugify(framework_id)}-{stamp}"
+
+
+def artifact_id(tenant_id: str, uri: str, sha256: str = "") -> str:
+    """Stable id for one evidence artifact.
+
+    Keyed on the checksum when the manifest supplies one, so the same file
+    re-submitted under a new path is recognised as the same evidence. Falls back
+    to the URI when no checksum was provided.
+    """
+    return "ev-" + content_hash(slugify(tenant_id), sha256 or uri.strip().lower())

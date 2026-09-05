@@ -1,0 +1,31 @@
+[project]
+name = "ironclad-compliance"
+version = "1.0.0"
+description = "Iron City compliance evidence engine: controls, evidence, crosswalks, remediation and audit."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+ironclad = "ironclad.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ironclad*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+files = ["ironclad", "scripts", "tests"]
