@@ -1,0 +1,20 @@
+{
+  "name": "ironclad-compliance-functions",
+  "description": "Ironclad Compliance Cloud Functions (assessment ingest, Auth0 bridge, dispatch)",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check index.js && node --check exchange.js && node --check trigger.js",
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "echo \"Deploy runs in .github/workflows/deploy-functions.yml\" && exit 1"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "jose": "^5.9.6"
+  }
+}

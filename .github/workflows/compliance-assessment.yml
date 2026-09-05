@@ -1,10 +1,18 @@
 name: Compliance Assessment
 
+# Runs one compliance assessment for one client against one framework.
+#
+# The AI analysis is not done here. Findings go to IronCityIT/consensus-engine
+# via workflow_call, which is the one place LLM logic lives across every ICIT
+# product. Its contract takes `findings_json` as BASE64 and returns exactly one
+# output, `consensus_b64` — the engine CLI writes the base64 payload for us and
+# decodes the response, so no step has to hand-roll either in shell.
+
 on:
   workflow_dispatch:
     inputs:
       client_id:
-        description: 'Client ID (required)'
+        description: 'Client identifier'
         required: true
         type: string
       framework:
@@ -17,7 +25,7 @@ on:
           - pci-dss
           - hipaa
       evidence_path:
-        description: 'GCS path to evidence (gs://bucket/path/)'
+        description: 'GCS path to the evidence (gs://bucket/client/)'
         required: true
         type: string
       assessment_type:
@@ -29,234 +37,243 @@ on:
           - gap-only
           - readiness
         default: full
+      group:
+        description: 'Capability group to run'
+        required: false
+        type: choice
+        options:
+          - deep
+          - standard
+          - quick
+        default: deep
+
+permissions:
+  contents: read
+
+concurrency:
+  # One assessment per client and framework at a time. Two concurrent runs would
+  # race on the same Firestore document and one would overwrite the other.
+  group: assessment-${{ inputs.client_id }}-${{ inputs.framework }}
+  cancel-in-progress: false
 
 jobs:
-  validate-inputs:
+  prepare:
+    name: Validate inputs and framework
     runs-on: ubuntu-latest
     outputs:
-      client_valid: ${{ steps.validate.outputs.client_valid }}
-      framework_file: ${{ steps.validate.outputs.framework_file }}
-    
+      assessment_id: ${{ steps.plan.outputs.assessment_id }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Validate inputs
-        id: validate
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate the client identifier
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
         run: |
-          # Validate client ID format
-          if [[ ! "${{ inputs.client_id }}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            echo "❌ Invalid client ID format"
+          set -euo pipefail
+          # Via env, never interpolated into the script body: a client id with
+          # shell metacharacters must not be able to execute here.
+          if ! printf '%s' "$CLIENT_ID" | grep -Eq '^[A-Za-z0-9 _-]{1,64}$'; then
+            echo "::error::client_id must be 1-64 characters of letters, digits, space, hyphen or underscore"
             exit 1
           fi
-          
-          # Map framework to file
-          case "${{ inputs.framework }}" in
-            soc2) framework_file="soc2-2017.json" ;;
-            nist-csf) framework_file="nist-csf-2.0.json" ;;
-            pci-dss) framework_file="pci-dss-4.0.json" ;;
-            hipaa) framework_file="hipaa.json" ;;
-            *) echo "❌ Unknown framework"; exit 1 ;;
-          esac
-          
-          if [ ! -f "frameworks/$framework_file" ]; then
-            echo "❌ Framework file not found: frameworks/$framework_file"
-            exit 1
-          fi
-          
-          echo "client_valid=true" >> $GITHUB_OUTPUT
-          echo "framework_file=$framework_file" >> $GITHUB_OUTPUT
 
-  fetch-evidence:
-    needs: validate-inputs
+      - name: Validate the framework definition
+        run: python -m ironclad.cli validate --framework "${{ inputs.framework }}"
+
+      - name: Plan the run
+        id: plan
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
+          FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          set -euo pipefail
+          slug=$(printf '%s' "$CLIENT_ID" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//')
+          echo "assessment_id=${slug}-${FRAMEWORK}-$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+
+  assess:
+    name: Assess controls
+    needs: prepare
     runs-on: ubuntu-latest
     outputs:
-      evidence_count: ${{ steps.fetch.outputs.evidence_count }}
-    
+      findings_b64: ${{ steps.assess.outputs.findings_b64 }}
+      readiness: ${{ steps.assess.outputs.readiness }}
     steps:
-      - name: Authenticate to GCP
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install evidence extraction support
+        # The engine core is stdlib-only. These are needed only to read binary
+        # evidence formats, so they are installed for this job alone.
+        run: pip install --quiet PyPDF2 python-docx openpyxl
+
+      - id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Fetch evidence from GCS
-        id: fetch
+      - name: Fetch the client evidence
+        env:
+          EVIDENCE_PATH: ${{ inputs.evidence_path }}
         run: |
+          set -euo pipefail
           mkdir -p evidence
-          gsutil -m cp -r "${{ inputs.evidence_path }}*" evidence/ || true
+          # No `|| true` here. A failed fetch used to leave an empty directory
+          # and the assessment reported every control as a gap, which reads as a
+          # catastrophic client result rather than a broken download.
+          gcloud storage cp --recursive "${EVIDENCE_PATH%/}/*" evidence/
           count=$(find evidence -type f | wc -l)
-          echo "evidence_count=$count" >> $GITHUB_OUTPUT
-          echo "📁 Downloaded $count evidence files"
+          echo "fetched $count evidence file(s)"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no evidence files were fetched from $EVIDENCE_PATH"
+            exit 1
+          fi
 
-      - name: Upload evidence artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-evidence
-          path: evidence/
-          retention-days: 7
-
-  assess-controls:
-    needs: [validate-inputs, fetch-evidence]
-    runs-on: ubuntu-latest
-    outputs:
-      findings_json: ${{ steps.assess.outputs.findings_json }}
-      assessment_id: ${{ steps.assess.outputs.assessment_id }}
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install PyPDF2 python-docx openpyxl
-
-      - name: Download evidence
-        uses: actions/download-artifact@v4
-        with:
-          name: client-evidence
-          path: evidence/
-
-      - name: Run control assessment
+      - name: Run the assessment
         id: assess
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
         run: |
-          assessment_id="${{ inputs.client_id }}-${{ inputs.framework }}-$(date +%Y%m%d%H%M%S)"
-          echo "assessment_id=$assessment_id" >> $GITHUB_OUTPUT
-          
-          python scripts/assess_controls.py \
-            --client-id "${{ inputs.client_id }}" \
-            --framework "frameworks/${{ needs.validate-inputs.outputs.framework_file }}" \
-            --evidence-dir "evidence/" \
+          set -euo pipefail
+          python -m ironclad.cli assess \
+            --client "$CLIENT_ID" \
+            --framework "${{ inputs.framework }}" \
+            --evidence-dir evidence/ \
+            --group "${{ inputs.group }}" \
             --assessment-type "${{ inputs.assessment_type }}" \
-            --output "results.json"
-          
-          # Output findings JSON for consensus engine
-          findings_json=$(cat results.json | jq -c '.findings')
-          echo "findings_json=$findings_json" >> $GITHUB_OUTPUT
+            --assessment-id "${{ needs.prepare.outputs.assessment_id }}" \
+            --out out/
 
-      - name: Upload initial assessment
+          # The consensus engine takes base64; the CLI already wrote it.
+          echo "findings_b64=$(cat out/findings.b64)" >> "$GITHUB_OUTPUT"
+          echo "readiness=$(jq -r '.summary.readiness_score' out/assessment.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the assessment
         uses: actions/upload-artifact@v4
         with:
-          name: initial-assessment
-          path: results.json
-          retention-days: 30
+          name: assessment
+          path: out/
+          retention-days: 90
 
-  # ═══════════════════════════════════════════════════════════════════════════
-  # CALL CENTRAL AI CONSENSUS ENGINE
-  # This is the key integration - we don't duplicate AI logic here
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ---------------------------------------------------------------------------
+  # Central AI consensus. One source of truth for LLM analysis; nothing here
+  # embeds or duplicates it.
+  # ---------------------------------------------------------------------------
   ai-consensus:
-    needs: assess-controls
+    name: AI consensus analysis
+    needs: assess
     uses: IronCityIT/consensus-engine/.github/workflows/analyze.yml@main
     with:
-      findings_json: ${{ needs.assess-controls.outputs.findings_json }}
-      product: 'ironclad-compliance'
+      findings_json: ${{ needs.assess.outputs.findings_b64 }}
+      product: ironclad-compliance
       client_id: ${{ inputs.client_id }}
+      # Regulated evidence: the result is stored through our own Firestore path,
+      # never posted to the legacy QNAP ingest API.
+      post_to_api: false
     secrets:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-  generate-report:
-    needs: [validate-inputs, assess-controls, ai-consensus]
+  report:
+    name: Report and publish
+    needs: [prepare, assess, ai-consensus]
+    # Runs even when the AI stage failed: the assessment itself is complete and
+    # withholding the client's report over missing optional commentary would be
+    # the wrong trade. The report states that commentary was unavailable.
+    if: always() && needs.assess.result == 'success'
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install jinja2 weasyprint
-
-      - name: Download initial assessment
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: initial-assessment
-          path: ./
+          name: assessment
+          path: out/
 
-      - name: Merge AI consensus into results
+      - name: Fold in the AI consensus
+        env:
+          CONSENSUS_B64: ${{ needs.ai-consensus.outputs.consensus_b64 }}
         run: |
-          # Get consensus results from the reusable workflow
-          CONSENSUS_SEVERITY="${{ needs.ai-consensus.outputs.consensus_severity }}"
-          CONFIDENCE="${{ needs.ai-consensus.outputs.confidence_percent }}"
-          
-          echo "AI Consensus: $CONSENSUS_SEVERITY ($CONFIDENCE% confidence)"
-          
-          # Merge consensus into results
-          jq --arg severity "$CONSENSUS_SEVERITY" \
-             --arg confidence "$CONFIDENCE" \
-             '. + {ai_consensus: {severity: $severity, confidence: $confidence}}' \
-             results.json > results_with_consensus.json
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, pathlib
+          from ironclad.cli import _StoredResult
+          from ironclad.engine import merge_consensus
 
-      - name: Generate PDF report
+          path = pathlib.Path("out/assessment.json")
+          document = json.loads(path.read_text())
+          result = _StoredResult(document)
+          consensus = merge_consensus(result, os.environ.get("CONSENSUS_B64", ""))
+          document["consensus"] = consensus
+          document.setdefault("warnings", []).extend(result.warnings)
+          path.write_text(json.dumps(document, indent=2) + "\n")
+          print("consensus status:", consensus.get("status"))
+          PY
+
+      - name: Render the report and the auditor package
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
         run: |
-          python scripts/generate_report.py \
-            --input results_with_consensus.json \
-            --template templates/assessment_report.html \
-            --output "reports/${{ needs.assess-controls.outputs.assessment_id }}.pdf" \
-            --client-id "${{ inputs.client_id }}" \
-            --framework "${{ inputs.framework }}"
+          set -euo pipefail
+          python -m ironclad.cli report \
+            --input out/assessment.json \
+            --out out/report.html \
+            --client-name "$CLIENT_ID"
+          python -m ironclad.cli export \
+            --input out/assessment.json \
+            --format package \
+            --out out/package/
 
-      - name: Upload report
+      - name: Validate the artifacts before publishing
+        run: python scripts/validate_artifacts.py out/assessment.json out/package/package.json
+
+      - name: Upload the deliverables
         uses: actions/upload-artifact@v4
         with:
           name: assessment-report
-          path: reports/*.pdf
+          path: |
+            out/report.html
+            out/package/
           retention-days: 90
 
-  store-results:
-    needs: [assess-controls, ai-consensus, generate-report]
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: pip install firebase-admin google-cloud-firestore google-cloud-storage
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Store in Firestore and GCS
-        run: |
-          python scripts/store_results.py \
-            --client-id "${{ inputs.client_id }}" \
-            --assessment-id "${{ needs.assess-controls.outputs.assessment_id }}" \
-            --results-dir "initial-assessment/" \
-            --report-dir "assessment-report/" \
-            --consensus-severity "${{ needs.ai-consensus.outputs.consensus_severity }}" \
-            --confidence "${{ needs.ai-consensus.outputs.confidence_percent }}"
+      - name: Publish the result
         env:
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          STORE_RESULTS_URL: ${{ secrets.STORE_RESULTS_URL }}
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
-
-      - name: Output summary
+          CLIENT_ID: ${{ inputs.client_id }}
         run: |
-          echo "## Assessment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Client:** ${{ inputs.client_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Framework:** ${{ inputs.framework }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Assessment ID:** ${{ needs.assess-controls.outputs.assessment_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "**AI Consensus:** ${{ needs.ai-consensus.outputs.consensus_severity }} (${{ needs.ai-consensus.outputs.confidence_percent }}% confidence)" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          python scripts/store_results.py \
+            --client-id "$CLIENT_ID" \
+            --assessment-id "${{ needs.prepare.outputs.assessment_id }}" \
+            --results-dir out/ \
+            --report-dir out/
+
+      - name: Summary
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
+        run: |
+          {
+            echo "## Compliance assessment complete"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Client | $CLIENT_ID |"
+            echo "| Framework | ${{ inputs.framework }} |"
+            echo "| Assessment | \`${{ needs.prepare.outputs.assessment_id }}\` |"
+            echo "| Readiness | ${{ needs.assess.outputs.readiness }}% |"
+            echo "| AI commentary | ${{ needs.ai-consensus.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

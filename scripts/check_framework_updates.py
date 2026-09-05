@@ -1,112 +1,48 @@
 #!/usr/bin/env python3
+"""Framework update checker — CLI wrapper.
+
+The logic lives in ironclad.frameworks.updates so it can be tested without a
+network. This keeps the flags the framework-updates workflow already passes.
 """
-Framework Update Checker
-Checks official sources for updates to compliance frameworks.
-"""
+
+from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
 
-import requests
-from bs4 import BeautifulSoup
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ironclad.frameworks.updates import STATE_FILE, check_all  # noqa: E402
 
 
-FRAMEWORK_SOURCES = {
-    "soc2": {
-        "name": "SOC 2 Trust Service Criteria",
-        "check_url": "https://www.aicpa.org/resources/landing/system-and-organization-controls-soc-suite-of-services",
-        "keywords": ["trust services criteria", "TSC"],
-        "current_version": "2017"
-    },
-    "nist-csf": {
-        "name": "NIST Cybersecurity Framework",
-        "check_url": "https://www.nist.gov/cyberframework",
-        "keywords": ["CSF 2.0", "cybersecurity framework"],
-        "current_version": "2.0"
-    },
-    "pci-dss": {
-        "name": "PCI Data Security Standard",
-        "check_url": "https://www.pcisecuritystandards.org/document_library/",
-        "keywords": ["PCI DSS", "4.0"],
-        "current_version": "4.0"
-    },
-    "hipaa": {
-        "name": "HIPAA Security Rule",
-        "check_url": "https://www.hhs.gov/hipaa/for-professionals/security/index.html",
-        "keywords": ["security rule"],
-        "current_version": "current"
-    }
-}
-
-
-def check_for_updates(framework_id: str, config: dict) -> dict:
-    """Check a framework's official page for update indicators."""
-    result = {
-        "framework_id": framework_id,
-        "name": config["name"],
-        "checked_at": datetime.now(timezone.utc).isoformat(),
-        "update_detected": False,
-        "details": None,
-        "error": None
-    }
-    
-    try:
-        headers = {"User-Agent": "IronClad-Compliance-Checker/1.0"}
-        response = requests.get(config["check_url"], headers=headers, timeout=30)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, "html.parser")
-        page_text = soup.get_text().lower()
-        
-        # Look for update indicators
-        update_phrases = ["new version", "updated", "revision", "latest"]
-        for phrase in update_phrases:
-            if phrase in page_text:
-                result["details"] = f"Found '{phrase}' - manual review recommended"
-                result["update_detected"] = True
-                break
-                
-    except Exception as e:
-        result["error"] = str(e)
-    
-    return result
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--framework", default="")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Check official sources for framework updates.")
+    parser.add_argument("--framework", default="", help="one framework, or '' / 'all' for every one")
     parser.add_argument("--output", default="updates.json")
-    args = parser.parse_args()
-    
-    # "" (the scheduled run passes no framework) and "all" both mean every
-    # framework. "all" exists because a workflow_dispatch choice option cannot
-    # be an empty string -- GitHub rejects the workflow file outright.
-    selected = args.framework if args.framework not in ("", "all") else ""
-    frameworks = {selected: FRAMEWORK_SOURCES[selected]} if selected else FRAMEWORK_SOURCES
-    
-    results = {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
-        "updates_found": False,
-        "frameworks": [],
-        "checks": []
-    }
-    
-    for fid, config in frameworks.items():
-        print(f"Checking {config['name']}...")
-        check = check_for_updates(fid, config)
-        results["checks"].append(check)
-        
-        if check.get("update_detected"):
-            results["updates_found"] = True
-            results["frameworks"].append(fid)
-    
-    with open(args.output, "w") as f:
-        json.dump(results, f, indent=2)
-    
-    print(f"Results: {args.output}")
+    parser.add_argument(
+        "--state",
+        default=str(Path("frameworks") / STATE_FILE),
+        help="fingerprint state file, used to detect a change between runs",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        report = check_all(args.framework, state_path=Path(args.state))
+    except KeyError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    Path(args.output).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+    for check in report["checks"]:
+        marker = "!" if check["update_detected"] else ("?" if check["status"] == "unchecked" else "-")
+        print(f" {marker} {check['name']}: {check['status']} — {check['detail'] or check['error']}")
+
+    print(f"\nresults written to {args.output}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

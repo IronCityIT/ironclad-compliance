@@ -1,85 +1,172 @@
 #!/usr/bin/env python3
-"""Store results in Firestore and upload reports to GCS."""
+"""Publish an assessment result.
+
+The ICIT standard sink is the storeAssessmentResults Cloud Function, which owns
+the Firestore write. The original script wrote Firestore directly from the
+workflow, which meant the runner needed Firestore credentials and the multi-tenant
+partitioning rule existed in two places. Posting to the function instead leaves
+one writer and one place where `clients/{client_id}/assessments/{assessment_id}`
+is decided.
+
+The POST uses stdlib urllib, so this step needs no google-cloud packages. Report
+upload to GCS stays optional and is skipped with a message when the client
+library or the bucket is not configured.
+"""
+
+from __future__ import annotations
 
 import argparse
 import json
 import os
-from datetime import datetime, timezone
+import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-from google.cloud import firestore
-from google.cloud import storage
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ironclad.ids import slugify  # noqa: E402
+
+TIMEOUT_SECONDS = 60
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def find_result(results_dir: Path) -> dict | None:
+    """The assessment document in a directory, preferring the canonical name."""
+    candidates = [results_dir / "assessment.json", *sorted(results_dir.glob("*.json"))]
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(document, dict) and "assessment_id" in document:
+            return document
+    return None
+
+
+def post_result(endpoint: str, payload: dict, api_key: str = "") -> tuple[bool, str]:
+    """POST the record to the ingest function. Returns (ok, message)."""
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(  # noqa: S310 — endpoint is an operator-supplied https URL
+        endpoint,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "ironclad-compliance/1.0"},
+    )
+    if api_key:
+        request.add_header("X-Ingest-Key", api_key)
+
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
+            return True, f"HTTP {response.status}: {response.read().decode('utf-8')[:400]}"
+    except urllib.error.HTTPError as exc:
+        return False, f"HTTP {exc.code}: {exc.read().decode('utf-8', 'replace')[:400]}"
+    except Exception as exc:  # noqa: BLE001 — reported, never raised into the workflow log
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def upload_reports(bucket_name: str, client_id: str, assessment_id: str, report_dir: Path) -> str:
+    """Upload the rendered reports to GCS. Returns the base URI, or ''."""
+    try:
+        from google.cloud import storage  # noqa: PLC0415 — optional dependency
+    except ImportError:
+        print("  report upload skipped: google-cloud-storage is not installed")
+        return ""
+
+    files = [p for p in report_dir.rglob("*") if p.suffix.lower() in (".pdf", ".html")]
+    if not files:
+        print("  report upload skipped: no report files found")
+        return ""
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    prefix = f"reports/{client_id}/{assessment_id}"
+    for path in files:
+        blob = bucket.blob(f"{prefix}/{path.name}")
+        blob.upload_from_filename(str(path))
+        print(f"  uploaded gs://{bucket_name}/{prefix}/{path.name}")
+    return f"gs://{bucket_name}/{prefix}/"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Publish an assessment result.")
     parser.add_argument("--client-id", required=True)
-    parser.add_argument("--assessment-id", required=True)
+    parser.add_argument("--assessment-id", default="")
     parser.add_argument("--results-dir", required=True)
-    parser.add_argument("--report-dir", required=True)
-    parser.add_argument("--consensus-severity", default="PENDING")
-    parser.add_argument("--confidence", default="0")
-    args = parser.parse_args()
-    
-    project_id = os.environ.get("FIREBASE_PROJECT_ID")
-    bucket_name = os.environ.get("GCS_BUCKET")
-    
-    if not project_id or not bucket_name:
-        print("❌ Missing FIREBASE_PROJECT_ID or GCS_BUCKET")
-        return
-    
-    # Upload PDF to GCS
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(bucket_name)
-    report_url = ""
-    
-    report_dir = Path(args.report_dir)
-    for pdf in report_dir.glob("*.pdf"):
-        blob = bucket.blob(f"reports/{args.client_id}/{args.assessment_id}.pdf")
-        blob.upload_from_filename(str(pdf))
-        report_url = f"gs://{bucket_name}/reports/{args.client_id}/{args.assessment_id}.pdf"
-        print(f"📤 Uploaded: {report_url}")
-    
-    # Load results
+    parser.add_argument("--report-dir", default="")
+    parser.add_argument(
+        "--endpoint",
+        default=os.environ.get("STORE_RESULTS_URL", ""),
+        help="storeAssessmentResults URL (or set STORE_RESULTS_URL)",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="print the record, post nothing")
+    args = parser.parse_args(argv)
+
+    client_id = slugify(args.client_id)
     results_dir = Path(args.results_dir)
-    results = {}
-    for f in results_dir.glob("*.json"):
-        with open(f) as fp:
-            results = json.load(fp)
-        break
-    
-    # Store in Firestore
-    db = firestore.Client(project=project_id)
-    
-    assessment_ref = db.collection("clients").document(args.client_id)\
-        .collection("assessments").document(args.assessment_id)
-    
-    assessment_ref.set({
-        "assessment_id": args.assessment_id,
-        "client_id": args.client_id,
-        "framework": results.get("framework", {}),
-        "timestamp": datetime.now(timezone.utc),
-        "preliminary_summary": results.get("preliminary_summary", {}),
-        "ai_consensus": {
-            "severity": args.consensus_severity,
-            "confidence": float(args.confidence)
-        },
+
+    document = find_result(results_dir)
+    if document is None:
+        print(f"no assessment document found in {results_dir}", file=sys.stderr)
+        return 2
+
+    assessment_id = args.assessment_id or document.get("assessment_id", "")
+    if not assessment_id:
+        print("no assessment id, in the arguments or the document", file=sys.stderr)
+        return 2
+
+    report_url = ""
+    bucket = os.environ.get("GCS_BUCKET", "")
+    if args.report_dir and bucket:
+        report_dir = Path(args.report_dir)
+        if report_dir.is_dir():
+            report_url = upload_reports(bucket, client_id, assessment_id, report_dir)
+    elif args.report_dir:
+        print("  report upload skipped: GCS_BUCKET is not set")
+
+    record = {
+        "client_id": client_id,
+        "assessment_id": assessment_id,
+        # scan_id keeps the field name the shared ingest surface already uses, so
+        # one Cloud Function shape serves the scanning products and this one.
+        "scan_id": assessment_id,
+        "scan_type": "compliance-assessment",
+        "product": "ironclad-compliance",
+        "status": "completed",
+        "framework": document.get("framework", {}),
+        "summary": document.get("summary", {}),
+        "controls": document.get("controls", []),
+        "findings": document.get("findings", []),
+        "remediation": document.get("remediation", {}),
+        "consensus": document.get("consensus"),
+        "warnings": document.get("warnings", []),
+        "failed_modules": document.get("failed_modules", {}),
+        "audit": document.get("audit", {}),
         "report_url": report_url,
-        "status": "complete"
-    })
-    
-    print(f"✅ Stored assessment: {args.assessment_id}")
-    
-    # Update client's latest
-    client_ref = db.collection("clients").document(args.client_id)
-    client_ref.set({
-        "latest_assessment": args.assessment_id,
-        "latest_assessment_date": datetime.now(timezone.utc),
-        "latest_consensus": args.consensus_severity
-    }, merge=True)
-    
-    print(f"✅ Updated client record: {args.client_id}")
+        "engine_version": document.get("engine_version", ""),
+    }
+
+    if args.dry_run or not args.endpoint:
+        if not args.endpoint and not args.dry_run:
+            print("no --endpoint and no STORE_RESULTS_URL: printing the record instead of posting")
+        print(json.dumps({k: v for k, v in record.items() if k != "controls"}, indent=2)[:4000])
+        return 0
+
+    ok, message = post_result(args.endpoint, record, os.environ.get("INGEST_API_KEY", ""))
+    print(f"  store: {message}")
+    if not ok:
+        print("failed to store the assessment result", file=sys.stderr)
+        return 1
+
+    summary = record["summary"]
+    print(
+        f"stored {assessment_id} for {client_id}: "
+        f"readiness {summary.get('readiness_score', '?')}%, "
+        f"{summary.get('gap', '?')} control(s) not met"
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
