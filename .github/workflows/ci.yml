@@ -75,3 +75,50 @@ jobs:
             junit.xml
             coverage.xml
           retention-days: 14
+
+  security:
+    name: Security gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the security tooling
+        run: pip install --quiet pip-audit bandit
+
+      - name: Audit the declared dependencies
+        # Audits what this repository declares, not whatever else happens to be
+        # installed on the runner. A vulnerable dependency fails the gate.
+        run: pip-audit --strict --desc --requirement requirements.txt --requirement requirements-dev.txt
+
+      - name: Static security analysis
+        run: bandit --quiet --recursive ironclad scripts tools
+
+      - name: Check for committed secrets
+        # Named secrets only, never values. A literal that looks like a
+        # credential is a hard failure, not a warning.
+        run: |
+          set -euo pipefail
+          pattern='(api[_-]?key|secret|token|password|passwd|credential)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9_/+=-]{12,}'
+          if grep -rEn "$pattern" \
+               --include='*.py' --include='*.js' --include='*.yml' \
+               --include='*.json' --include='Jenkinsfile' . ; then
+            echo "::error::a hardcoded credential literal is present"
+            exit 1
+          fi
+          echo "no hardcoded credential literals"
+
+      - name: Check the white-label rule
+        # No underlying tool or model vendor may be named on a client-facing
+        # surface: the report, the dashboard, or the capability catalog.
+        run: |
+          set -euo pipefail
+          surfaces="ironclad/report/render.py dashboard/public/index.html dashboard/public/app.js dashboard/public/catalog.json"
+          if grep -inE 'zap|nuclei|wazuh|prowler|puppeteer|openai|anthropic|groq|gemini' $surfaces ; then
+            echo "::error::an underlying tool is named on a client-facing surface"
+            exit 1
+          fi
+          echo "no tool names on any client-facing surface"
