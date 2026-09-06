@@ -11,6 +11,11 @@ Three audiences, three shapes:
 The evidence package deliberately exports references and checksums, never the
 evidence bytes. The artifacts stay in the tenant's own storage; the package is
 the index that proves which artifact supported which control at what time.
+
+The report inside the package is the deliverable as issued, so an assessment run
+as a gap analysis carries a gap analysis. The CSVs are always complete: the
+package is an audit artifact, and an auditor asking why a control was judged met
+must not be handed a file that omitted it.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ironclad.ids import iso, utc_now
+from ironclad.report.views import view_for
 from ironclad.version import __version__
 
 EXPORT_FORMATS = ("json", "csv", "package")
@@ -212,25 +218,34 @@ def export_audit_package(result: Any, evidence: Any, destination: Path) -> list[
         "tenant_id": assessment.tenant_id,
         "framework": assessment.framework.to_dict(),
         "readiness_score": assessment.summary.readiness_score,
+        "assessment_type": assessment.assessment_type,
+        "report_view": view_for(assessment.assessment_type).to_dict(),
         "audit_chain_head": result.audit.head,
         "audit_chain_verified": result.audit.is_valid(),
         "files": sorted(p.name for p in written) + ["package.json"],
     }
     write("package.json", json.dumps(manifest, indent=2) + "\n")
 
+    view_name = view_for(assessment.assessment_type).name
     write(
         "README.txt",
         f"""Compliance evidence package
 {assessment.framework.name} ({assessment.framework.version})
 Assessment {assessment.assessment_id} — generated {iso(utc_now())}
 
-  report.html           the readiness report as issued
+  report.html           the deliverable as issued ({view_name})
   assessment.json       the complete machine-readable result
   control-register.csv  one row per control, with its position and rationale
   remediation-plan.csv  outstanding work, in priority order, with target dates
   evidence-index.csv    which evidence item supported which control, and how
   audit-trail.csv       the hash-chained record of this assessment
   package.json          package manifest, including the audit chain head
+
+THE CSV FILES ARE COMPLETE
+report.html is the deliverable as issued and may be abridged — a gap analysis
+lists only the controls with outstanding work. The CSV files below are never
+abridged: control-register.csv carries every control that was assessed, whatever
+the report shows.
 
 WHAT THIS PACKAGE DOES NOT CONTAIN
 The evidence files themselves. evidence-index.csv references each item by its

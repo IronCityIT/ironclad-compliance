@@ -14,7 +14,11 @@ from typing import Any
 from ironclad.frameworks.loader import FRAMEWORK_ALIASES
 from ironclad.ids import slugify
 
-ASSESSMENT_TYPES = ("full", "gap-only", "readiness")
+# An assessment type is only meaningful because a report view implements it, so
+# the views module is where the list lives; re-exported here for callers that
+# validate requests without rendering anything.
+from ironclad.report.views import ASSESSMENT_TYPES
+
 MAX_JUSTIFICATION = 4000
 
 

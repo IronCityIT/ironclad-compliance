@@ -17,6 +17,7 @@ from typing import Any
 from ironclad.ids import utc_now
 from ironclad.model.assessment import ControlStatus
 from ironclad.model.remediation import RemediationPlan
+from ironclad.report.views import ReportView, view_for
 from ironclad.version import __version__
 
 BRAND = "Iron City IT Advisors"
@@ -105,7 +106,7 @@ def _score_cards(summary: Any) -> str:
     )
 
 
-def _control_rows(assessment: Any) -> str:
+def _control_rows(assessment: Any, view: ReportView) -> str:
     order = {
         s.value: n
         for n, s in enumerate(
@@ -120,7 +121,8 @@ def _control_rows(assessment: Any) -> str:
         )
     }
     rows = []
-    for item in sorted(assessment.controls, key=lambda c: (order[str(c.status)], c.control_id)):
+    shown = view.register_for(assessment.controls)
+    for item in sorted(shown, key=lambda c: (order[str(c.status)], c.control_id)):
         coverage = f"{item.points_covered}/{item.points_total}" if item.points_total else "—"
         notes = "".join(f'<div class="note">{escape(n)}</div>' for n in item.notes)
         rows.append(
@@ -147,6 +149,7 @@ def _remediation_rows(plan: RemediationPlan) -> str:
             f"<td>{escape(item.control_name)}"
             f'<div class="note">{escape(item.guidance)}</div></td>'
             f"<td>{_pill(str(item.severity), str(item.severity).title())}</td>"
+            f"<td>{escape(item.owner or '—')}</td>"
             f"<td>{escape(due)}</td>"
             f"<td>{escape(required)}</td>"
             "</tr>"
@@ -182,12 +185,18 @@ def _crosswalk_section(module_output: dict[str, Any]) -> str:
     """
 
 
-def render_html(result: Any, client_name: str = "") -> str:
-    """Render the assessment as a self-contained HTML document."""
+def render_html(result: Any, client_name: str = "", view: ReportView | None = None) -> str:
+    """Render the assessment as a self-contained HTML document.
+
+    The view comes from the assessment type unless one is passed explicitly. An
+    abridged view always states what it left out — a gap analysis that silently
+    omits the passing controls is indistinguishable from a catastrophic result.
+    """
     assessment = result.assessment
     summary = assessment.summary
     framework = assessment.framework
     client = client_name or assessment.tenant_id
+    view = view or view_for(assessment.assessment_type)
 
     consensus = assessment.consensus or {}
     consensus_block = ""
@@ -228,6 +237,46 @@ def render_html(result: Any, client_name: str = "") -> str:
           control at audit, and was not counted toward any control below.
         </div>"""
 
+    omission_block = ""
+    if view.omission_note:
+        omission_block = f"""
+        <div class="callout">
+          <strong>What this report covers</strong> — {escape(view.omission_note)}
+        </div>"""
+
+    remediation_block = ""
+    if view.show_remediation:
+        remediation_block = f"""
+        <h2>Remediation plan</h2>
+        <p>{len(result.plan)} item(s), ordered by risk. Target dates are derived
+           from severity.</p>
+        <table>
+          <thead><tr><th>Control</th><th>Action</th><th>Severity</th><th>Owner</th>
+          <th>Target date</th><th>Evidence required</th></tr></thead>
+          <tbody>{_remediation_rows(result.plan)}</tbody>
+        </table>
+        """
+
+    register_block = ""
+    if view.show_register:
+        shown = len(view.register_for(assessment.controls))
+        scope = (
+            f"{shown} of {summary.total_controls} controls"
+            if shown != summary.total_controls
+            else f"All {summary.total_controls} controls"
+        )
+        register_block = f"""
+        <h2>Control register</h2>
+        <p>{scope}, most severe first.</p>
+        <table>
+          <thead><tr><th>Control</th><th>Criterion</th><th>Position</th>
+          <th>Points evidenced</th><th>Evidence items</th></tr></thead>
+          <tbody>{_control_rows(assessment, view)}</tbody>
+        </table>
+        """
+
+    crosswalk_block = _crosswalk_section(result.module_output) if view.show_crosswalk else ""
+
     generated = utc_now().strftime("%d %B %Y")
 
     return f"""<!DOCTYPE html>
@@ -241,7 +290,7 @@ def render_html(result: Any, client_name: str = "") -> str:
 <body>
 <header>
   <h1>{escape(framework.name)}</h1>
-  <div class="sub">Compliance readiness assessment</div>
+  <div class="sub">{escape(view.title)}</div>
   <div class="meta">
     {escape(client)} &nbsp;·&nbsp; {escape(framework.version)} &nbsp;·&nbsp;
     {escape(generated)} &nbsp;·&nbsp; Reference {escape(assessment.assessment_id)}
@@ -252,26 +301,13 @@ def render_html(result: Any, client_name: str = "") -> str:
 <p>{summary.total_controls} controls were assessed against {escape(framework.name)}
    ({escape(framework.version)}) using {summary.evidence_artifacts} items of evidence.</p>
 <div class="scores">{_score_cards(summary)}</div>
+{omission_block}
 {stale_block}
 {consensus_block}
 {warning_block}
-
-<h2>Remediation plan</h2>
-<p>{len(result.plan)} item(s), ordered by risk. Target dates are derived from severity.</p>
-<table>
-  <thead><tr><th>Control</th><th>Action</th><th>Severity</th><th>Target date</th>
-  <th>Evidence required</th></tr></thead>
-  <tbody>{_remediation_rows(result.plan)}</tbody>
-</table>
-
-{_crosswalk_section(result.module_output)}
-
-<h2>Control register</h2>
-<table>
-  <thead><tr><th>Control</th><th>Criterion</th><th>Position</th>
-  <th>Points evidenced</th><th>Evidence items</th></tr></thead>
-  <tbody>{_control_rows(assessment)}</tbody>
-</table>
+{remediation_block}
+{crosswalk_block}
+{register_block}
 
 <footer>
   {escape(PRODUCT)} &nbsp;·&nbsp; {escape(BRAND)} &nbsp;·&nbsp; engine {escape(__version__)}<br>

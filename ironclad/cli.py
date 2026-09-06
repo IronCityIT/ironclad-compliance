@@ -44,6 +44,7 @@ from ironclad.report.export import (
     export_remediation_csv,
 )
 from ironclad.report.render import render_html
+from ironclad.report.views import ASSESSMENT_TYPES, DEFAULT_VIEW, view_for
 from ironclad.version import __version__
 
 EXIT_OK = 0
@@ -75,7 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--modules", help="comma list of capabilities to run")
     selection.add_argument("--group", help="named group: quick | standard | deep")
     assess.add_argument(
-        "--assessment-type", default="full", choices=("full", "gap-only", "readiness")
+        "--assessment-type",
+        default=DEFAULT_VIEW,
+        choices=ASSESSMENT_TYPES,
+        help="which deliverable to issue; the assessment itself is always complete",
     )
     assess.add_argument("--assessment-id", default="", help="override the generated id")
     assess.add_argument(
@@ -93,6 +97,15 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--input", required=True, help="assessment.json from a previous run")
     report.add_argument("--out", required=True, help="path to write the report to")
     report.add_argument("--client-name", default="", help="display name for the client")
+    report.add_argument(
+        "--view",
+        default="",
+        choices=("", *ASSESSMENT_TYPES),
+        help=(
+            "re-issue the stored assessment as a different deliverable; "
+            "defaults to the type the assessment was run as"
+        ),
+    )
 
     export = sub.add_parser("export", help="export a stored result")
     export.add_argument("--input", required=True)
@@ -248,7 +261,10 @@ def cmd_report(args: argparse.Namespace) -> int:
     result = _StoredResult(json.loads(Path(args.input).read_text(encoding="utf-8")))
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_html(result, args.client_name), encoding="utf-8")
+    # A stored result carries the type it was run as; --view re-issues the same
+    # assessment as a different deliverable without re-running anything.
+    view = view_for(args.view) if args.view else None
+    output.write_text(render_html(result, args.client_name, view=view), encoding="utf-8")
     print(f"report written: {output}", file=sys.stderr)
     return EXIT_OK
 

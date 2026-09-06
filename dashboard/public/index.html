@@ -124,11 +124,7 @@
           <input name="evidence_path" placeholder="gs://bucket/your-client/" required>
         </label>
         <label class="field">Assessment type
-          <select name="assessment_type">
-            <option value="full">Full</option>
-            <option value="gap-only">Gaps only</option>
-            <option value="readiness">Readiness</option>
-          </select>
+          <select name="assessment_type" id="assessment-type-select"></select>
         </label>
       </div>
 
@@ -188,6 +184,7 @@
   document.getElementById("capability-list").innerHTML = parts.modules;
   document.getElementById("group-presets").innerHTML = parts.groups;
   document.getElementById("framework-select").innerHTML = parts.frameworks;
+  document.getElementById("assessment-type-select").innerHTML = parts.assessmentTypes;
 
   // Placeholders survive when the deploy step has not run. Say so plainly
   // rather than failing with a console error nobody sees.

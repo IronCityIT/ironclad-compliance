@@ -22,6 +22,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from ironclad import registry  # noqa: E402
 from ironclad.frameworks.loader import available_frameworks  # noqa: E402
+from ironclad.report.views import catalog as view_catalog  # noqa: E402
 from ironclad.version import __version__  # noqa: E402
 
 OUTPUT = REPO_ROOT / "dashboard" / "public" / "catalog.json"
@@ -36,7 +37,7 @@ def build() -> dict:
         "groups": sorted(registry.all_groups(reg)),
         "default_group": registry.DEFAULT_GROUP,
         "frameworks": available_frameworks(),
-        "assessment_types": ["full", "gap-only", "readiness"],
+        "assessment_types": view_catalog(),
     }
 
 

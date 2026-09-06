@@ -122,8 +122,37 @@
     }
   ],
   "assessment_types": [
-    "full",
-    "gap-only",
-    "readiness"
+    {
+      "name": "full",
+      "title": "Compliance readiness assessment",
+      "description": "Every control, the remediation plan and the framework crosswalk.",
+      "shows_register": true,
+      "register_statuses": null,
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    },
+    {
+      "name": "gap-only",
+      "title": "Compliance gap analysis",
+      "description": "Only the controls with outstanding work, plus the remediation plan.",
+      "shows_register": true,
+      "register_statuses": [
+        "gap",
+        "partial",
+        "pending",
+        "accepted_risk"
+      ],
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    },
+    {
+      "name": "readiness",
+      "title": "Compliance readiness summary",
+      "description": "The overall position and the work outstanding, without the register.",
+      "shows_register": false,
+      "register_statuses": null,
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    }
   ]
 }

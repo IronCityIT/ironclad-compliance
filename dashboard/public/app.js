@@ -56,7 +56,19 @@ export function renderCatalog(catalog) {
     )
     .join("");
 
-  return { modules, groups, frameworks };
+  // The assessment type changes what the issued report shows, never what is
+  // assessed, so each option carries the engine's own description of its
+  // deliverable rather than a label the dashboard invented.
+  const assessmentTypes = (catalog.assessment_types || [])
+    .map(
+      (t) =>
+        `<option value="${escapeHtml(t.name)}" title="${escapeHtml(t.description)}">${escapeHtml(
+          t.title
+        )} — ${escapeHtml(t.description)}</option>`
+    )
+    .join("");
+
+  return { modules, groups, frameworks, assessmentTypes };
 }
 
 /**

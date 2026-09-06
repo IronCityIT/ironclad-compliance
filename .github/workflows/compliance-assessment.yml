@@ -29,7 +29,7 @@ on:
         required: true
         type: string
       assessment_type:
-        description: 'Type of assessment'
+        description: 'Which deliverable to issue (everything is always assessed)'
         required: false
         type: choice
         options:

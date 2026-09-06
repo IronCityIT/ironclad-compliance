@@ -76,7 +76,34 @@ ironclad export --input out/assessment.json --format package --out out/package/
 |---|---|
 | `assessment.json` | the complete machine record |
 | `findings.b64` | base64 findings, the shape `consensus-engine` takes |
-| `report.html` | the client-facing readiness report |
+| `report.html` | the client-facing deliverable |
+
+## What gets issued
+
+`--assessment-type` chooses the deliverable. It never changes what is assessed:
+every control is judged and the whole record is stored whichever type you pick,
+because you cannot know which controls are gaps without judging them all, and
+the readiness score is only reproducible from the complete register.
+
+| Type | The report contains |
+|---|---|
+| `full` | every control, the remediation plan, the framework crosswalk |
+| `gap-only` | only the controls with outstanding work, plus the plan |
+| `readiness` | the position and the outstanding work, no control register |
+
+An abridged report states what it left out, in the report. A gap analysis that
+silently drops the passing controls is indistinguishable from a catastrophic
+result. Accepted risks stay in a gap analysis — the control is still not met,
+and the reader needs to see that somebody decided it.
+
+`ironclad report --input assessment.json --view gap-only` re-issues a stored
+assessment as a different deliverable without re-running anything. The auditor
+package's CSVs are never abridged: the report inside it is the deliverable as
+issued, but `control-register.csv` always carries every control.
+
+The three types are defined once, in `ironclad/report/views.py`. The CLI's
+choices, the service API's validation and the dashboard's dropdown all derive
+from it.
 
 Reading PDF, DOCX or XLSX evidence needs `pip install PyPDF2 python-docx openpyxl`.
 Without them those items are catalogued and reported as unreadable rather than
