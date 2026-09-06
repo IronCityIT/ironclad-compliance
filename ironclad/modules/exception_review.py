@@ -28,7 +28,10 @@ class ExceptionReview(AssessmentModule):
     name = "exception_review"
     description = "Apply approved risk acceptances and reopen any that have lapsed."
     groups = ("standard", "deep")
-    requires = ("control_mapping",)
+    # After scope_review: a control the client has scoped out must not then
+    # have a risk acceptance applied to it, which would put it back into the
+    # denominator as accepted_risk.
+    requires = ("control_mapping", "scope_review")
 
     def run(self, ctx: AssessmentContext) -> ModuleResult:
         findings: list[Finding] = []
@@ -76,6 +79,13 @@ class ExceptionReview(AssessmentModule):
                 continue
 
             if not item.is_active(ctx.as_of):
+                continue
+
+            if verdict.status is ControlStatus.NOT_APPLICABLE:
+                ctx.warn(
+                    f"risk acceptance {item.exception_id} covers {item.control_id}, which is "
+                    f"also scoped out; the scope exclusion takes precedence"
+                )
                 continue
 
             if verdict.status in (ControlStatus.GAP, ControlStatus.PARTIAL):

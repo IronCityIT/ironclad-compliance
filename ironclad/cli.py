@@ -36,6 +36,7 @@ from ironclad.frameworks.loader import (
 )
 from ironclad.ids import slugify
 from ironclad.ingest import collect_from_directory, validate_manifest
+from ironclad.policy import find_policy, load_policy, validate_policy
 from ironclad.report.export import (
     export_audit_package,
     export_control_register_csv,
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate", help="validate a framework and/or an evidence manifest")
     validate.add_argument("--framework", help="framework alias or path to validate")
     validate.add_argument("--manifest", help="path to an evidence manifest to validate")
+    validate.add_argument("--policy", help="path to a tenant policy to validate")
 
     assess = sub.add_parser("assess", help="run an assessment")
     assess.add_argument("--client", required=True, help="client identifier (multi-tenant)")
@@ -76,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--assessment-type", default="full", choices=("full", "gap-only", "readiness")
     )
     assess.add_argument("--assessment-id", default="", help="override the generated id")
+    assess.add_argument(
+        "--policy",
+        default="",
+        help="tenant policy: scope exclusions, risk acceptances, control owners. "
+        "Defaults to policy.json inside --evidence-dir when one is present.",
+    )
     assess.add_argument(
         "--consensus-b64", default="", help="base64 consensus output to fold into the result"
     )
@@ -138,8 +146,27 @@ def cmd_validate(args: argparse.Namespace) -> int:
             document = json.loads(manifest_path.read_text(encoding="utf-8"))
             problems["manifest"] = validate_manifest(document)
 
+    if args.policy:
+        policy_path = Path(args.policy)
+        if not policy_path.exists():
+            problems["policy"] = [f"{policy_path} does not exist"]
+        else:
+            document = json.loads(policy_path.read_text(encoding="utf-8"))
+            faults = validate_policy(document)
+            if not faults:
+                # Structural validity is not enough: an acceptance can still be
+                # one the approval workflow refuses, such as a self-approval.
+                try:
+                    load_policy(policy_path)
+                except ValidationError as exc:
+                    faults = exc.errors or [str(exc)]
+            problems["policy"] = faults
+
     if not problems:
-        print("nothing to validate: pass --framework and/or --manifest", file=sys.stderr)
+        print(
+            "nothing to validate: pass --framework, --manifest and/or --policy",
+            file=sys.stderr,
+        )
         return EXIT_BAD_INPUT
 
     ok = all(not errors for errors in problems.values())
@@ -156,10 +183,25 @@ def cmd_assess(args: argparse.Namespace) -> int:
 
     evidence, ingest_warnings = collect_from_directory(tenant, evidence_dir, args.framework)
 
+    # An explicit --policy must exist; one discovered beside the evidence is a
+    # convenience, and its absence is not an error.
+    policy = None
+    policy_path: Path | None = None
+    if args.policy:
+        policy_path = Path(args.policy)
+        if not policy_path.exists():
+            print(f"tenant policy not found: {policy_path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+    else:
+        policy_path = find_policy(evidence_dir)
+    if policy_path is not None:
+        policy = load_policy(policy_path, expected_tenant=tenant)
+
     result = run_assessment(
         tenant_id=tenant,
         framework=args.framework,
         evidence=evidence,
+        policy=policy,
         modules=[m.strip() for m in args.modules.split(",")] if args.modules else None,
         group=args.group,
         crosswalk=load_crosswalks(),
@@ -187,6 +229,13 @@ def cmd_assess(args: argparse.Namespace) -> int:
         f"{len(result.plan)} remediation item(s)",
         file=sys.stderr,
     )
+    if policy is not None:
+        print(
+            f"  policy: {policy_path} "
+            f"({len(policy.exclusions)} scope exclusion(s), "
+            f"{len(policy.exceptions)} risk acceptance(s))",
+            file=sys.stderr,
+        )
     for warning in result.warnings:
         print(f"  warning: {warning}", file=sys.stderr)
     for name, detail in result.failed_modules.items():

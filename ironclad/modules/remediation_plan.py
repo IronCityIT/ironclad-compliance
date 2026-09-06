@@ -59,6 +59,9 @@ class RemediationPlanning(AssessmentModule):
                 missing_evidence=missing,
                 now=ctx.as_of,
             )
+            # An unowned action item is a report line; an owned one is work.
+            if ctx.policy is not None:
+                item.owner = ctx.policy.owner_for(verdict.control_id)
             plan.add(item)
 
             findings.append(
@@ -75,6 +78,7 @@ class RemediationPlanning(AssessmentModule):
                         "item_id": item.item_id,
                         "control_id": verdict.control_id,
                         "priority": item.priority,
+                        "owner": item.owner,
                         "due_date": item.due_date.isoformat() if item.due_date else None,
                         "required_evidence": missing,
                     },

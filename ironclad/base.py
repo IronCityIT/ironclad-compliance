@@ -27,6 +27,7 @@ from ironclad.model.control import Framework
 from ironclad.model.evidence import EvidenceSet
 from ironclad.model.exception import RiskException
 from ironclad.model.remediation import RemediationPlan
+from ironclad.policy import TenantPolicy
 
 # Shared with the AI consensus engine's finding shape. Anything outside this set
 # is a hard error rather than a value that quietly reaches a client report.
@@ -78,6 +79,10 @@ class AssessmentContext:
     assessment: Assessment
     audit: AuditLog
     exceptions: list[RiskException] = field(default_factory=list)
+    # The tenant's own decisions: what is out of scope, what risk is accepted,
+    # who owns which control. None means the client supplied no policy, which is
+    # a legitimate state -- it just means nothing can be scoped out or accepted.
+    policy: TenantPolicy | None = None
     crosswalk: Crosswalk = field(default_factory=Crosswalk)
     plan: RemediationPlan | None = None
     as_of: datetime = field(default_factory=utc_now)

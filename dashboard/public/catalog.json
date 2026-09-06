@@ -42,7 +42,8 @@
         "deep"
       ],
       "requires": [
-        "control_mapping"
+        "control_mapping",
+        "scope_review"
       ]
     },
     {
@@ -66,6 +67,17 @@
       "requires": [
         "control_mapping",
         "exception_review"
+      ]
+    },
+    {
+      "name": "scope_review",
+      "description": "Apply the client's scoping determinations and flag any that need re-examining.",
+      "groups": [
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "control_mapping"
       ]
     }
   ],

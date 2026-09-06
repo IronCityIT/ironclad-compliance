@@ -33,6 +33,7 @@ from ironclad.model.control import Framework
 from ironclad.model.evidence import EvidenceSet
 from ironclad.model.exception import RiskException
 from ironclad.model.remediation import RemediationPlan
+from ironclad.policy import TenantPolicy
 from ironclad.version import __version__
 
 
@@ -88,6 +89,7 @@ def run_assessment(
     modules: list[str] | None = None,
     group: str | None = None,
     exceptions: list[RiskException] | None = None,
+    policy: TenantPolicy | None = None,
     crosswalk: Crosswalk | None = None,
     assessment_type: str = "full",
     assessment_id: str = "",
@@ -101,6 +103,11 @@ def run_assessment(
 
     if isinstance(framework, str):
         framework = load_framework(framework, framework_dir)
+
+    if policy is not None and policy.tenant_id != tenant:
+        # Applying one client's scope-outs and acceptances to another client's
+        # assessment has to be impossible, not merely unlikely.
+        raise ValueError(f"tenant policy belongs to {policy.tenant_id!r}, not {tenant!r}")
 
     if evidence.tenant_id != tenant:
         # A tenant mismatch here would mean assessing one client's evidence into
@@ -124,8 +131,18 @@ def run_assessment(
             "framework": framework.key,
             "evidence_artifacts": len(evidence),
             "assessment_type": assessment_type,
+            "policy": policy.source if policy is not None else None,
+            "scope_exclusions": len(policy.exclusions) if policy is not None else 0,
         },
         at=now,
+    )
+
+    # Acceptances come from the policy unless the caller passed them directly
+    # (the service layer reads them from its own store instead).
+    resolved_exceptions = (
+        list(exceptions)
+        if exceptions is not None
+        else (list(policy.exceptions) if policy is not None else [])
     )
 
     ctx = AssessmentContext(
@@ -134,7 +151,8 @@ def run_assessment(
         evidence=evidence,
         assessment=assessment,
         audit=audit,
-        exceptions=list(exceptions or []),
+        exceptions=resolved_exceptions,
+        policy=policy,
         crosswalk=crosswalk if crosswalk is not None else load_crosswalks(),
         as_of=now,
         actor=actor,

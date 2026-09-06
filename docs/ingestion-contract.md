@@ -134,3 +134,100 @@ ironclad assess --client "Acme Corp" --framework soc2 --evidence-dir evidence/
 
 A manifest is better — it carries evidence types, validity periods and asserted
 links that a filename cannot — but its absence never blocks an assessment.
+
+---
+
+# Tenant policy
+
+**Version 1.0** — `policy.json` beside the evidence, or `--policy <path>`.
+
+Three client-specific decisions an assessment has to honour. Without this file
+the engine can produce neither a `not_applicable` nor an `accepted_risk` verdict,
+so the risk-acceptance workflow is unreachable.
+
+```json
+{
+  "policy_version": "1.0",
+  "tenant_id": "acme-corp",
+  "scope_exclusions": [
+    {
+      "control_id": "CC6.4",
+      "justification": "All infrastructure is cloud-hosted; the organisation operates no data centre of its own.",
+      "approved_by": "j.reyes (CISO)",
+      "approved_at": "2026-03-01T00:00:00+00:00",
+      "review_by": "2027-03-01T00:00:00+00:00"
+    }
+  ],
+  "exceptions": [
+    {
+      "control_id": "CC9.2",
+      "justification": "The vendor risk programme is being rebuilt following the acquisition.",
+      "requested_by": "m.okafor",
+      "approved_by": "j.reyes (CISO)",
+      "approved_at": "2026-08-15T00:00:00+00:00",
+      "expires_at": "2026-11-15T00:00:00+00:00",
+      "compensating_controls": ["Monthly manual review of critical vendor attestations"],
+      "status": "approved"
+    }
+  ],
+  "owners": {
+    "CC6.*": "platform-team@acme.example",
+    "CC1.1": "people-ops@acme.example"
+  }
+}
+```
+
+## Scope exclusions
+
+A scoped-out control leaves the readiness denominator entirely, which makes
+scoping the cheapest way to make a failing control disappear. It is therefore
+held to the same bar as a risk acceptance:
+
+| Field | Required | Notes |
+|---|---|---|
+| `control_id` | yes | must exist in the framework being assessed |
+| `justification` | yes | a written reason. A scope-out with no reason is refused |
+| `approved_by` | yes | someone owns the decision. Recorded in the audit trail |
+| `approved_at` | no | defaults to the time of the run |
+| `review_by` | no | when the determination falls due for re-examination |
+
+Three things are reported rather than silently honoured:
+
+- an exclusion **past its `review_by`** — "not applicable" was true about a
+  business three years ago and may not be true now
+- an exclusion **falling due** within 30 days
+- an excluded control that the **evidence nonetheless supports**, which usually
+  means the exclusion has outlived its reason
+
+## Exceptions
+
+The same shape as the service API's risk acceptance, and held to the same rules —
+they are enforced by replaying the approval workflow rather than by trusting the
+file, so a policy **cannot assert an approval the workflow would refuse**:
+
+- the approver may not be the requester
+- an approved acceptance must name its approver and must carry an expiry
+- no acceptance may run beyond 365 days
+
+`status` may be `draft`, `pending_approval`, `approved`, `rejected` or `revoked`.
+Only an approved, unexpired acceptance changes a verdict.
+
+Where a control is both excluded and accepted, **the exclusion wins** and the
+run warns — otherwise the control would return to the denominator as
+`accepted_risk`.
+
+## Owners
+
+Maps a control to whoever the work should go to. `"CC6.*"` assigns a whole
+family; an exact control id beats a wildcard. The owner lands on every
+remediation item for that control, which is the difference between a report line
+and a piece of work someone is accountable for.
+
+## Validating
+
+```sh
+ironclad validate --policy policy.json
+```
+
+This checks the schema **and** replays the approval workflow, so a self-approved
+acceptance fails validation rather than surfacing at assessment time.

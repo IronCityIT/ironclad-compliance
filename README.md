@@ -95,6 +95,7 @@ on, so a selection is never quietly incomplete.
 | `exception_review` — apply and expire risk acceptances | | ● | ● |
 | `freshness_check` — controls whose evidence is ageing out | | ● | ● |
 | `remediation_plan` — prioritised, dated work | | ● | ● |
+| `scope_review` — apply scoping determinations, flag stale ones | | ● | ● |
 | `crosswalk_coverage` — project onto other frameworks | | | ● |
 
 `registry.catalog()` is the single source: the CLI's `--list-modules`, the
@@ -137,6 +138,26 @@ A directory with no manifest still works: one is derived and every file
 checksummed, so re-submitting the same evidence under a new path is recognised
 as the same evidence rather than counted twice.
 
+## Tenant policy
+
+`policy.json` beside the evidence — or `--policy` — carries the three
+client-specific decisions an assessment must honour:
+
+| | |
+|---|---|
+| **Scope exclusions** | controls that do not apply, with a written reason, a named approver and a review date |
+| **Risk acceptances** | see below |
+| **Owners** | who the remediation work goes to; `"CC6.*"` assigns a whole family |
+
+Scoping a control out removes it from the readiness denominator, which makes it
+the cheapest way to make a failing control disappear. So it is held to the same
+bar as an acceptance: no justification or no approver, no exclusion. Every
+determination is written to the audit trail, and three things are reported
+rather than silently honoured — an exclusion past its review date, one falling
+due, and one where the evidence supports the control anyway.
+
+Spec in `docs/ingestion-contract.md`.
+
 ## Risk acceptance
 
 An exception is how a client says "we know, here is why, here is who signed, and
@@ -147,6 +168,10 @@ until when". Three rules are enforced in the model, not the UI:
    an unfixed gap with paperwork.
 3. **A lapse reopens the gap immediately** — at the next assessment, not at the
    next review meeting.
+
+These are enforced by replaying the approval workflow, so a hand-written
+`policy.json` cannot assert an approval the workflow would refuse — a
+self-approval fails `ironclad validate --policy`, not at assessment time.
 
 ## The audit trail
 
