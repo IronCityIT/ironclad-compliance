@@ -1,6 +1,7 @@
 # STATUS — Ironclad Compliance productization
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-05
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-06
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green.**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 `ironclad-compliance` is not listed in any tier in `CLAUDE.md`, and the fallback
@@ -22,24 +23,27 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Exceptions / risk acceptance | **DONE, tested** | `ironclad/model/exception.py` |
 | Audit trail (hash-chained) | **DONE, tested** | `ironclad/model/audit.py` |
 | Reports, exports, auditor package | **DONE, tested** | `ironclad/report/` |
+| Assessment types actually shaping the deliverable | **DONE, tested** | `ironclad/report/views.py` |
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
-| Cloud Functions | **DONE, not deployed** | `functions/` |
+| Cloud Functions | **DONE, decisions tested, not deployed** | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, not deployed, not emulator-tested** | `firestore.rules` |
 | Dashboard | **DONE, not deployed** | `dashboard/public/` |
 
 ## Gate results
 
-Run on this branch, this machine, 2026-09-05.
+Run on this branch, this machine, 2026-09-06.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | **PASS** — 56 files |
+| Format | `ruff format --check .` | **PASS** — 61 files |
 | Lint | `ruff check .` | **PASS** |
-| Typecheck | `mypy` | **PASS** — 53 source files |
-| Test | `pytest --cov=ironclad` | **PASS** — 251 passed, 90% coverage |
+| Typecheck | `mypy` | **PASS** — 59 source files |
+| Test | `pytest --cov=ironclad` | **PASS** — 345 passed, 91% coverage |
+| Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
+| Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
 | Build | `python -m build` | **PASS** — sdist + wheel |
 | Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
 | Security — secret literals | CI shell check | **PASS** — no credential-shaped literals |
@@ -68,8 +72,14 @@ locally-installed package had been aborting the whole-environment scan.
 ## CI
 
 Green on `productize/ironclad-compliance` as of run
-[33967567164](https://github.com/IronCityIT/ironclad-compliance/actions/runs/33967567164):
+[34066964922](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34066964922)
+and on PR #4 as of run
+[34066968364](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34066968364):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Security gate ✅
+
+`ci.yml` now also runs a **Cloud Functions** job. `functions/` previously had no
+gate but `node --check`, and no tests at all, while carrying the code that
+decides which tenant a write lands in.
 
 ## What is proven, and how
 
@@ -89,6 +99,22 @@ Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Security gate ✅
 - Determinism: the same inputs produce the same readiness score across runs.
 - Degradation: a capability that raises mid-run is recorded as failed, named in
   the report's caveats, and the rest of the assessment still completes.
+- The three assessment types produce three different documents from one
+  unchanged assessment: same evidence, identical 24.0% readiness and identical
+  stored control set; 33 controls listed in the full report, 28 in the gap
+  analysis, none in the readiness summary; both abridged reports state what they
+  left out. The auditor package exported from the gap-only run carries all 33
+  controls in `control-register.csv` and a verified audit chain.
+- `ironclad report --view full` re-issues a stored gap-only assessment as the
+  complete report without re-running anything.
+- Every control id in all four shipped frameworks (126 of them) is usable as a
+  stored document id — checked, not assumed, and a framework carrying one that
+  is not now fails validation with the control named, rather than losing that
+  control at storage time behind a 200.
+- The tenant slug is byte-identical between `ironclad.ids.slugify` and
+  `functions/core.js::toClientId` over a shared table of 21 cases, including
+  traversal and reserved-name inputs. A disagreement there writes a client's
+  results to a document their dashboard does not read.
 
 **Not proven — needs a GitHub runner:**
 
@@ -109,9 +135,31 @@ exist yet.
 **Not proven — needs GCP:**
 
 Nothing is deployed. `firestore.rules` has never been exercised against the
-emulator, the Cloud Functions have never run, and the dashboard has never been
+emulator, the Cloud Functions have never *run*, and the dashboard has never been
 served. The rules' role-gating of the evidence index and audit trail depends on
 `functions/exchange.js` minting a `roles` claim, and that pairing is untested.
+
+What is now proven about the functions is their decisions, not their execution:
+`functions/core.js` holds the tenant slug, the document-id check, the ingest
+authorization and the evidence-path check, with no firebase imports, and
+`functions/test` covers every branch. Three defects it found and fixed:
+
+1. **The ingest failed open.** An unset `INGEST_API_KEY` was treated as "open by
+   config", so a deploy that never bound the secret would have left an
+   unauthenticated endpoint able to create or overwrite an assessment in *any*
+   tenant — the `client_id` comes from the request body. A missing key now
+   refuses every write (503) instead of accepting anyone's.
+2. **The evidence-path check was a containment test.** `gs://bucket/acme/../beta/`
+   contains `/acme/` and so passed, pointing a run at another tenant's evidence
+   while filing the result under the caller's. The prefix is now checked
+   structurally: the client id must be the first object segment and no segment
+   may be empty or relative.
+3. **Payload-supplied ids went into Firestore paths unchecked.** An
+   `assessment_id`, remediation `item_id` or audit `event_id` containing `/`
+   addressed a different collection — a path `firestore.rules` does not match,
+   so the record would have been written where nothing can read it. Ids are now
+   checked; the assessment id is refused rather than rewritten, because a
+   sanitized substitute silently splits a re-run into a second record.
 
 ## Blocked
 
@@ -124,22 +172,26 @@ without it; only the dashboard's "Start assessment" button depends on it.
 
 ## Exact next command
 
+The branch is pushed and PR #4 is open with CI green. What remains needs
+something this machine does not have.
+
 ```sh
-git checkout productize/ironclad-compliance
+# 1. review the PR
+gh pr view 4 -R IronCityIT/ironclad-compliance --web
 
-# 1. push and open the PR (not yet done — awaiting the go-ahead)
-git push -u origin productize/ironclad-compliance
-
-# 2. watch CI, which is the first real run of the consensus contract fix
-gh run watch -R IronCityIT/ironclad-compliance
-
-# 3. dry-run the assessment workflow against a throwaway client before
-#    anything touches a real one
+# 2. dry-run the assessment workflow against a throwaway client before
+#    anything touches a real one. NOT run: firing it needs the GCS evidence
+#    bucket and the ingest secrets, and it is a real dispatch, which the
+#    REVIEW ONLY posture does not cover.
 gh workflow run "Compliance Assessment" \
   -R IronCityIT/ironclad-compliance \
   -f client_id="icit-internal" \
   -f framework=soc2 \
   -f evidence_path=gs://ironclad-evidence/icit-internal/
+
+# 3. exercise firestore.rules against the emulator — the last untested
+#    security boundary. Needs firebase-tools and a JVM, neither present here.
+firebase emulators:exec --only firestore "npm --prefix functions test"
 ```
 
 ## Open decisions

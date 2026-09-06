@@ -8,9 +8,10 @@
   },
   "main": "index.js",
   "scripts": {
-    "lint": "node --check index.js && node --check exchange.js && node --check trigger.js",
+    "lint": "node --check core.js && node --check index.js && node --check exchange.js && node --check trigger.js",
     "serve": "firebase emulators:start --only functions",
-    "deploy": "echo \"Deploy runs in .github/workflows/deploy-functions.yml\" && exit 1"
+    "deploy": "echo \"Deploy runs in .github/workflows/deploy-functions.yml\" && exit 1",
+    "test": "node --test"
   },
   "dependencies": {
     "firebase-admin": "^12.0.0",

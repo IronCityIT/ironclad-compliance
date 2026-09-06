@@ -7,9 +7,15 @@ because failing either one is a data breach rather than a bug.
 
 from __future__ import annotations
 
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from ironclad.errors import AuthorizationError
+from ironclad.ids import slugify
 from ironclad.model.tenant import (
     ALL_PERMISSIONS,
     PERMISSIONS,
@@ -18,6 +24,8 @@ from ironclad.model.tenant import (
     SystemPrincipal,
     authorize,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def principal(*roles: Role, tenant: str = "acme", user: str = "u1") -> Principal:
@@ -130,3 +138,66 @@ class TestPrincipalFromClaims:
     def test_claims_without_roles_grant_nothing(self) -> None:
         caller = Principal.from_claims({"sub": "auth0|1", "client_id": "acme"})
         assert caller.permissions == frozenset()
+
+
+class TestTheSlugIsTheSameInBothLanguages:
+    """The tenant partition depends on Python and JavaScript agreeing.
+
+    `ironclad.ids.slugify` mints the client_id the pipeline writes under;
+    `functions/core.js::toClientId` derives the one the ingest, the Auth0 bridge
+    and the dispatcher address. If the two ever disagree on a character, a
+    client's results land in a document their dashboard does not read — and the
+    only symptom is an empty dashboard.
+    """
+
+    CASES = [
+        "Acme Corp",
+        "  ACME  Corp  ",
+        "Acme, Inc.",
+        "a---b",
+        "--acme--",
+        "!!!",
+        "",
+        "ACME",
+        "acme",
+        "Örebro Kommun",
+        "St. Mary's Hospital",
+        "client/beta",
+        "../../etc/passwd",
+        "__proto__",
+        "123",
+        "a b  c   d",
+        "Iron City IT Advisors",
+        "tenant_with_underscores",
+        "trailing-",
+        "-leading",
+        "MiXeD CaSe 42",
+    ]
+
+    def test_the_two_implementations_agree(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("node is not available; the parity check runs in CI")
+
+        script = (
+            "const {toClientId} = require(process.argv[1]);"
+            "const cases = JSON.parse(process.argv[2]);"
+            "console.log(JSON.stringify(cases.map(toClientId)));"
+        )
+        completed = subprocess.run(
+            [
+                node,
+                "-e",
+                script,
+                str(REPO_ROOT / "functions" / "core.js"),
+                json.dumps(self.CASES),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        from_js = json.loads(completed.stdout)
+        from_python = [slugify(case) for case in self.CASES]
+        assert from_js == from_python, dict(
+            zip(self.CASES, zip(from_python, from_js, strict=True), strict=True)
+        )

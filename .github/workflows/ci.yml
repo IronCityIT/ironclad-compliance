@@ -76,6 +76,25 @@ jobs:
             coverage.xml
           retention-days: 14
 
+  functions:
+    name: Cloud Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No install step: the functions' decisions live in core.js, which has no
+      # dependencies, and the tests use the runtime's own test runner. The
+      # firebase SDKs are only needed to deploy.
+      - name: Syntax check
+        run: npm --prefix functions run lint
+
+      - name: Test
+        run: npm --prefix functions test
+
   security:
     name: Security gate
     runs-on: ubuntu-latest

@@ -310,7 +310,80 @@ Approved and used: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
 
 ---
 
-## 8. What has not been proven
+## 8. The Cloud Functions had no tests, and three defects
+
+Added after the first PR was open, when the question "what is the highest-value
+thing here that nobody has looked at" had an obvious answer: `functions/`. Three
+files, 558 lines, carrying the code that decides which tenant a write lands in —
+and the whole gate on them was `node --check`, a syntax check. `CLAUDE.md` says
+"Never expose one client's data path to another"; nothing was verifying it.
+
+They could not be tested as written: each file opens a Firestore connection at
+require time, so importing one needs a live project. The decisions moved into
+`functions/core.js`, which imports nothing, and `functions/test` covers every
+branch on the runtime's own test runner — no install step, so it runs here, in
+CI, and on a Jenkins agent that has node.
+
+### 8.1 The ingest failed open
+
+```js
+function keyMatches(supplied, expected) {
+  if (!expected) return true; // no key configured: the endpoint is open by config
+```
+
+`storeAssessmentResults` takes `client_id` from the request body and writes to
+`clients/{client_id}/...`. So a deploy where `INGEST_API_KEY` was never bound —
+a missing Secret Manager binding, a typo in the env var name — published an
+unauthenticated endpoint that could create or overwrite an assessment record in
+any tenant, and the only sign would have been that it worked.
+
+A misconfiguration must degrade to refusing work, never to accepting anyone's.
+An unset key is now a 503 and a logged reason. `scripts/store_results.py` says
+so before it posts, rather than leaving the operator to infer it from the
+status code.
+
+### 8.2 The evidence-path check was a containment test
+
+```js
+if (!evidencePath.startsWith(`gs://`) || !evidencePath.includes(`/${clientId}/`))
+```
+
+`gs://any-bucket/acme/../beta/` contains `/acme/`. It passes, and it points the
+run at beta's evidence while filing the result under acme. Also passing:
+`gs://bucket/beta/acme/`, which is beta's layout, not acme's.
+
+The tenant prefix is structural, so it is now checked structurally — the client
+id must be the *first* object segment, and no segment may be empty, `.` or `..`.
+The refusal names the reason, because "invalid path" against a path that looks
+right is the kind of message that gets worked around rather than fixed.
+
+### 8.3 Payload-supplied ids went into Firestore paths unchecked
+
+`assessment_id`, remediation `item_id` and audit `event_id` were `.trim()`ed and
+handed to `.doc()`. A value containing `/` addresses a different collection:
+`assessments/a/b/c` rather than `assessments/a`. `firestore.rules` matches
+`/clients/{c}/assessments/{a}` and closes everything else, so the record would
+have been written where nothing can ever read it — a silent data loss that looks
+like a successful store, complete with a 200.
+
+Ids are checked now. The assessment id is *refused* rather than rewritten: it is
+the record's identity, and a sanitized substitute files the result under an id
+nobody asked for, which makes the next run of the same assessment create a
+second record instead of updating the first. Item and event ids are skipped and
+counted, and the count comes back in the response, so a pipeline that lost half
+its remediation items can see that it did.
+
+### 8.4 The slug existed twice
+
+`toClientId` was copy-pasted into `index.js` and `exchange.js`, and both had to
+match `ironclad.ids.slugify` in Python for a client's results to land where their
+dashboard reads. Nothing checked any of the three against each other. One
+implementation now, and `tests/test_tenancy.py` runs the JavaScript against the
+Python over a shared table of cases.
+
+---
+
+## 9. What has not been proven
 
 Set out in full in `STATUS.md`. In short: everything that runs locally has been
 run, repeatedly. Nothing that needs a GitHub runner, a Jenkins agent or a GCP

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ironclad.errors import FrameworkError, ValidationError
+from ironclad.ids import is_safe_document_id
 from ironclad.model.control import Control, Framework, PointOfFocus
 
 # The short names the workflow inputs and the CLI accept, mapped to the file that
@@ -77,6 +78,11 @@ def validate_framework_document(document: Any) -> list[str]:
             errors.append(f"{where}.id is required")
         elif control_id in seen:
             errors.append(f"{where}.id {control_id!r} is a duplicate")
+        elif not is_safe_document_id(control_id):
+            # The id is stored as a document id downstream. A control whose id
+            # cannot be stored disappears from the client's record without an
+            # error anywhere, so it is refused here, where it can be named.
+            errors.append(f"{where}.id {control_id!r} cannot be used as a stored identifier")
         else:
             seen.add(control_id)
         for key in ("name", "description"):

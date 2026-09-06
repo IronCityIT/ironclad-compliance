@@ -36,6 +36,7 @@ const { defineSecret } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { checkEvidencePath, oneOf, toClientId } = require("./core");
 
 if (!getApps().length) initializeApp();
 const db = getFirestore();
@@ -76,7 +77,9 @@ exports.triggerAssessment = onCall(
       throw new HttpsError("unauthenticated", "Sign-in required.");
     }
 
-    const clientId = String(auth.token.client_id || "").trim();
+    // Slugified again here rather than trusted: the claim is verified, but the
+    // value inside it originates in Auth0 and lands in a Firestore path.
+    const clientId = toClientId(auth.token.client_id);
     if (!clientId) {
       throw new HttpsError("permission-denied", "No client is associated with this account.");
     }
@@ -100,21 +103,18 @@ exports.triggerAssessment = onCall(
       throw new HttpsError("invalid-argument", "Unknown framework.");
     }
 
+    // Evidence must come from the tenant's own prefix, checked structurally:
+    // the client id must be the first object segment and no segment may be a
+    // traversal. A containment check passed gs://any/acme/../beta/, which reads
+    // another tenant's evidence and files the result under this one.
     const evidencePath = String(data.evidence_path || "").trim();
-    // Evidence must come from the tenant's own prefix. Without this check a
-    // caller could point the run at another client's evidence bucket and have
-    // the result written under their own tenant.
-    if (!evidencePath.startsWith(`gs://`) || !evidencePath.includes(`/${clientId}/`)) {
-      throw new HttpsError(
-        "invalid-argument",
-        "The evidence path must be a storage path under this client's own prefix."
-      );
+    const location = checkEvidencePath(evidencePath, clientId);
+    if (!location.ok) {
+      throw new HttpsError("invalid-argument", `Evidence path refused: ${location.reason}.`);
     }
 
-    const group = GROUPS.has(String(data.group)) ? String(data.group) : "deep";
-    const assessmentType = TYPES.has(String(data.assessment_type))
-      ? String(data.assessment_type)
-      : "full";
+    const group = oneOf(data.group, GROUPS, "deep");
+    const assessmentType = oneOf(data.assessment_type, TYPES, "full");
 
     // Minted server-side so the dashboard can poll for it immediately and two
     // tenants can never collide on one document.

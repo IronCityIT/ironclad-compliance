@@ -21,6 +21,7 @@ from ironclad.frameworks.loader import (
     load_framework,
     validate_framework_document,
 )
+from ironclad.ids import is_safe_document_id
 from ironclad.model.assessment import ControlStatus
 
 
@@ -212,3 +213,37 @@ class TestShippedCrosswalks:
             }
         )
         assert any("relationship" in e for e in errors)
+
+
+class TestAControlIdMustBeStorable:
+    """A control id becomes a document id when control detail is stored apart.
+
+    A framework carrying an id Firestore cannot use loses that control at
+    storage time, with a 200 in the log and nothing in the client's record.
+    Refused at validation, where the offending control can be named.
+    """
+
+    @staticmethod
+    def document(control_id: str) -> dict:
+        return {
+            "framework": {"id": "x", "name": "X", "version": "1.0"},
+            "controls": [
+                {"id": control_id, "name": "A control", "description": "It does something."}
+            ],
+        }
+
+    @pytest.mark.parametrize("control_id", ["A/B", "..", ".", "__name__", "x" * 1501])
+    def test_an_unstorable_id_is_refused(self, control_id: str) -> None:
+        errors = validate_framework_document(self.document(control_id))
+        assert any("stored identifier" in e for e in errors), errors
+
+    @pytest.mark.parametrize("control_id", ["CC6.1", "164.308(a)(1)(i)", "1.2.3", "PR.AC-1"])
+    def test_a_real_control_id_is_accepted(self, control_id: str) -> None:
+        assert validate_framework_document(self.document(control_id)) == []
+
+    def test_every_shipped_control_id_is_storable(self) -> None:
+        # The four shipped frameworks, checked rather than assumed: 126 ids.
+        for alias in available_frameworks():
+            framework = load_framework(alias["alias"])
+            for control in framework.controls:
+                assert is_safe_document_id(control.id), f"{alias['alias']}: {control.id}"

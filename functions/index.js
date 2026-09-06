@@ -20,6 +20,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { authorizeIngest, safeDocId, toClientId } = require("./core");
 
 if (!getApps().length) initializeApp();
 const db = getFirestore();
@@ -31,30 +32,6 @@ const REGION = "us-east5";
 // is stored in chunks under the assessment rather than inline.
 const MAX_CONTROLS_INLINE = 60;
 
-/**
- * Normalize a client name into a stable, path-safe client_id slug.
- * Must match ironclad.ids.slugify exactly — the pipeline mints ids with that
- * function and this addresses the documents it produces.
- */
-function toClientId(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-/** Constant-time-ish comparison so a wrong key cannot be probed byte by byte. */
-function keyMatches(supplied, expected) {
-  if (!expected) return true; // no key configured: the endpoint is open by config
-  const a = String(supplied || "");
-  const b = String(expected);
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
 exports.storeAssessmentResults = onRequest(
   { region: REGION, cors: false, memory: "512MiB", timeoutSeconds: 120 },
   async (req, res) => {
@@ -63,9 +40,13 @@ exports.storeAssessmentResults = onRequest(
       return;
     }
 
-    if (!keyMatches(req.get("X-Ingest-Key"), process.env.INGEST_API_KEY)) {
-      logger.warn("rejected an ingest with a bad key");
-      res.status(401).json({ error: "unauthorized" });
+    // An unset key closes the endpoint. It used to open it, which meant a
+    // deploy that never bound the secret accepted an unauthenticated write into
+    // any tenant — the client id comes from the body.
+    const authorized = authorizeIngest(req.get("X-Ingest-Key"), process.env.INGEST_API_KEY);
+    if (!authorized.ok) {
+      logger.warn("rejected an ingest", { reason: authorized.reason });
+      res.status(authorized.status).json({ error: authorized.error });
       return;
     }
 
@@ -73,14 +54,22 @@ exports.storeAssessmentResults = onRequest(
     const clientId = toClientId(body.client_id || body.client_name);
     // assessment_id is this product's name for it; scan_id is the shared ingest
     // field name. Accept either so one ingest shape serves every ICIT product.
-    const assessmentId = String(body.assessment_id || body.scan_id || "").trim();
+    // Refused rather than rewritten: this id is the record's identity, and a
+    // sanitized substitute would file the result under an id nobody asked for
+    // and make a re-run create a second record instead of updating the first.
+    const rawAssessmentId = String(body.assessment_id || body.scan_id || "").trim();
+    const assessmentId = safeDocId(rawAssessmentId);
 
     if (!clientId) {
       res.status(400).json({ error: "client_id (or client_name) is required" });
       return;
     }
     if (!assessmentId) {
-      res.status(400).json({ error: "assessment_id (or scan_id) is required" });
+      res.status(400).json({
+        error: rawAssessmentId
+          ? "assessment_id (or scan_id) is not a usable document id"
+          : "assessment_id (or scan_id) is required",
+      });
       return;
     }
 
@@ -90,6 +79,10 @@ exports.storeAssessmentResults = onRequest(
     const remediation = body.remediation || {};
     const remediationItems = Array.isArray(remediation.items) ? remediation.items : [];
     const auditEvents = Array.isArray((body.audit || {}).events) ? body.audit.events : [];
+
+    // Ids that could not be used, reported back rather than silently dropped:
+    // a pipeline that lost half its remediation items has to be able to see it.
+    const rejected = [];
 
     const clientRef = db.collection("clients").doc(clientId);
     const assessmentRef = clientRef.collection("assessments").doc(assessmentId);
@@ -157,15 +150,24 @@ exports.storeAssessmentResults = onRequest(
 
       if (controls.length > MAX_CONTROLS_INLINE) {
         controls.forEach((control) => {
-          const id = String(control.control_id || "").replace(/[^\w.()-]/g, "_");
-          if (!id) return;
+          // A control id is a framework identifier, not free text, so a value
+          // that is not path-safe is a corrupt payload rather than something to
+          // second-guess.
+          const id = safeDocId(control.control_id);
+          if (!id) {
+            rejected.push(`control ${JSON.stringify(String(control.control_id || ""))}`);
+            return;
+          }
           batch.set(assessmentRef.collection("controls").doc(id), control, { merge: true });
         });
       }
 
       remediationItems.forEach((item) => {
-        const id = String(item.item_id || "").trim();
-        if (!id) return;
+        const id = safeDocId(item.item_id);
+        if (!id) {
+          rejected.push(`remediation item ${JSON.stringify(String(item.item_id || ""))}`);
+          return;
+        }
         batch.set(
           clientRef.collection("remediation").doc(id),
           { ...item, client_id: clientId, assessment_id: assessmentId, updated_at: FieldValue.serverTimestamp() },
@@ -174,7 +176,11 @@ exports.storeAssessmentResults = onRequest(
       });
 
       auditEvents.forEach((event) => {
-        const id = `${assessmentId}-${String(event.event_id || "")}`;
+        const id = safeDocId(`${assessmentId}-${String(event.event_id || "")}`);
+        if (!id) {
+          rejected.push(`audit event ${JSON.stringify(String(event.event_id || ""))}`);
+          return;
+        }
         batch.set(
           clientRef.collection("audit").doc(id),
           { ...event, client_id: clientId, assessment_id: assessmentId },
@@ -197,12 +203,21 @@ exports.storeAssessmentResults = onRequest(
 
       await batch.commit();
 
+      if (rejected.length) {
+        logger.warn("some ids in the payload were not usable", {
+          client_id: clientId,
+          assessment_id: assessmentId,
+          rejected: rejected.slice(0, 20),
+        });
+      }
+
       logger.info("stored assessment", {
         client_id: clientId,
         assessment_id: assessmentId,
         controls: controls.length,
         findings: findings.length,
         remediation: remediationItems.length,
+        rejected: rejected.length,
       });
 
       res.status(200).json({
@@ -211,6 +226,7 @@ exports.storeAssessmentResults = onRequest(
         assessment_id: assessmentId,
         controls: controls.length,
         remediation: remediationItems.length,
+        rejected: rejected.length,
       });
     } catch (err) {
       logger.error("failed to store the assessment", err);

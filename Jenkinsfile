@@ -120,6 +120,29 @@ pipeline {
             }
           }
 
+          // The Cloud Functions gate needs a runtime this agent image does not
+          // carry. Same contract as the security gate below: an agent that
+          // cannot run it says so rather than reporting a pass it did not earn.
+          def functionsStatus = sh(
+            script: '''
+              set -eu
+              command -v npm >/dev/null 2>&1 || {
+                echo "node/npm unavailable on this agent"; exit 66; }
+              npm --prefix functions run lint
+              npm --prefix functions test
+            ''',
+            returnStatus: true
+          )
+          if (functionsStatus == 66) {
+            echo '── gate functions UNAVAILABLE — reported, not passed'
+            unstable('cloud functions gate could not run on this agent')
+          } else if (functionsStatus != 0) {
+            failed << 'functions'
+            echo '── gate functions FAILED'
+          } else {
+            echo '── gate functions passed'
+          }
+
           // Security scanning is best-effort: the tools are not pinned into the
           // dev requirements, so an agent without them reports the gate as
           // unavailable rather than silently passing it.

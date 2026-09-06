@@ -281,7 +281,17 @@ mypy                                  # typecheck
 pytest --cov=ironclad                 # test
 python scripts/validate_artifacts.py  # JSON/YAML commit gate
 python tools/build_catalog.py         # regenerate the dashboard catalog
+
+npm --prefix functions run lint       # Cloud Functions syntax
+npm --prefix functions test           # Cloud Functions decisions
 ```
+
+The Cloud Functions' decisions — tenant slugs, document ids, whether an ingest
+is authorized, whether an evidence path belongs to the caller — live in
+`functions/core.js`, which imports nothing. The functions themselves open a
+Firestore connection at require time, so anything left inside them could only be
+tested against a live project. `functions/test` runs on the runtime's own test
+runner with no install step.
 
 ### Adding a capability
 
@@ -306,7 +316,7 @@ Secrets are referenced by name and never held in this repository.
 | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY` | passed through to `consensus-engine` |
 | `GCP_SA_KEY` | evidence fetch |
 | `GCS_BUCKET` | report storage |
-| `STORE_RESULTS_URL`, `INGEST_API_KEY` | the ingest Cloud Function |
+| `STORE_RESULTS_URL`, `INGEST_API_KEY` | the ingest Cloud Function — **required**: with no key configured the endpoint refuses every write rather than accepting unauthenticated ones |
 | `GITHUB_DISPATCH_TOKEN` | dashboard-initiated assessments — **not yet provisioned**, see `PRODUCTIZE_NOTES.md` |
 
 GCP region is **us-east5 (Columbus)** throughout. Auth0 tenant is

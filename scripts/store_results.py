@@ -188,7 +188,15 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({k: v for k, v in record.items() if k != "controls"}, indent=2)[:4000])
         return 0
 
-    ok, message = post_result(args.endpoint, record, os.environ.get("INGEST_API_KEY", ""))
+    ingest_key = os.environ.get("INGEST_API_KEY", "")
+    if not ingest_key:
+        # The ingest refuses an unauthenticated write, so this post will be
+        # rejected. Said here rather than left to be inferred from a 503.
+        print(
+            "  store: no INGEST_API_KEY in the environment — the ingest endpoint "
+            "requires one and will refuse this write"
+        )
+    ok, message = post_result(args.endpoint, record, ingest_key)
     print(f"  store: {message}")
     if not ok:
         print("failed to store the assessment result", file=sys.stderr)

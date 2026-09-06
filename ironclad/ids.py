@@ -25,6 +25,27 @@ def slugify(value: str) -> str:
     return _SLUG_STRIP.sub("-", str(value or "").strip().lower()).strip("-")
 
 
+# A control id becomes a Firestore document id when a large framework's control
+# detail is stored in its own subcollection. "/" would address a different
+# collection path, and "." / ".." / "__x__" are rejected by Firestore outright,
+# so a framework carrying one would lose that control at storage time with a
+# 200 in the log. Caught when the framework is validated instead, where it names
+# the offending control. Mirrors isSafeDocId in functions/core.js.
+_DOC_ID_MAX = 1500
+
+
+def is_safe_document_id(value: str) -> bool:
+    """True if `value` may be used verbatim as a stored document id."""
+    candidate = str(value or "").strip()
+    if not candidate or len(candidate) > _DOC_ID_MAX:
+        return False
+    if "/" in candidate:
+        return False
+    if candidate in (".", ".."):
+        return False
+    return not (candidate.startswith("__") and candidate.endswith("__"))
+
+
 def utc_now() -> datetime:
     """Timezone-aware now. The engine never handles a naive datetime."""
     return datetime.now(timezone.utc)

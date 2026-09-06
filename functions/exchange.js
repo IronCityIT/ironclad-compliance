@@ -21,6 +21,7 @@ const logger = require("firebase-functions/logger");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { createRemoteJWKSet, jwtVerify } = require("jose");
+const { toClientId } = require("./core");
 
 if (!getApps().length) initializeApp();
 
@@ -46,15 +47,6 @@ const KNOWN_ROLES = new Set([
 
 const ISSUER = `https://${AUTH0_DOMAIN}/`;
 const jwks = createRemoteJWKSet(new URL(`${ISSUER}.well-known/jwks.json`));
-
-/** Normalize into the same slug shape the pipeline and the ingest use. */
-function toClientId(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
 
 function toRoles(value) {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
