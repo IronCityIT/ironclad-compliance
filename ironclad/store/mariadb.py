@@ -112,8 +112,7 @@ class MariaDBResultStore:
 
     def init_schema(self) -> list[str]:
         """Apply schema.sql. Safe to re-run; returns the statements applied."""
-        statements = [s.strip() for s in SCHEMA_PATH.read_text(encoding="utf-8").split(";")]
-        applied = [s for s in statements if s and not s.startswith("--")]
+        applied = statements_in(SCHEMA_PATH.read_text(encoding="utf-8"))
         connection = self._connect()
         try:
             with connection.cursor() as cursor:
@@ -280,6 +279,18 @@ class MariaDBResultStore:
             "broken_at": None,
             "detail": "",
         }
+
+
+def statements_in(sql: str) -> list[str]:
+    """The executable statements in a SQL file.
+
+    Comments are stripped *before* splitting on the separator, because a comment
+    may contain one — this schema's own header says "Applied by `ironclad store
+    init`; safe to re-run", and splitting first hands the server the second half
+    of that sentence as a statement.
+    """
+    body = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+    return [statement.strip() for statement in body.split(";") if statement.strip()]
 
 
 def dsn_summary(url: str) -> str:
