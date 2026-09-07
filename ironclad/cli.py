@@ -24,6 +24,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from ironclad import registry
 from ironclad.api.policy_store import PolicyStore
@@ -52,7 +53,7 @@ from ironclad.report.export import (
 )
 from ironclad.report.render import render_html
 from ironclad.report.views import ASSESSMENT_TYPES, DEFAULT_VIEW, view_for
-from ironclad.store import store_from_target, target_summary
+from ironclad.store import ArtifactStore, store_from_target, target_summary
 from ironclad.version import __version__
 
 #: Where results are published, when --to is not given. An environment variable
@@ -62,6 +63,12 @@ STORE_ENV = "IRONCLAD_STORE"
 
 #: The evidence volume. One prefix per tenant beneath it.
 EVIDENCE_ROOT_ENV = "IRONCLAD_EVIDENCE_ROOT"
+
+#: The artifact volume: reports and auditor packages. Separate from the record
+#: store because a database is the wrong place for a 300 KB HTML document, and a
+#: volume is the wrong place to query a readiness score from. Defaults to the
+#: record store's own root when that store is already a volume.
+ARTIFACT_ROOT_ENV = "IRONCLAD_ARTIFACTS"
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
@@ -194,6 +201,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     store_publish = with_target(store_sub.add_parser("publish", help="store one result"))
     store_publish.add_argument("--input", required=True, help="assessment.json from a run")
+    store_publish.add_argument(
+        "--artifacts",
+        default="",
+        help=(
+            "directory of deliverables to store on the artifact volume "
+            f"(${ARTIFACT_ROOT_ENV}); the report and the auditor package"
+        ),
+    )
+
+    store_verify = with_target(
+        store_sub.add_parser("verify", help="re-checksum a stored assessment's deliverables")
+    )
+    store_verify.add_argument("--client", required=True)
+    store_verify.add_argument("--assessment-id", required=True)
 
     store_list = with_target(store_sub.add_parser("list", help="list stored assessments"))
     store_list.add_argument("--client", required=True, help="tenant to list for")
@@ -523,6 +544,18 @@ def cmd_store(args: argparse.Namespace) -> int:
         print(f"applied {len(statements)} statement(s) to {where}", file=sys.stderr)
         return EXIT_OK
 
+    if args.store_command == "verify":
+        artifacts = _artifact_store(args, store)
+        if artifacts is None:
+            print(
+                f"no artifact volume: pass --to a volume or set {ARTIFACT_ROOT_ENV}",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        verdict = artifacts.verify(args.client, args.assessment_id)
+        _emit({"location": artifacts.location(args.client, args.assessment_id), **verdict})
+        return EXIT_OK if verdict["verified"] else EXIT_BAD_INPUT
+
     if args.store_command == "list":
         _emit(
             {
@@ -540,8 +573,43 @@ def cmd_store(args: argparse.Namespace) -> int:
     document = json.loads(source.read_text(encoding="utf-8"))
     assessment_id = store.put_assessment(document)
     print(f"stored {assessment_id} in {where}", file=sys.stderr)
-    _emit({"store": where, "assessment_id": assessment_id, "status": "stored"})
+
+    published: dict[str, Any] = {
+        "store": where,
+        "assessment_id": assessment_id,
+        "status": "stored",
+    }
+
+    if args.artifacts:
+        artifacts = _artifact_store(args, store)
+        if artifacts is None:
+            print(
+                f"--artifacts needs a volume: set {ARTIFACT_ROOT_ENV}, or publish to one",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        tenant = str(document.get("tenant_id") or document.get("client_id") or "")
+        stored = artifacts.put(tenant, assessment_id, Path(args.artifacts))
+        location = artifacts.location(tenant, assessment_id)
+        print(f"stored {len(stored)} deliverable(s) at {location}", file=sys.stderr)
+        published["artifacts"] = {
+            "location": location,
+            "files": [a.to_dict() for a in stored],
+        }
+
+    _emit(published)
     return EXIT_OK
+
+
+def _artifact_store(args: argparse.Namespace, record_store: Any) -> ArtifactStore | None:
+    """The artifact volume, explicit or inherited from a volume record store."""
+    root = os.environ.get(ARTIFACT_ROOT_ENV, "")
+    if root:
+        return ArtifactStore(Path(root))
+    # A volume-only deployment keeps both on one volume, and the layouts are
+    # chosen so that works without a second root.
+    own_root = getattr(record_store, "root", None)
+    return ArtifactStore(own_root) if own_root is not None else None
 
 
 def cmd_exception(args: argparse.Namespace) -> int:

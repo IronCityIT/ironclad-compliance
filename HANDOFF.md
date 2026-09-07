@@ -331,6 +331,7 @@ credential-shaped literal.
 | `STORE_RESULTS_URL` | ingest endpoint | **repoints at the new sink** |
 | `INGEST_API_KEY` | ingest authentication | **required** — an unset key now refuses every write |
 | `GITHUB_DISPATCH_TOKEN` | dashboard-initiated assessments | **NOT PROVISIONED**, not on the approved list |
+| `IRONCLAD_ARTIFACTS` | the artifact volume: reports and auditor packages | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** Optional: a volume record store keeps deliverables on its own root, so this is only needed when the record store is MariaDB. |
 | `IRONCLAD_EVIDENCE_ROOT` | the evidence volume, one prefix per tenant | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** Same standing as `IRONCLAD_STORE` below — referenced by name, the workflow falls back to the retired GCS path when it is unset, and refuses outright when neither is configured. |
 | `IRONCLAD_STORE` | the target sink — one target string naming a NAS volume or a MariaDB DSN | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** The workflow references it by name and skips publishing when it is unset; nothing invents a value. It must be added to the approved list and provisioned before the pipeline can publish to the target store. |
 
@@ -437,7 +438,7 @@ storage and secrets.
 | Concern | Target | State |
 |---|---|---|
 | Relational state | MariaDB on `qnap-nas-01`, one schema, every row tenant-scoped | schema and store **built**, tested in CI against a real 10.5 |
-| Artifacts (reports, auditor packages) | NAS-backed volume, tenant-prefixed paths | `FileResultStore` **built** and tested |
+| Artifacts (reports, auditor packages) | NAS-backed volume, tenant-prefixed paths, checksummed | `ArtifactStore` **built** and tested; `ironclad store verify` re-checksums against the manifest |
 | Evidence | NAS-backed volume, `<root>/<tenant>/`; the database holds references and SHA-256 only | `ironclad evidence stage` **built** and tested; the workflow uses it when a root is configured |
 | Backups | restic → Backblaze already exists on the NAS per `ICIT-Infrastructure` (**not independently verified**); the new schema and volume must be added to it |
 
@@ -459,8 +460,9 @@ would have hidden:
   returns the latest assessment's queue rather than every item ever raised —
   one control outstanding in two runs is one piece of work.
 
-**Still open:** the transport (§3.2) and the artifact layout for reports and
-auditor packages on the volume. The transport decision does not change any of
+**Still open:** the transport (§3.2). The artifact layout is settled —
+`<root>/<tenant>/assessments/<id>/artifacts/`, beside the record when one volume
+holds both, with a checksum manifest per assessment. The transport decision does not change any of
 the above: a self-hosted runner, an ingest service and a NAS-side loader all
 call `put_assessment` with the same rows.
 

@@ -234,6 +234,7 @@ jobs:
     # never as a value: nothing below ever echoes either one.
     env:
       IRONCLAD_STORE: ${{ secrets.IRONCLAD_STORE }}
+      IRONCLAD_ARTIFACTS: ${{ secrets.IRONCLAD_ARTIFACTS }}
       STORE_RESULTS_URL: ${{ secrets.STORE_RESULTS_URL }}
 
     steps:
@@ -303,7 +304,12 @@ jobs:
         run: |
           set -euo pipefail
           python -m ironclad.cli store health
-          python -m ironclad.cli store publish --input out/assessment.json
+          # The record and the deliverables. The report a client is issued and
+          # the auditor package go to the artifact volume, checksummed, so what
+          # was issued can later be shown to be what is stored.
+          python -m ironclad.cli store publish \
+            --input out/assessment.json \
+            --artifacts out/
 
       - name: Note that no store is configured
         if: env.IRONCLAD_STORE == ''

@@ -12,6 +12,7 @@ runner writing MariaDB directly, an authenticated ingest in front of it, or a
 loader run beside the database all consume the same rows.
 """
 
+from ironclad.store.artifacts import ArtifactStore, StoredArtifact
 from ironclad.store.base import ResultStore, StoreError
 from ironclad.store.factory import store_from_target, target_summary
 from ironclad.store.files import FileResultStore
@@ -19,11 +20,13 @@ from ironclad.store.rows import BOUNDS, TABLES, RowSet, rows_from_document
 
 __all__ = [
     "BOUNDS",
+    "ArtifactStore",
     "TABLES",
     "FileResultStore",
     "ResultStore",
     "RowSet",
     "StoreError",
+    "StoredArtifact",
     "rows_from_document",
     "store_from_target",
     "target_summary",

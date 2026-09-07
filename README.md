@@ -83,6 +83,9 @@ ironclad compare --from q3/assessment.json --to q4/assessment.json
 ironclad compare --client acme-corp        # the two most recent, from the store
 
 ironclad evidence stage --client acme-corp --out evidence/
+
+ironclad store publish --input out/assessment.json --artifacts out/
+ironclad store verify --client acme-corp --assessment-id acme-corp-soc2-…
 ```
 
 `assess` writes three files:
@@ -445,6 +448,18 @@ a mock.
 `ironclad store init` applies `ironclad/store/schema.sql`, and is safe to re-run.
 The driver (`PyMySQL`) is an optional extra: an assessment needs no database to
 run, only to publish.
+
+**The record and the deliverables are stored separately**, which is the split
+the target architecture calls for: a database is the wrong place for a 300 KB
+HTML report, and a volume is the wrong place to query a readiness score from.
+`--artifacts` on `store publish` sends the report and the auditor package to the
+artifact volume (`IRONCLAD_ARTIFACTS`, or the record store's own root when that
+is already a volume), checksums every file into a manifest, and
+`ironclad store verify` re-checksums what is on disk against it. A deliverable
+that cannot be shown to be the one that was issued is not evidence of anything —
+the same argument the evidence index makes about the client's own documents,
+turned on the documents this product produces. It is also the check to run on a
+restore from backup.
 
 `scripts/end_to_end.py --store <target>` runs the whole product against a store
 — the sample evidence in `examples/evidence/`, a real assessment, the

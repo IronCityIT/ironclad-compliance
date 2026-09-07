@@ -39,7 +39,7 @@ from ironclad.frameworks.crosswalk import load_crosswalks  # noqa: E402
 from ironclad.ingest import collect_from_directory  # noqa: E402
 from ironclad.report.export import export_audit_package, export_json  # noqa: E402
 from ironclad.report.render import render_html  # noqa: E402
-from ironclad.store import store_from_target, target_summary  # noqa: E402
+from ironclad.store import ArtifactStore, store_from_target, target_summary  # noqa: E402
 
 TENANT = "icit-internal"
 EVIDENCE = REPO_ROOT / "examples" / "evidence"
@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--store", required=True, help="store target, or $IRONCLAD_STORE")
     parser.add_argument("--framework", default="soc2")
     parser.add_argument("--group", default="deep")
+    parser.add_argument(
+        "--artifacts", default="", help="artifact volume; defaults to the store's own root"
+    )
     parser.add_argument("--keep", action="store_true", help="keep the working directory")
     args = parser.parse_args(argv)
 
@@ -183,6 +186,23 @@ def main(argv: list[str] | None = None) -> int:
             "re-publishing duplicated the audit trail",
         )
         print("idempotent   re-published, one record, trail unchanged")
+
+        # ---- the deliverables ------------------------------------------------
+        # A deliverable that cannot be shown to be the one that was issued is
+        # not evidence of anything.
+        artifact_root = args.artifacts or getattr(store, "root", None)
+        if artifact_root is not None:
+            artifacts = ArtifactStore(artifact_root)
+            stored = artifacts.put(TENANT, assessment_id, workspace)
+            verdict = artifacts.verify(TENANT, assessment_id)
+            check(verdict["verified"], f"the deliverables did not verify: {verdict['detail']}")
+            check(
+                verdict["checked"] == len(stored),
+                f"verified {verdict['checked']} of {len(stored)} deliverable(s)",
+            )
+            print(f"deliverables {len(stored)} stored and checksummed, all verify")
+        else:
+            print("deliverables skipped — this store has no volume; pass --artifacts")
 
         print(f"\nOK — the round trip agreed at every step against {where}")
         return 0

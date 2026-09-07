@@ -155,10 +155,15 @@ jobs:
       # Every part of that path has unit tests and the path as a whole did not,
       # which left the one question they cannot answer — whether the number a
       # client reads is the number that was stored.
+      # MariaDB holds the record; the deliverables go to a volume beside it,
+      # which is the split the target architecture calls for.
       - name: End to end, through MariaDB
         env:
           IRONCLAD_STORE: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
-        run: python scripts/end_to_end.py --store "$IRONCLAD_STORE"
+        run: |
+          python scripts/end_to_end.py \
+            --store "$IRONCLAD_STORE" \
+            --artifacts "$RUNNER_TEMP/ironclad-artifacts"
 
       - name: End to end, onto a volume
         run: python scripts/end_to_end.py --store "$RUNNER_TEMP/ironclad-volume"
