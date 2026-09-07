@@ -29,8 +29,8 @@ deploy, no `workflow_dispatch` fired against a real client.
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
 | Cloud Functions | **DONE, decisions tested, not deployed** | `functions/`, `functions/test/` |
-| Firestore rules | **DONE, not deployed, not emulator-tested** | `firestore.rules` |
-| Dashboard | **DONE, not deployed** | `dashboard/public/` |
+| Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
+| Dashboard | **DONE, rendering tested, not deployed** | `dashboard/public/`, `dashboard/test/` |
 
 ## Gate results
 
@@ -43,6 +43,8 @@ Run on this branch, this machine, 2026-09-06.
 | Typecheck | `mypy` | **PASS** — 61 source files |
 | Test | `pytest --cov=ironclad` | **PASS** — 367 passed, 91% coverage |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
+| Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
+| Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
 | Build | `python -m build` | **PASS** — sdist + wheel |
@@ -112,6 +114,20 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- `firestore.rules` executed against the Firestore emulator, both directions:
+  a tenant reads its own record and an auditor sees the evidence index, while a
+  tenant cannot reach another tenant's documents by any of seven paths, cannot
+  list the client collection, and no role can write anywhere. 53 cases.
+  Verified by mutation rather than by a green tick: replacing `ownsTenant` with
+  `return true` fails 17 of them, so the suite is checking the partition rather
+  than agreeing with it.
+- Every field the dashboard takes from a record is escaped before it reaches the
+  page — asserted field by field over every render path, not read for. Two were
+  not: the "N of M evidence items are out of date" banner and the framework
+  option's control count. Both were counts, which is why nobody looked at them,
+  and neither is guaranteed to be a number — `storeAssessmentResults` copies
+  `body.summary` verbatim and `catalog.json` is fetched over the network. A
+  crafted record put script into a client's compliance dashboard. Both fixed.
 - The report and the stored record both state, rule by rule, whether a bar came
   from the framework or from Iron City — generated from the constants the engine
   applies, so the disclosure cannot describe a rule that changed in the code.
@@ -138,10 +154,15 @@ exist yet.
 
 **Not proven — needs GCP:**
 
-Nothing is deployed. `firestore.rules` has never been exercised against the
-emulator, the Cloud Functions have never *run*, and the dashboard has never been
-served. The rules' role-gating of the evidence index and audit trail depends on
-`functions/exchange.js` minting a `roles` claim, and that pairing is untested.
+Nothing is deployed. The Cloud Functions have never *run* and the dashboard has
+never been served against a live project.
+
+`firestore.rules` is no longer in this list: it is executed against the emulator
+by `tests/rules`, as its own CI job. What remains unproven there is the pairing
+with `functions/exchange.js` — the rules are tested against the claims that
+function is supposed to mint, and the minting itself still needs a live Auth0
+token to prove end to end. The claim shapes it produces are unit-tested; the
+round trip is not.
 
 What is now proven about the functions is their decisions, not their execution:
 `functions/core.js` holds the tenant slug, the document-id check, the ingest
@@ -193,9 +214,8 @@ gh workflow run "Compliance Assessment" \
   -f framework=soc2 \
   -f evidence_path=gs://ironclad-evidence/icit-internal/
 
-# 3. exercise firestore.rules against the emulator — the last untested
-#    security boundary. Needs firebase-tools and a JVM, neither present here.
-firebase emulators:exec --only firestore "npm --prefix functions test"
+# 3. the rules suite, if you want to see it locally (CI runs it every push)
+npm --prefix tests/rules ci && npm --prefix tests/rules test
 ```
 
 ## Open decisions

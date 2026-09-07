@@ -301,6 +301,7 @@ python tools/build_catalog.py         # regenerate the dashboard catalog
 npm --prefix functions run lint       # Cloud Functions syntax
 npm --prefix functions test           # Cloud Functions decisions
 npm --prefix dashboard test           # dashboard rendering and escaping
+npm --prefix tests/rules test         # firestore.rules, against the emulator
 ```
 
 The Cloud Functions' decisions — tenant slugs, document ids, whether an ingest
@@ -314,6 +315,13 @@ The dashboard's rendering is tested the same way. Everything on that surface
 builds HTML by string concatenation from data that arrived out of Firestore, so
 escaping is the entire defence, and it is asserted field by field rather than
 read for.
+
+`firestore.rules` is executed rather than reviewed. `tests/rules` starts the
+Firestore emulator, seeds two tenants with the rules suspended — so a seeding
+mistake cannot be mistaken for a rule that permits a write — and then drives the
+real client SDK as a signed-in user of each. It is the only gate that needs an
+installed toolchain (`npm --prefix tests/rules ci`, plus a JVM for the
+emulator), which is why it is its own CI job.
 
 ### Adding a capability
 

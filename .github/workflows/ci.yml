@@ -100,6 +100,32 @@ jobs:
       - name: Test the dashboard rendering
         run: npm --prefix dashboard test
 
+  rules:
+    name: Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/rules/package-lock.json
+
+      # The one gate that needs an installed toolchain: the emulator is a JVM
+      # process, and the suite drives it through the real client SDK. Nothing
+      # here talks to a live project — `--project` names a scratch id.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the emulator harness
+        run: npm --prefix tests/rules ci
+
+      - name: Exercise firestore.rules against the emulator
+        run: npm --prefix tests/rules test
+
   security:
     name: Security gate
     runs-on: ubuntu-latest

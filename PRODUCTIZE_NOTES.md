@@ -383,7 +383,75 @@ Python over a shared table of cases.
 
 ---
 
-## 9. What has not been proven
+## 9. Two counts were the dashboard's only unescaped fields
+
+Same question as §8, asked of the last untested client-facing surface. The
+dashboard builds every element by string concatenation from data that arrived
+out of Firestore — which is to say, from whatever the ingest was given — so
+escaping every interpolation is the entire defence.
+
+It held everywhere a reviewer looks first: the framework name, the control name,
+the guidance text, the error message from a failed run. It failed in the two
+places nobody looks, because both are counts and a count is obviously a number:
+
+```js
+${summary.stale_artifacts} of ${summary.evidence_artifacts} evidence items…
+${f.control_count} controls
+```
+
+Neither is guaranteed to be a number. `storeAssessmentResults` copies
+`body.summary` verbatim from the payload, and `catalog.json` is fetched over the
+network like anything else. A crafted or corrupted record put script into a
+client's compliance dashboard — in the banner that warns them their evidence is
+stale, which is a place a client is being asked to trust.
+
+Both are escaped now, and `dashboard/test` asserts it field by field over every
+render path: all three status branches, a status the dashboard does not know, a
+record with no summary at all, and a hostile catalog. The assertion is that no
+new element opens, no event handler is live, and no payload lands verbatim —
+escaped text that still reads `onerror=` is the correct outcome, not a failure,
+and writing the check the obvious way got that wrong first.
+
+The remaining raw interpolations are literals and computed numbers. They say so
+in a comment now, so the next reader does not have to re-derive it.
+
+---
+
+## 10. The rules were read carefully and never executed
+
+`firestore.rules` is where the product's central promise is actually enforced:
+a client sees their own compliance position and nobody else's. It had been
+written carefully, reviewed, and never run — and for an access-control policy
+that is the same as not having been checked, because a rule that denies
+everything and a rule that allows everything both read plausibly on the page.
+
+`tests/rules` starts the Firestore emulator, seeds two tenants **with the rules
+suspended** — so a seeding mistake cannot be mistaken for a rule that permits a
+write — and then drives the real client SDK as a signed-in user of each, with
+the claims `functions/exchange.js` mints. 53 cases, both directions: a tenant
+reads its own record and an auditor sees the evidence index; a tenant cannot
+reach another tenant by any of seven paths, cannot list the `clients`
+collection, and no role can write anywhere at all.
+
+A suite of denials that all pass proves nothing on its own — rules that deny
+everything would pass it too. So the positives are asserted as well, and the
+whole thing was checked by mutation: replacing `ownsTenant` with `return true`
+fails 17 cases. The suite is testing the partition, not agreeing with it.
+
+Two cases are there for reasons worth keeping:
+
+- **Listing `clients`.** `allow read` covers `get` and `list`, and a list is
+  evaluated against the query rather than the documents. A root collection query
+  is the one request that would undo the whole partition in a single call.
+- **An assessment id containing a slash.** `assessments/a/b/c` matches no rule
+  and is therefore closed — which is exactly the silent loss the ingest's id
+  check in §8.3 prevents, demonstrated at the layer where it would have bitten.
+
+This is the only gate needing an installed toolchain, so it is its own CI job.
+
+---
+
+## 11. What has not been proven
 
 Set out in full in `STATUS.md`. In short: everything that runs locally has been
 run, repeatedly. Nothing that needs a GitHub runner, a Jenkins agent or a GCP
