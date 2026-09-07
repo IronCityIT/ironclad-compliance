@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ironclad Compliance</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink:#1a202c; --muted:#5a6373; --line:#e2e8f0; --navy:#1a365d; --bg:#f7fafc;
+    --met:#22543d; --met-bg:#c6f6d5; --part:#744210; --part-bg:#feebc8;
+    --gap:#822727; --gap-bg:#fed7d7; --acc:#2a4365; --acc-bg:#bee3f8;
+    --good:#22543d; --fair:#744210; --poor:#822727;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+         color:var(--ink); background:var(--bg); line-height:1.5; }
+  header.top { background:var(--navy); color:#fff; padding:14px 24px;
+               display:flex; align-items:center; justify-content:space-between; gap:16px; }
+  header.top h1 { font-size:15pt; margin:0; font-weight:650; letter-spacing:.01em; }
+  header.top .who { font-size:9.5pt; color:#cbd5e0; text-align:right; }
+  header.top .who strong { color:#fff; display:block; font-size:10.5pt; }
+  button { font:inherit; border:0; border-radius:6px; padding:8px 16px; cursor:pointer;
+           background:#2c5282; color:#fff; font-weight:600; }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  button.ghost { background:transparent; color:#cbd5e0; border:1px solid #4a5f85; }
+  main { max-width:1100px; margin:0 auto; padding:24px; }
+  section { background:#fff; border:1px solid var(--line); border-radius:10px;
+            padding:20px 22px; margin-bottom:20px; }
+  section h2 { margin:0 0 4px; font-size:12.5pt; color:var(--navy); }
+  section p.hint { margin:0 0 16px; font-size:9.5pt; color:var(--muted); }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+  label.field { display:block; font-size:9.5pt; font-weight:600; color:var(--muted); }
+  label.field select, label.field input {
+    width:100%; margin-top:5px; padding:8px 10px; font:inherit; font-weight:400;
+    color:var(--ink); border:1px solid var(--line); border-radius:6px; background:#fff; }
+  fieldset { border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin:16px 0 0; }
+  legend { font-size:9pt; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+           color:var(--muted); padding:0 6px; }
+  .presets { display:flex; gap:16px; flex-wrap:wrap; }
+  .preset { display:flex; align-items:center; gap:6px; font-size:10pt; text-transform:capitalize; }
+  .capabilities { display:grid; gap:10px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); }
+  .capability { display:grid; grid-template-columns:auto 1fr; gap:4px 8px; align-items:start;
+                font-size:9.5pt; }
+  .capability input { margin-top:4px; }
+  .capability-name { font-weight:650; text-transform:capitalize; }
+  .capability-desc { grid-column:2; color:var(--muted); font-size:9pt; }
+  .actions { margin-top:18px; display:flex; align-items:center; gap:14px; }
+  .assessment { border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+                margin-bottom:12px; }
+  .assessment header { display:flex; justify-content:space-between; align-items:center; }
+  .assessment .meta { font-size:9pt; color:var(--muted); margin-top:2px; }
+  .score { font-size:18pt; font-weight:700; }
+  .score.good { color:var(--good); } .score.fair { color:var(--fair); } .score.poor { color:var(--poor); }
+  .bars { display:flex; height:8px; border-radius:4px; overflow:hidden; margin:10px 0 8px;
+          background:var(--line); }
+  .bar.compliant { background:#48bb78; } .bar.partial { background:#ed8936; }
+  .bar.accepted_risk { background:#4299e1; } .bar.gap { background:#e53e3e; }
+  .counts { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:11px; font-size:8pt; font-weight:700; }
+  .pill.compliant { background:var(--met-bg); color:var(--met); }
+  .pill.partial, .pill.medium { background:var(--part-bg); color:var(--part); }
+  .pill.gap, .pill.critical, .pill.high { background:var(--gap-bg); color:var(--gap); }
+  .pill.accepted_risk { background:var(--acc-bg); color:var(--acc); }
+  .pill.pending, .pill.low, .pill.info { background:#edf2f7; color:#4a5568; }
+  table { width:100%; border-collapse:collapse; font-size:9.5pt; }
+  th { text-align:left; font-size:8pt; text-transform:uppercase; letter-spacing:.05em;
+       color:var(--muted); padding:8px 10px; border-bottom:2px solid var(--line); }
+  td { padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.overdue td { background:#fff5f5; }
+  tr.overdue em { color:var(--gap); font-style:normal; font-weight:700; }
+  .cid { font-weight:700; color:var(--navy); white-space:nowrap; }
+  .note { font-size:8.5pt; color:var(--muted); margin-top:3px; }
+  .empty { color:var(--muted); font-size:10pt; margin:0; }
+  .warn { color:var(--part); font-size:9pt; margin:8px 0 0; }
+  .error { color:var(--gap); font-size:9.5pt; }
+  #app-error, #not-configured { background:#fff5f5; border:1px solid #feb2b2; color:var(--gap);
+                                border-radius:8px; padding:14px 16px; margin-bottom:20px; }
+  #not-configured { background:#fffaf0; border-color:#fbd38d; color:var(--part); }
+  footer { text-align:center; font-size:8.5pt; color:var(--muted); padding:24px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Ironclad Compliance</h1>
+  <div style="display:flex;align-items:center;gap:14px">
+    <div class="who" id="signed-in" hidden>
+      <strong id="client-name"></strong>
+      <span id="client-roles"></span>
+    </div>
+    <button id="sign-in" hidden>Sign in</button>
+    <button id="sign-out" class="ghost" hidden>Sign out</button>
+  </div>
+</header>
+
+<main>
+  <div id="not-configured" hidden>
+    <strong>This dashboard is not configured yet.</strong>
+    Its Auth0 and Firebase settings are injected at deploy time and are still
+    placeholders, so sign-in is unavailable.
+  </div>
+
+  <div id="app-error" hidden></div>
+
+  <section id="signed-out" hidden>
+    <h2>Sign in to continue</h2>
+    <p class="hint">Your compliance position, evidence and remediation queue are
+       visible only to your organisation.</p>
+  </section>
+
+  <form id="new-assessment" hidden>
+    <section>
+      <h2>Start an assessment</h2>
+      <p class="hint">Choose a framework and where your evidence is held. Run a
+         named group, or pick individual capabilities.</p>
+
+      <div class="grid">
+        <label class="field">Framework
+          <select name="framework" id="framework-select" required></select>
+        </label>
+        <label class="field">Evidence location
+          <input name="evidence_path" placeholder="gs://bucket/your-client/" required>
+        </label>
+        <label class="field">Assessment type
+          <select name="assessment_type" id="assessment-type-select"></select>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>Preset</legend>
+        <div class="presets" id="group-presets"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Or select capabilities</legend>
+        <div class="capabilities" id="capability-list"></div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit">Start assessment</button>
+        <span class="note">Selecting individual capabilities overrides the preset.</span>
+      </div>
+    </section>
+  </form>
+
+  <p class="note" id="run-note" hidden></p>
+
+  <section>
+    <h2>Assessments</h2>
+    <p class="hint">Most recent first. Results appear here as soon as a run completes.</p>
+    <div id="assessments"><p class="empty">Sign in to see your assessments.</p></div>
+  </section>
+
+  <section>
+    <h2>Remediation queue</h2>
+    <p class="hint">Outstanding work across every framework, highest risk first.</p>
+    <table>
+      <thead>
+        <tr><th>Control</th><th>Action</th><th>Severity</th><th>Target date</th>
+        <th>Evidence required</th></tr>
+      </thead>
+      <tbody id="remediation">
+        <tr><td colspan="5"><p class="empty">Sign in to see your remediation queue.</p></td></tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<footer>Ironclad Compliance · Iron City IT Advisors</footer>
+
+<script src="/config.js"></script>
+<script type="module">
+  import { renderCatalog } from "/app.js";
+
+  const config = window.ICIT_CONFIG;
+
+  // The capability list, the presets and the framework picker all come from
+  // catalog.json, which is generated from the engine's registry. There is no
+  // second list of capabilities anywhere in this page.
+  const catalog = await fetch("/catalog.json").then((r) => r.json());
+  const parts = renderCatalog(catalog);
+  document.getElementById("capability-list").innerHTML = parts.modules;
+  document.getElementById("group-presets").innerHTML = parts.groups;
+  document.getElementById("framework-select").innerHTML = parts.frameworks;
+  document.getElementById("assessment-type-select").innerHTML = parts.assessmentTypes;
+
+  // Placeholders survive when the deploy step has not run. Say so plainly
+  // rather than failing with a console error nobody sees.
+  const configured = !JSON.stringify(config).includes("__");
+  if (!configured) {
+    document.getElementById("not-configured").hidden = false;
+  } else {
+    const { startAuth } = await import("/auth.js");
+    await startAuth(config);
+  }
+</script>
+</body>
+</html>

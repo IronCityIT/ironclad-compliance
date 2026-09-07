@@ -1,0 +1,10 @@
+# The Ironclad core is standard-library only by design. An evidence engine that
+# parses a manifest, maps controls and scores a framework needs no third-party
+# runtime dependency, which keeps the CI container and the Jenkins agent light
+# and keeps the quality gates honest.
+#
+# Optional extras (never required to run a text-evidence assessment):
+#   PyPDF2, python-docx, openpyxl  -> binary evidence extraction
+#   requests                       -> framework update checker
+#   weasyprint                     -> PDF rendering of the HTML report
+# They are installed per-job in .github/workflows/, not pinned here.

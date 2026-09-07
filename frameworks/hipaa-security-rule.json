@@ -1,0 +1,508 @@
+{
+  "framework": {
+    "id": "hipaa",
+    "name": "HIPAA Security Rule",
+    "version": "45 CFR Part 164 Subpart C",
+    "source": "HHS"
+  },
+  "controls": [
+    {
+      "id": "164.308(a)(1)(ii)(A)",
+      "name": "Risk Analysis",
+      "description": "Conduct an accurate and thorough assessment of the potential risks and vulnerabilities to the confidentiality, integrity, and availability of electronic protected health information held by the covered entity or business associate.",
+      "domain": "Administrative Safeguards \u2014 Security Management Process",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(1)(ii)(A).1",
+          "description": "All ePHI locations are in scope"
+        },
+        {
+          "id": "164.308(a)(1)(ii)(A).2",
+          "description": "Risks and vulnerabilities are identified and rated"
+        },
+        {
+          "id": "164.308(a)(1)(ii)(A).3",
+          "description": "The analysis is updated periodically"
+        }
+      ],
+      "common_evidence": [
+        "Risk assessment",
+        "Risk register",
+        "ePHI data inventory",
+        "Data flow diagram"
+      ]
+    },
+    {
+      "id": "164.308(a)(1)(ii)(B)",
+      "name": "Risk Management",
+      "description": "Implement security measures sufficient to reduce risks and vulnerabilities to a reasonable and appropriate level.",
+      "domain": "Administrative Safeguards \u2014 Security Management Process",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(1)(ii)(B).1",
+          "description": "Risk treatment decisions are recorded"
+        },
+        {
+          "id": "164.308(a)(1)(ii)(B).2",
+          "description": "Measures are implemented and tracked"
+        }
+      ],
+      "common_evidence": [
+        "Risk treatment plan",
+        "Remediation tracker",
+        "Risk management policy"
+      ]
+    },
+    {
+      "id": "164.308(a)(1)(ii)(D)",
+      "name": "Information System Activity Review",
+      "description": "Implement procedures to regularly review records of information system activity, such as audit logs, access reports, and security incident tracking reports.",
+      "domain": "Administrative Safeguards \u2014 Security Management Process",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(1)(ii)(D).1",
+          "description": "Review procedures are defined"
+        },
+        {
+          "id": "164.308(a)(1)(ii)(D).2",
+          "description": "Reviews are performed and evidenced"
+        }
+      ],
+      "common_evidence": [
+        "Log review records",
+        "Access reports",
+        "Incident tracking report"
+      ]
+    },
+    {
+      "id": "164.308(a)(3)(ii)(A)",
+      "name": "Authorization and Supervision",
+      "description": "Implement procedures for the authorization and/or supervision of workforce members who work with electronic protected health information or in locations where it might be accessed.",
+      "domain": "Administrative Safeguards \u2014 Workforce Security",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(3)(ii)(A).1",
+          "description": "Access is authorized before it is granted"
+        },
+        {
+          "id": "164.308(a)(3)(ii)(A).2",
+          "description": "Workforce access is supervised"
+        }
+      ],
+      "common_evidence": [
+        "Access request approvals",
+        "Workforce security policy",
+        "Supervision records"
+      ]
+    },
+    {
+      "id": "164.308(a)(3)(ii)(C)",
+      "name": "Termination Procedures",
+      "description": "Implement procedures for terminating access to electronic protected health information when the employment of, or other arrangement with, a workforce member ends.",
+      "domain": "Administrative Safeguards \u2014 Workforce Security",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(3)(ii)(C).1",
+          "description": "Termination triggers access removal"
+        },
+        {
+          "id": "164.308(a)(3)(ii)(C).2",
+          "description": "Removal is timely and evidenced"
+        }
+      ],
+      "common_evidence": [
+        "Termination checklist",
+        "Deprovisioning tickets",
+        "Joiner mover leaver records"
+      ]
+    },
+    {
+      "id": "164.308(a)(4)(ii)(B)",
+      "name": "Access Authorization",
+      "description": "Implement policies and procedures for granting access to electronic protected health information, for example, through access to a workstation, transaction, program, process, or other mechanism.",
+      "domain": "Administrative Safeguards \u2014 Information Access Management",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(4)(ii)(B).1",
+          "description": "Grant criteria are documented"
+        },
+        {
+          "id": "164.308(a)(4)(ii)(B).2",
+          "description": "Least privilege is applied"
+        }
+      ],
+      "common_evidence": [
+        "Access control policy",
+        "Role definitions",
+        "Access request approvals"
+      ]
+    },
+    {
+      "id": "164.308(a)(4)(ii)(C)",
+      "name": "Access Establishment and Modification",
+      "description": "Implement policies and procedures that, based upon the entity's access authorization policies, establish, document, review, and modify a user's right of access to a workstation, transaction, program, or process.",
+      "domain": "Administrative Safeguards \u2014 Information Access Management",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(4)(ii)(C).1",
+          "description": "Access changes are documented"
+        },
+        {
+          "id": "164.308(a)(4)(ii)(C).2",
+          "description": "Access rights are reviewed periodically"
+        }
+      ],
+      "common_evidence": [
+        "User access review",
+        "Access change tickets",
+        "Permission export"
+      ]
+    },
+    {
+      "id": "164.308(a)(5)(ii)(B)",
+      "name": "Protection from Malicious Software",
+      "description": "Procedures for guarding against, detecting, and reporting malicious software.",
+      "domain": "Administrative Safeguards \u2014 Security Awareness and Training",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(5)(ii)(B).1",
+          "description": "Anti-malware protection is deployed"
+        },
+        {
+          "id": "164.308(a)(5)(ii)(B).2",
+          "description": "Detection is reported and acted on"
+        }
+      ],
+      "common_evidence": [
+        "Anti-malware deployment report",
+        "Scan reports",
+        "Security awareness training records"
+      ]
+    },
+    {
+      "id": "164.308(a)(5)(ii)(C)",
+      "name": "Log-in Monitoring",
+      "description": "Procedures for monitoring log-in attempts and reporting discrepancies.",
+      "domain": "Administrative Safeguards \u2014 Security Awareness and Training",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(5)(ii)(C).1",
+          "description": "Failed log-ins are monitored"
+        },
+        {
+          "id": "164.308(a)(5)(ii)(C).2",
+          "description": "Discrepancies are reported"
+        }
+      ],
+      "common_evidence": [
+        "Authentication logs",
+        "Alert configuration",
+        "Monitoring reports"
+      ]
+    },
+    {
+      "id": "164.308(a)(6)(ii)",
+      "name": "Response and Reporting",
+      "description": "Identify and respond to suspected or known security incidents; mitigate, to the extent practicable, harmful effects of security incidents that are known to the covered entity or business associate; and document security incidents and their outcomes.",
+      "domain": "Administrative Safeguards \u2014 Security Incident Procedures",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(6)(ii).1",
+          "description": "Incidents are identified and responded to"
+        },
+        {
+          "id": "164.308(a)(6)(ii).2",
+          "description": "Harmful effects are mitigated"
+        },
+        {
+          "id": "164.308(a)(6)(ii).3",
+          "description": "Incidents and outcomes are documented"
+        }
+      ],
+      "common_evidence": [
+        "Incident response plan",
+        "Incident register",
+        "Post-incident reports"
+      ]
+    },
+    {
+      "id": "164.308(a)(7)(ii)(A)",
+      "name": "Data Backup Plan",
+      "description": "Establish and implement procedures to create and maintain retrievable exact copies of electronic protected health information.",
+      "domain": "Administrative Safeguards \u2014 Contingency Plan",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(7)(ii)(A).1",
+          "description": "Backups are created on schedule"
+        },
+        {
+          "id": "164.308(a)(7)(ii)(A).2",
+          "description": "Copies are retrievable"
+        }
+      ],
+      "common_evidence": [
+        "Backup policy",
+        "Backup job reports",
+        "Restore test records"
+      ]
+    },
+    {
+      "id": "164.308(a)(7)(ii)(B)",
+      "name": "Disaster Recovery Plan",
+      "description": "Establish and implement procedures to restore any loss of data.",
+      "domain": "Administrative Safeguards \u2014 Contingency Plan",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(7)(ii)(B).1",
+          "description": "A recovery procedure exists"
+        },
+        {
+          "id": "164.308(a)(7)(ii)(B).2",
+          "description": "Recovery is tested"
+        }
+      ],
+      "common_evidence": [
+        "Disaster recovery plan",
+        "Recovery test records",
+        "Business continuity plan"
+      ]
+    },
+    {
+      "id": "164.308(a)(8)",
+      "name": "Evaluation",
+      "description": "Perform a periodic technical and nontechnical evaluation, based initially upon the standards implemented under this rule and, subsequently, in response to environmental or operational changes affecting the security of electronic protected health information.",
+      "domain": "Administrative Safeguards \u2014 Evaluation",
+      "points_of_focus": [
+        {
+          "id": "164.308(a)(8).1",
+          "description": "Evaluations are periodic"
+        },
+        {
+          "id": "164.308(a)(8).2",
+          "description": "Findings drive corrective action"
+        }
+      ],
+      "common_evidence": [
+        "Internal audit reports",
+        "Control testing results",
+        "Corrective action plans"
+      ]
+    },
+    {
+      "id": "164.308(b)(1)",
+      "name": "Business Associate Contracts",
+      "description": "A covered entity may permit a business associate to create, receive, maintain, or transmit electronic protected health information on the covered entity's behalf only if satisfactory assurances are obtained.",
+      "domain": "Administrative Safeguards \u2014 Business Associate Contracts",
+      "points_of_focus": [
+        {
+          "id": "164.308(b)(1).1",
+          "description": "Business associates are inventoried"
+        },
+        {
+          "id": "164.308(b)(1).2",
+          "description": "Written agreements are in place"
+        }
+      ],
+      "common_evidence": [
+        "Business associate agreements",
+        "Vendor inventory",
+        "Vendor risk assessments"
+      ]
+    },
+    {
+      "id": "164.310(a)(1)",
+      "name": "Facility Access Controls",
+      "description": "Implement policies and procedures to limit physical access to electronic information systems and the facilities in which they are housed, while ensuring that properly authorized access is allowed.",
+      "domain": "Physical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.310(a)(1).1",
+          "description": "Physical access is limited and authorized"
+        },
+        {
+          "id": "164.310(a)(1).2",
+          "description": "Access is recorded"
+        }
+      ],
+      "common_evidence": [
+        "Badge access logs",
+        "Visitor logs",
+        "Facility access policy",
+        "Data centre attestation"
+      ]
+    },
+    {
+      "id": "164.310(d)(2)(i)",
+      "name": "Media Disposal",
+      "description": "Implement policies and procedures to address the final disposition of electronic protected health information, and/or the hardware or electronic media on which it is stored.",
+      "domain": "Physical Safeguards \u2014 Device and Media Controls",
+      "points_of_focus": [
+        {
+          "id": "164.310(d)(2)(i).1",
+          "description": "Disposal procedures exist"
+        },
+        {
+          "id": "164.310(d)(2)(i).2",
+          "description": "Disposal is documented"
+        }
+      ],
+      "common_evidence": [
+        "Media handling procedure",
+        "Destruction certificates",
+        "Asset disposal records"
+      ]
+    },
+    {
+      "id": "164.312(a)(1)",
+      "name": "Access Control",
+      "description": "Implement technical policies and procedures for electronic information systems that maintain electronic protected health information to allow access only to those persons or software programs that have been granted access rights.",
+      "domain": "Technical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.312(a)(1).1",
+          "description": "Unique user identification is assigned"
+        },
+        {
+          "id": "164.312(a)(1).2",
+          "description": "Emergency access procedure exists"
+        },
+        {
+          "id": "164.312(a)(1).3",
+          "description": "Automatic logoff and encryption are addressed"
+        }
+      ],
+      "common_evidence": [
+        "Access control policy",
+        "User account listing",
+        "Session timeout configuration",
+        "Encryption standard"
+      ]
+    },
+    {
+      "id": "164.312(b)",
+      "name": "Audit Controls",
+      "description": "Implement hardware, software, and/or procedural mechanisms that record and examine activity in information systems that contain or use electronic protected health information.",
+      "domain": "Technical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.312(b).1",
+          "description": "Activity is recorded"
+        },
+        {
+          "id": "164.312(b).2",
+          "description": "Recorded activity is examined"
+        }
+      ],
+      "common_evidence": [
+        "Logging standard",
+        "Audit log extracts",
+        "Log review records"
+      ]
+    },
+    {
+      "id": "164.312(c)(1)",
+      "name": "Integrity",
+      "description": "Implement policies and procedures to protect electronic protected health information from improper alteration or destruction.",
+      "domain": "Technical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.312(c)(1).1",
+          "description": "Alteration is prevented or detected"
+        },
+        {
+          "id": "164.312(c)(1).2",
+          "description": "Integrity mechanisms are in place"
+        }
+      ],
+      "common_evidence": [
+        "File integrity monitoring",
+        "Change control records",
+        "Integrity verification evidence"
+      ]
+    },
+    {
+      "id": "164.312(d)",
+      "name": "Person or Entity Authentication",
+      "description": "Implement procedures to verify that a person or entity seeking access to electronic protected health information is the one claimed.",
+      "domain": "Technical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.312(d).1",
+          "description": "Authentication is enforced"
+        },
+        {
+          "id": "164.312(d).2",
+          "description": "Multi-factor authentication is used where appropriate"
+        }
+      ],
+      "common_evidence": [
+        "Authentication policy",
+        "MFA configuration export",
+        "SSO configuration"
+      ]
+    },
+    {
+      "id": "164.312(e)(1)",
+      "name": "Transmission Security",
+      "description": "Implement technical security measures to guard against unauthorized access to electronic protected health information that is being transmitted over an electronic communications network.",
+      "domain": "Technical Safeguards",
+      "points_of_focus": [
+        {
+          "id": "164.312(e)(1).1",
+          "description": "Transmissions are encrypted"
+        },
+        {
+          "id": "164.312(e)(1).2",
+          "description": "Integrity of transmitted data is protected"
+        }
+      ],
+      "common_evidence": [
+        "TLS configuration",
+        "Transmission security policy",
+        "Email encryption configuration"
+      ]
+    },
+    {
+      "id": "164.316(a)",
+      "name": "Policies and Procedures",
+      "description": "Implement reasonable and appropriate policies and procedures to comply with the standards, implementation specifications, or other requirements of this subpart.",
+      "domain": "Organizational Requirements \u2014 Documentation",
+      "points_of_focus": [
+        {
+          "id": "164.316(a).1",
+          "description": "Policies exist for each standard"
+        },
+        {
+          "id": "164.316(a).2",
+          "description": "Policies are approved and current"
+        }
+      ],
+      "common_evidence": [
+        "Information security policy",
+        "Policy approval records",
+        "Policy register"
+      ]
+    },
+    {
+      "id": "164.316(b)(2)(i)",
+      "name": "Documentation Retention",
+      "description": "Retain the documentation required by this subpart for six years from the date of its creation or the date when it last was in effect, whichever is later.",
+      "domain": "Organizational Requirements \u2014 Documentation",
+      "points_of_focus": [
+        {
+          "id": "164.316(b)(2)(i).1",
+          "description": "Retention period is defined as six years"
+        },
+        {
+          "id": "164.316(b)(2)(i).2",
+          "description": "Retention is enforced"
+        }
+      ],
+      "common_evidence": [
+        "Document retention policy",
+        "Retention configuration",
+        "Records inventory"
+      ]
+    }
+  ]
+}

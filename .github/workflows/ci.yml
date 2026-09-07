@@ -1,0 +1,175 @@
+name: CI
+
+# The same gates the Jenkins pipeline runs, so a change is checked whichever
+# route it takes. Jenkinsfile is the authority on the gate order; keep the two
+# in step.
+
+on:
+  push:
+    branches: [main, 'productize/**', 'fix/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install development dependencies
+        run: pip install --quiet -r requirements-dev.txt
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Typecheck
+        run: mypy
+
+      - name: Test
+        run: pytest --cov=ironclad --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+
+      - name: Validate artifacts
+        run: python scripts/validate_artifacts.py
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          pip install --quiet build
+          python -m build
+
+      - name: Smoke test the built package
+        run: |
+          set -euo pipefail
+          python -m ironclad.cli list-modules > /dev/null
+          python -m ironclad.cli list-frameworks > /dev/null
+          for framework in soc2 nist-csf pci-dss hipaa; do
+            python -m ironclad.cli validate --framework "$framework"
+          done
+
+      - name: Upload the test report
+        if: always() && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            junit.xml
+            coverage.xml
+          retention-days: 14
+
+  functions:
+    name: Cloud Functions and dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No install step: the functions' decisions live in core.js, which has no
+      # dependencies, and the tests use the runtime's own test runner. The
+      # firebase SDKs are only needed to deploy.
+      - name: Syntax check
+        run: npm --prefix functions run lint
+
+      - name: Test
+        run: npm --prefix functions test
+
+      # Client-facing rendering. Everything on this surface builds HTML from
+      # data that arrived out of Firestore, so escaping is the whole defence.
+      - name: Test the dashboard rendering
+        run: npm --prefix dashboard test
+
+  rules:
+    name: Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/rules/package-lock.json
+
+      # The one gate that needs an installed toolchain: the emulator is a JVM
+      # process, and the suite drives it through the real client SDK. Nothing
+      # here talks to a live project — `--project` names a scratch id.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the emulator harness
+        run: npm --prefix tests/rules ci
+
+      - name: Exercise firestore.rules against the emulator
+        run: npm --prefix tests/rules test
+
+  security:
+    name: Security gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the security tooling
+        run: pip install --quiet pip-audit bandit
+
+      - name: Audit the declared dependencies
+        # Audits what this repository declares, not whatever else happens to be
+        # installed on the runner. A vulnerable dependency fails the gate.
+        run: pip-audit --strict --desc --requirement requirements.txt --requirement requirements-dev.txt
+
+      - name: Static security analysis
+        run: bandit --quiet --recursive ironclad scripts tools
+
+      - name: Check for committed secrets
+        # Named secrets only, never values. A literal that looks like a
+        # credential is a hard failure, not a warning.
+        run: |
+          set -euo pipefail
+          pattern='(api[_-]?key|secret|token|password|passwd|credential)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9_/+=-]{12,}'
+          if grep -rEn "$pattern" \
+               --include='*.py' --include='*.js' --include='*.yml' \
+               --include='*.json' --include='Jenkinsfile' \
+               --exclude-dir=node_modules . ; then
+            echo "::error::a hardcoded credential literal is present"
+            exit 1
+          fi
+          echo "no hardcoded credential literals"
+
+      - name: Check the white-label rule
+        # No underlying tool or model vendor may be named on a client-facing
+        # surface: the report, the dashboard, or the capability catalog.
+        run: |
+          set -euo pipefail
+          surfaces="ironclad/report/render.py dashboard/public/index.html dashboard/public/app.js dashboard/public/catalog.json"
+          if grep -inE 'zap|nuclei|wazuh|prowler|puppeteer|openai|anthropic|groq|gemini' $surfaces ; then
+            echo "::error::an underlying tool is named on a client-facing surface"
+            exit 1
+          fi
+          echo "no tool names on any client-facing surface"

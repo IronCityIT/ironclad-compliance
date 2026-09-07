@@ -1,204 +1,81 @@
 #!/usr/bin/env python3
+"""Control assessment — CLI wrapper.
+
+The assessment logic lives in the ironclad package (ingest -> engine -> modules).
+This preserves the flags the compliance-assessment workflow already passes, and
+writes the same output path it already reads.
+
+`ironclad assess` is the richer entry point: it also emits the base64 findings
+payload the AI consensus engine expects and the rendered report.
 """
-Control Assessment Engine
-Maps client evidence to framework controls and outputs findings for AI analysis.
-NOTE: AI analysis is handled by the central consensus-engine, not here.
-"""
+
+from __future__ import annotations
 
 import argparse
-import json
-from datetime import datetime, timezone
+import sys
 from pathlib import Path
-from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ironclad.engine import run_assessment  # noqa: E402
+from ironclad.errors import IroncladError  # noqa: E402
+from ironclad.frameworks.crosswalk import load_crosswalks  # noqa: E402
+from ironclad.ids import slugify  # noqa: E402
+from ironclad.ingest import collect_from_directory  # noqa: E402
+from ironclad.report.export import export_json  # noqa: E402
 
 
-def load_framework(framework_path: Path) -> dict:
-    """Load the compliance framework JSON."""
-    with open(framework_path) as f:
-        return json.load(f)
-
-
-def load_evidence_files(evidence_dir: Path) -> list:
-    """Load and catalog all evidence files."""
-    evidence_files = []
-    for file_path in evidence_dir.iterdir():
-        if file_path.is_file():
-            evidence_files.append({
-                "name": file_path.name,
-                "path": str(file_path),
-                "type": file_path.suffix.lower().lstrip("."),
-                "size": file_path.stat().st_size
-            })
-    return evidence_files
-
-
-def extract_text_from_file(file_path: Path) -> Optional[str]:
-    """Extract text content from various file types."""
-    suffix = file_path.suffix.lower()
-    
-    try:
-        if suffix in [".txt", ".md", ".csv", ".json"]:
-            return file_path.read_text(errors="ignore")[:5000]
-        
-        elif suffix == ".pdf":
-            try:
-                import PyPDF2
-                with open(file_path, "rb") as f:
-                    reader = PyPDF2.PdfReader(f)
-                    text = ""
-                    for page in reader.pages[:5]:
-                        text += page.extract_text() or ""
-                    return text[:5000]
-            except Exception:
-                return f"[PDF: {file_path.name}]"
-        
-        elif suffix == ".docx":
-            try:
-                from docx import Document
-                doc = Document(file_path)
-                return "\n".join([p.text for p in doc.paragraphs])[:5000]
-            except Exception:
-                return f"[DOCX: {file_path.name}]"
-        
-        elif suffix in [".xlsx", ".xls"]:
-            try:
-                import openpyxl
-                wb = openpyxl.load_workbook(file_path, read_only=True)
-                text = ""
-                for sheet in wb.worksheets[:2]:
-                    for row in sheet.iter_rows(max_row=50, values_only=True):
-                        text += " ".join([str(c) for c in row if c]) + "\n"
-                return text[:5000]
-            except Exception:
-                return f"[XLSX: {file_path.name}]"
-                
-    except Exception as e:
-        print(f"  Warning: Could not extract from {file_path.name}: {e}")
-    
-    return None
-
-
-def match_evidence_to_control(control: dict, evidence_texts: dict) -> dict:
-    """
-    Simple keyword matching to determine if evidence might satisfy a control.
-    Returns a finding dict for AI analysis.
-    """
-    control_keywords = []
-    
-    # Extract keywords from control description
-    description = control.get("description", "").lower()
-    name = control.get("name", "").lower()
-    
-    # Common evidence types as keywords
-    common_evidence = control.get("common_evidence", [])
-    for ev in common_evidence:
-        control_keywords.extend(ev.lower().split())
-    
-    # Check which evidence files might be relevant
-    matched_evidence = []
-    for filename, text in evidence_texts.items():
-        text_lower = text.lower()
-        # Simple keyword matching
-        matches = sum(1 for kw in control_keywords if kw in text_lower)
-        if matches > 2:
-            matched_evidence.append(filename)
-    
-    # Determine preliminary status based on evidence availability
-    if len(matched_evidence) >= 2:
-        status = "potential_compliant"
-    elif len(matched_evidence) == 1:
-        status = "potential_partial"
-    else:
-        status = "potential_gap"
-    
-    return {
-        "control_id": control["id"],
-        "control_name": control["name"],
-        "control_description": control["description"][:500],
-        "common_evidence_types": common_evidence,
-        "evidence_found": matched_evidence,
-        "preliminary_status": status,
-        "points_of_focus_count": len(control.get("points_of_focus", [])),
-        "requires_ai_analysis": True
-    }
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Assess compliance controls")
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Assess compliance controls against evidence.")
     parser.add_argument("--client-id", required=True)
-    parser.add_argument("--framework", required=True)
+    parser.add_argument("--framework", required=True, help="framework alias or path to a JSON file")
     parser.add_argument("--evidence-dir", required=True)
     parser.add_argument("--assessment-type", default="full")
+    parser.add_argument("--group", default="deep", help="quick | standard | deep")
+    parser.add_argument("--assessment-id", default="")
     parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-    
-    framework_path = Path(args.framework)
+    args = parser.parse_args(argv)
+
+    tenant = slugify(args.client_id)
     evidence_dir = Path(args.evidence_dir)
-    output_path = Path(args.output)
-    
-    print(f"🔍 Starting compliance assessment for {args.client_id}")
-    
-    # Load framework
-    framework = load_framework(framework_path)
-    controls = framework.get("controls", [])
-    print(f"   Loaded {len(controls)} controls from {framework_path.name}")
-    
-    # Load evidence
-    evidence_files = load_evidence_files(evidence_dir)
-    print(f"   Found {len(evidence_files)} evidence files")
-    
-    # Extract text from evidence
-    evidence_texts = {}
-    for ef in evidence_files:
-        text = extract_text_from_file(Path(ef["path"]))
-        if text:
-            evidence_texts[ef["name"]] = text
-    
-    print(f"   Extracted text from {len(evidence_texts)} files")
-    
-    # Map evidence to controls
-    findings = []
-    for control in controls:
-        finding = match_evidence_to_control(control, evidence_texts)
-        findings.append(finding)
-    
-    # Calculate preliminary stats
-    potential_compliant = sum(1 for f in findings if f["preliminary_status"] == "potential_compliant")
-    potential_partial = sum(1 for f in findings if f["preliminary_status"] == "potential_partial")
-    potential_gap = sum(1 for f in findings if f["preliminary_status"] == "potential_gap")
-    
-    # Build output
-    result = {
-        "assessment_id": f"{args.client_id}-{framework['framework']['id']}-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "client_id": args.client_id,
-        "framework": {
-            "id": framework["framework"]["id"],
-            "name": framework["framework"]["name"],
-            "version": framework["framework"]["version"]
-        },
-        "assessment_type": args.assessment_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "evidence_files": evidence_files,
-        "preliminary_summary": {
-            "total_controls": len(controls),
-            "potential_compliant": potential_compliant,
-            "potential_partial": potential_partial,
-            "potential_gap": potential_gap
-        },
-        "findings": findings,
-        "note": "Preliminary assessment - requires AI consensus analysis for final determination"
-    }
-    
-    with open(output_path, "w") as f:
-        json.dump(result, f, indent=2)
-    
-    print(f"\n✅ Preliminary assessment complete")
-    print(f"   Potential Compliant: {potential_compliant}")
-    print(f"   Potential Partial: {potential_partial}")
-    print(f"   Potential Gap: {potential_gap}")
-    print(f"   Output: {output_path}")
-    print(f"   → Sending to AI Consensus Engine for final analysis...")
+    if not evidence_dir.is_dir():
+        print(f"evidence directory not found: {evidence_dir}", file=sys.stderr)
+        return 2
+
+    evidence, warnings = collect_from_directory(tenant, evidence_dir, args.framework)
+
+    try:
+        result = run_assessment(
+            tenant_id=tenant,
+            framework=args.framework,
+            evidence=evidence,
+            group=args.group,
+            crosswalk=load_crosswalks(),
+            assessment_type=args.assessment_type,
+            assessment_id=args.assessment_id,
+        )
+    except IroncladError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    result.warnings.extend(warnings)
+    Path(args.output).write_text(export_json(result), encoding="utf-8")
+
+    summary = result.assessment.summary
+    print(f"assessment {result.assessment.assessment_id}")
+    print(f"  readiness      {summary.readiness_score}%")
+    print(f"  met            {summary.compliant}")
+    print(f"  partially met  {summary.partial}")
+    print(f"  not met        {summary.gap}")
+    print(f"  risk accepted  {summary.accepted_risk}")
+    print(f"  evidence       {summary.evidence_artifacts} ({summary.stale_artifacts} out of date)")
+    print(f"  remediation    {len(result.plan)} item(s)")
+    print(f"  output         {args.output}")
+    for warning in result.warnings:
+        print(f"  warning: {warning}", file=sys.stderr)
+
+    return 0 if result.ok else 3
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
