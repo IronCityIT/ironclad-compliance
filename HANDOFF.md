@@ -119,7 +119,7 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Format | `ruff format --check .` | PASS — 65 files |
 | Lint | `ruff check .` | PASS |
 | Typecheck | `mypy` | PASS — 63 source files |
-| Test | `pytest` | PASS — 442 passed, 18 skipped (MariaDB, no local server) |
+| Test | `pytest` | PASS — 471 passed, 18 skipped (MariaDB, no local server) |
 | Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
 | Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
@@ -512,9 +512,7 @@ endpoint). Do not conclude the security gate is green from a local run.
 Ordered by value, non-blocked first.
 
 1. **Persistence port + MariaDB implementation** (§13 stages 1–3).
-2. **Trend comparison between assessments** — `ironclad compare --from --to`,
-   readiness movement and which controls changed. The stored record already
-   supports it; nothing consumes it yet.
+2. ~~Trend comparison between assessments~~ — **done**, `ironclad compare`.
 3. **Evidence collection from a NAS volume** rather than `gs://`.
 4. **`ComplianceService` HTTP surface** — the service is complete and now has one
    caller (the CLI); an authenticated HTTP surface would give the dashboard a

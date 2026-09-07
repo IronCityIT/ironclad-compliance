@@ -29,6 +29,7 @@ from ironclad import registry
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest
 from ironclad.api.service import ComplianceService
+from ironclad.compare import compare as compare_assessments
 from ironclad.engine import merge_consensus, run_assessment
 from ironclad.errors import IroncladError, SelectionError, ValidationError
 from ironclad.frameworks.crosswalk import load_crosswalks
@@ -126,6 +127,24 @@ def build_parser() -> argparse.ArgumentParser:
     crosswalk = sub.add_parser("crosswalk", help="show the mapping between two frameworks")
     crosswalk.add_argument("--from", dest="source", required=True)
     crosswalk.add_argument("--to", dest="target", required=True)
+
+    compare = sub.add_parser(
+        "compare",
+        help="what changed between two assessments",
+        description=(
+            "A compliance programme is a trend, not a snapshot. Give two stored "
+            "results, or a client and a store, and this reports what moved: "
+            "readiness, which controls improved or regressed, which remediation "
+            "items closed and which opened. A control scoped out is reported as a "
+            "scope change, never as an improvement."
+        ),
+    )
+    compare.add_argument("--from", dest="earlier", default="", help="the earlier assessment.json")
+    compare.add_argument("--to", dest="later", default="", help="the later assessment.json")
+    compare.add_argument("--client", default="", help="compare a tenant's two most recent")
+    compare.add_argument(
+        "--store", default="", help="store to read from; defaults to $IRONCLAD_STORE"
+    )
 
     store = sub.add_parser(
         "store",
@@ -378,6 +397,47 @@ def cmd_export(args: argparse.Namespace) -> int:
         export_audit_package(result, result.evidence, output)
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
+    return EXIT_OK
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    """Compare two assessments: two files, or a tenant's two most recent."""
+    if args.earlier and args.later:
+        earlier = json.loads(Path(args.earlier).read_text(encoding="utf-8"))
+        later = json.loads(Path(args.later).read_text(encoding="utf-8"))
+    elif args.client:
+        target = args.store or os.environ.get(STORE_ENV, "")
+        if not target:
+            print(f"no store target: pass --store or set {STORE_ENV}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        store = store_from_target(target)
+        reader = getattr(store, "get_document", None)
+        if reader is None:
+            print(
+                "this store keeps the projected rows, not the whole document, so it "
+                "cannot be compared from; pass --from and --to instead",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        recent = store.list_assessments(args.client, limit=2)
+        if len(recent) < 2:
+            print(
+                f"{args.client} has {len(recent)} stored assessment(s); two are needed to compare",
+                file=sys.stderr,
+            )
+            return EXIT_BAD_INPUT
+        # list_assessments is most recent first.
+        later = reader(args.client, str(recent[0]["assessment_id"]))
+        earlier = reader(args.client, str(recent[1]["assessment_id"]))
+    else:
+        print("give --from and --to, or --client", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    comparison = compare_assessments(earlier, later)
+    _emit(comparison.to_dict())
+    print(comparison.headline(), file=sys.stderr)
+    for caveat in comparison.caveats:
+        print(f"  caveat: {caveat}", file=sys.stderr)
     return EXIT_OK
 
 
@@ -678,6 +738,7 @@ def main(argv: list[str] | None = None) -> int:
         "report": lambda: cmd_report(args),
         "export": lambda: cmd_export(args),
         "crosswalk": lambda: cmd_crosswalk(args),
+        "compare": lambda: cmd_compare(args),
         "store": lambda: cmd_store(args),
         "exception": lambda: cmd_exception(args),
     }

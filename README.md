@@ -78,6 +78,9 @@ ironclad exception list    --policy policy.json --actor carol --role auditor
 ironclad store health                     # can the configured store be written to?
 ironclad store publish --input out/assessment.json
 ironclad store list --client acme-corp
+
+ironclad compare --from q3/assessment.json --to q4/assessment.json
+ironclad compare --client acme-corp        # the two most recent, from the store
 ```
 
 `assess` writes three files:
@@ -369,6 +372,27 @@ Secrets are referenced by name and never held in this repository.
 
 GCP region is **us-east5 (Columbus)** throughout. Auth0 tenant is
 `dev-ws5377dam2tnlv5g.us.auth0.com`, using Organizations for tenant SSO.
+
+## What changed since last time
+
+A compliance programme is a trend, not a snapshot. `ironclad compare` reports
+what moved between two assessments: readiness, which controls improved or
+regressed, which remediation items closed and which opened.
+
+Three rules keep a trend from flattering a client by accident:
+
+- **A control scoped out is not a control fixed.** Moving to `not_applicable`
+  leaves the readiness denominator and lifts the score, which looks exactly like
+  progress. It is reported as a scope change, in its own list.
+- **Accepting a risk is a decision, not a fix.** `partial` → `accepted_risk`
+  does not appear in the improved list.
+- **A framework version change is not a trend.** The control set moved
+  underneath the comparison, and the comparison says so rather than quietly
+  producing a number.
+
+Controls present in only one of the two runs are named, never dropped — a
+control that disappears is either a scope change or a defect, and omitting it
+hides which.
 
 ## Where a result comes to rest
 
