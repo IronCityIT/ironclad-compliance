@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -49,7 +50,13 @@ from ironclad.report.export import (
 )
 from ironclad.report.render import render_html
 from ironclad.report.views import ASSESSMENT_TYPES, DEFAULT_VIEW, view_for
+from ironclad.store import store_from_target, target_summary
 from ironclad.version import __version__
+
+#: Where results are published, when --to is not given. An environment variable
+#: because the value is a DSN and a DSN carries a password: a command line ends
+#: up in a process list, a shell history and a CI log.
+STORE_ENV = "IRONCLAD_STORE"
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
@@ -119,6 +126,37 @@ def build_parser() -> argparse.ArgumentParser:
     crosswalk = sub.add_parser("crosswalk", help="show the mapping between two frameworks")
     crosswalk.add_argument("--from", dest="source", required=True)
     crosswalk.add_argument("--to", dest="target", required=True)
+
+    store = sub.add_parser(
+        "store",
+        help="publish a stored result, or prepare and check a store",
+        description=(
+            "Where a finished assessment goes. --to names the store: a path or "
+            "file:// for a NAS-backed volume, mysql:// or mariadb:// for MariaDB. "
+            "A DSN carries a password, so pass it through the environment "
+            "(IRONCLAD_STORE) rather than on a command line that ends up in a "
+            "process list and a shell history."
+        ),
+    )
+    store_sub = store.add_subparsers(dest="store_command", required=True)
+
+    def with_target(parser_: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        parser_.add_argument(
+            "--to",
+            default="",
+            help="store target; defaults to $IRONCLAD_STORE",
+        )
+        return parser_
+
+    with_target(store_sub.add_parser("health", help="can this store be written to?"))
+    with_target(store_sub.add_parser("init", help="apply the schema (MariaDB only)"))
+
+    store_publish = with_target(store_sub.add_parser("publish", help="store one result"))
+    store_publish.add_argument("--input", required=True, help="assessment.json from a run")
+
+    store_list = with_target(store_sub.add_parser("list", help="list stored assessments"))
+    store_list.add_argument("--client", required=True, help="tenant to list for")
+    store_list.add_argument("--limit", type=int, default=25)
 
     exception = sub.add_parser(
         "exception",
@@ -340,6 +378,61 @@ def cmd_export(args: argparse.Namespace) -> int:
         export_audit_package(result, result.evidence, output)
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
+    return EXIT_OK
+
+
+def cmd_store(args: argparse.Namespace) -> int:
+    """Publish to, prepare or check a result store.
+
+    This is what replaces POSTing to a Cloud Function. The engine writes its
+    result to disk either way; this decides where that result comes to rest.
+    """
+    target = args.to or os.environ.get(STORE_ENV, "")
+    if not target:
+        print(
+            f"no store target: pass --to or set {STORE_ENV} "
+            "(a path or file:// for a volume, mysql:// for MariaDB)",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    store = store_from_target(target)
+    where = target_summary(target)
+
+    if args.store_command == "health":
+        health = store.health()
+        _emit(health)
+        # Exit non-zero on an unwritable store so a pipeline stops before it
+        # produces a result it cannot publish.
+        return EXIT_OK if health.get("writable") else EXIT_BAD_INPUT
+
+    if args.store_command == "init":
+        initialiser = getattr(store, "init_schema", None)
+        if initialiser is None:
+            print(f"{where} needs no schema", file=sys.stderr)
+            return EXIT_OK
+        statements = initialiser()
+        print(f"applied {len(statements)} statement(s) to {where}", file=sys.stderr)
+        return EXIT_OK
+
+    if args.store_command == "list":
+        _emit(
+            {
+                "store": where,
+                "tenant_id": args.client,
+                "assessments": store.list_assessments(args.client, args.limit),
+            }
+        )
+        return EXIT_OK
+
+    source = Path(args.input)
+    if not source.exists():
+        print(f"result not found: {source}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    document = json.loads(source.read_text(encoding="utf-8"))
+    assessment_id = store.put_assessment(document)
+    print(f"stored {assessment_id} in {where}", file=sys.stderr)
+    _emit({"store": where, "assessment_id": assessment_id, "status": "stored"})
     return EXIT_OK
 
 
@@ -585,6 +678,7 @@ def main(argv: list[str] | None = None) -> int:
         "report": lambda: cmd_report(args),
         "export": lambda: cmd_export(args),
         "crosswalk": lambda: cmd_crosswalk(args),
+        "store": lambda: cmd_store(args),
         "exception": lambda: cmd_exception(args),
     }
 

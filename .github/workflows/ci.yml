@@ -100,6 +100,56 @@ jobs:
       - name: Test the dashboard rendering
         run: npm --prefix dashboard test
 
+  persistence:
+    name: Persistence (MariaDB)
+    runs-on: ubuntu-latest
+
+    # 10.5 on purpose: it is the version actually running on the NAS
+    # (banner 5.5.5-10.5.8-MariaDB-log), so the schema is verified against the
+    # server it has to work on rather than against a newer one that forgives
+    # more. The series is past upstream EOL — see HANDOFF.md.
+    services:
+      mariadb:
+        image: mariadb:10.5
+        env:
+          MARIADB_ROOT_PASSWORD: ${{ github.run_id }}-root
+          MARIADB_DATABASE: ironclad_test
+          MARIADB_USER: ironclad
+          MARIADB_PASSWORD: ${{ github.run_id }}-ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: |
+          pip install --quiet -r requirements-dev.txt
+          # The driver is an optional extra: an assessment needs no database to
+          # run, only to publish. Installed by the job that publishes.
+          pip install --quiet PyMySQL
+
+      - name: Apply the schema
+        env:
+          IRONCLAD_STORE: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
+        run: |
+          python -m ironclad.cli store init
+          python -m ironclad.cli store health
+
+      - name: Test the store against a real MariaDB
+        env:
+          IRONCLAD_TEST_DSN: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
+        run: pytest tests/test_store.py -v
+
   rules:
     name: Firestore rules
     runs-on: ubuntu-latest

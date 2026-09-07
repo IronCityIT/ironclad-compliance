@@ -437,9 +437,15 @@ storage and secrets.
 | Evidence | NAS-backed volume; the database holds references and SHA-256 only |
 | Backups | restic → Backblaze already exists on the NAS per `ICIT-Infrastructure` (**not independently verified**); the new schema and volume must be added to it |
 
-**Not yet designed:** the schema DDL, the migration tool, the connection layer,
-the tenant-scoping mechanism. **Deliberately** — see §16; the transport decision
-in §3.2 changes all four.
+**Built and tested (stages 1–3):** `ironclad/store/` — the `ResultStore` port,
+the row projection, `schema.sql`, `MariaDBResultStore`, `FileResultStore` for
+the volume, and `ironclad store health|init|publish|list`. The MariaDB half runs
+in CI against a MariaDB 10.5 service container, matching the NAS server version.
+
+**Still open:** the transport (§3.2) and the artifact layout for reports and
+auditor packages on the volume. The transport decision does not change any of
+the above: a self-hosted runner, an ingest service and a NAS-side loader all
+call `put_assessment` with the same rows.
 
 ---
 
@@ -451,9 +457,9 @@ no credential and no deployment.
 | Stage | What | Needs | Safe now? |
 |---|---|---|---|
 | 0 | **This document.** Classify every reference; change no behaviour. | — | ✅ done |
-| 1 | Define the persistence port in Python: a `Store` the engine writes through, with the filesystem implementation that already exists (`PolicyStore`) as the reference. Decouple the engine's vocabulary from Firestore. | — | ✅ |
-| 2 | Schema DDL + a MariaDB implementation of that port, tested against a MariaDB the tests start themselves. No production connection. | a MariaDB for tests | ✅ |
-| 3 | A loader that reads `out/assessment.json` and writes the schema, idempotent on `assessment_id`. Tested offline. | — | ✅ |
+| 1 | Persistence port: `ResultStore`, and `rows.py` projecting a result document onto tenant-scoped records. | — | ✅ **done** |
+| 2 | `schema.sql` + `MariaDBResultStore`, tested in CI against a real MariaDB 10.5 service container. | — | ✅ **done** |
+| 3 | The loader: `ironclad store publish`, idempotent on `assessment_id`, plus `FileResultStore` for the NAS volume. | — | ✅ **done** |
 | 4 | Choose the transport (§3.2) and wire the workflow's publish step to it. | **decision + credential** | ⛔ blocked |
 | 5 | Replace the dashboard's data layer; retire `functions/`, `firestore.rules`, `firebase.json`. | stage 4 | ⛔ blocked |
 | 6 | Delete the Firebase surface and its tests once nothing reads them. | stage 5 | ⛔ blocked |

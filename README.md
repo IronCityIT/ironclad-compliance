@@ -74,6 +74,10 @@ ironclad exception request --policy policy.json --actor alice --role contributor
 ironclad exception approve --policy policy.json --actor bob \
   --role compliance_manager --id ex-…
 ironclad exception list    --policy policy.json --actor carol --role auditor
+
+ironclad store health                     # can the configured store be written to?
+ironclad store publish --input out/assessment.json
+ironclad store list --client acme-corp
 ```
 
 `assess` writes three files:
@@ -365,6 +369,37 @@ Secrets are referenced by name and never held in this repository.
 
 GCP region is **us-east5 (Columbus)** throughout. Auth0 tenant is
 `dev-ws5377dam2tnlv5g.us.auth0.com`, using Organizations for tenant SSO.
+
+## Where a result comes to rest
+
+Firebase, Firestore and GCP product storage are **retired from the target
+architecture**. Persistent state moves to NAS-backed MariaDB, with artifact
+files on a NAS volume; GitHub Actions stays the orchestration layer.
+`HANDOFF.md` classifies every remaining reference and stages the migration.
+
+`ironclad store` is the seam. One target string chooses the backend:
+
+| Target | Store |
+|---|---|
+| `/srv/ironclad` or `file:///srv/ironclad` | a NAS-backed volume |
+| `mysql://user:pw@host/db` or `mariadb://…` | MariaDB |
+
+Pass it as `--to`, or set `IRONCLAD_STORE`. **Prefer the environment**: a DSN
+carries a password, and a command line ends up in a process list, a shell
+history and a CI log. Nothing in this product ever prints a DSN — errors name
+`user@host:port/database` and nothing else.
+
+Both backends write the same rows (`ironclad/store/rows.py`), and one test suite
+asserts the same four properties against both: every row tenant-scoped, storing
+twice leaves one record, the audit trail append-only and still chained on the
+way out, and a store that cannot be written to says so before a pipeline
+commits to publishing. The MariaDB half runs in CI against a real **MariaDB
+10.5** service container — the version actually running on the NAS — not against
+a mock.
+
+`ironclad store init` applies `ironclad/store/schema.sql`, and is safe to re-run.
+The driver (`PyMySQL`) is an optional extra: an assessment needs no database to
+run, only to publish.
 
 ## Where the rest is written down
 
