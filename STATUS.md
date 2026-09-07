@@ -36,6 +36,9 @@ deploy, no `workflow_dispatch` fired against a real client.
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
 | Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
+| Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
+| Trend comparison between assessments | **DONE, tested** | `ironclad/compare.py` |
+| End-to-end round trip | **DONE, green in CI against MariaDB and a volume** | `scripts/end_to_end.py` |
 | Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
 | Dashboard | **DONE, rendering tested, not deployed** | `dashboard/public/`, `dashboard/test/` |
@@ -46,14 +49,15 @@ Run on this branch, this machine, 2026-09-06.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | **PASS** — 63 files |
+| Format | `ruff format --check .` | **PASS** — 77 files |
 | Lint | `ruff check .` | **PASS** |
-| Typecheck | `mypy` | **PASS** — 61 source files |
-| Test | `pytest --cov=ironclad` | **PASS** — 442 passed, 18 skipped (MariaDB needs a server) |
+| Typecheck | `mypy` | **PASS** — 75 source files |
+| Test | `pytest` | **PASS** — 490 passed, 18 skipped (MariaDB needs a server) |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
-| Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29; 52 locally, 18 skipped without a server |
+| Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29 |
+| End-to-end | `scripts/end_to_end.py` | **PASS** in CI against MariaDB **and** a volume |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
 | Build | `python -m build` | **PASS** — sdist + wheel |
@@ -83,10 +87,9 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `c0c733c`, run
-[34162039036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34162039036):
+Green on `productize/ironclad-compliance` at `9c54269`:
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
-**Persistence (MariaDB) ✅** · Firestore rules ✅ · Security gate ✅
+Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
 `ci.yml` now also runs a **Cloud Functions** job. `functions/` previously had no
 gate but `node --check`, and no tests at all, while carrying the code that
@@ -122,6 +125,20 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- **The whole path agrees with itself.** `scripts/end_to_end.py` ingests the
+  sample evidence, assesses it, renders the deliverables, publishes and reads
+  the record back — against MariaDB and against a volume, in CI on every push.
+  It checks the readiness a client reads is the readiness stored, the chain head
+  matches, the queue is the tenant's own, and re-publishing leaves one record.
+- **A trend that moves the right controls.** Adding a risk assessment and a
+  change management policy to the sample evidence moved readiness 46.5% → 63.5%,
+  improved 12 controls and closed 7 remediation items — and the controls that
+  moved are CC3.1–CC3.4, CC8.1, CC9.1 and CC9.2, which are the ones those two
+  documents actually evidence.
+- **A tenant's evidence prefix cannot be escaped**: a traversal, a path-shaped
+  client id that would normalise into a different valid tenant, a symlink on the
+  prefix, and a symlink on a file inside it are each refused, and an empty
+  prefix is refused rather than assessed as nothing.
 - The persistence seam against a **real MariaDB 10.5.29** in CI: schema applied
   (7 statements), 70 store tests passed. Two defects it found on its first real
   run, both invisible to a mock — MariaDB truncates silently without a strict
