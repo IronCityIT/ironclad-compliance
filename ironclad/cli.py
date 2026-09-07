@@ -25,6 +25,9 @@ import sys
 from pathlib import Path
 
 from ironclad import registry
+from ironclad.api.policy_store import PolicyStore
+from ironclad.api.schemas import ExceptionRequest
+from ironclad.api.service import ComplianceService
 from ironclad.engine import merge_consensus, run_assessment
 from ironclad.errors import IroncladError, SelectionError, ValidationError
 from ironclad.frameworks.crosswalk import load_crosswalks
@@ -36,6 +39,7 @@ from ironclad.frameworks.loader import (
 )
 from ironclad.ids import slugify
 from ironclad.ingest import collect_from_directory, validate_manifest
+from ironclad.model.tenant import Principal, Role
 from ironclad.policy import find_policy, load_policy, validate_policy
 from ironclad.report.export import (
     export_audit_package,
@@ -115,6 +119,54 @@ def build_parser() -> argparse.ArgumentParser:
     crosswalk = sub.add_parser("crosswalk", help="show the mapping between two frameworks")
     crosswalk.add_argument("--from", dest="source", required=True)
     crosswalk.add_argument("--to", dest="target", required=True)
+
+    exception = sub.add_parser(
+        "exception",
+        help="the risk-acceptance workflow, against a tenant policy file",
+        description=(
+            "Request, approve and revoke risk acceptances. Every step runs through "
+            "the same service the API uses, so the permission checks and the "
+            "separation-of-duties rule hold here exactly as they do there, and each "
+            "step is written to a hash-chained trail beside the policy file. The "
+            "acceptance lands in policy.json, which is what the next assessment reads."
+        ),
+    )
+    exception_sub = exception.add_subparsers(dest="exception_command", required=True)
+
+    def with_actor(parser_: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        # Who is doing this is not optional. The audit trail is the point, and an
+        # unattributed approval is worth nothing to an auditor.
+        parser_.add_argument("--policy", required=True, help="path to the tenant policy file")
+        parser_.add_argument("--actor", required=True, help="user id taking this action")
+        parser_.add_argument(
+            "--role",
+            action="append",
+            default=[],
+            choices=[str(r) for r in Role],
+            help="the actor's role; repeat for more than one",
+        )
+        return parser_
+
+    ex_list = with_actor(exception_sub.add_parser("list", help="list the acceptances on file"))
+    ex_list.add_argument("--status", default="", help="filter by workflow status")
+
+    ex_request = with_actor(exception_sub.add_parser("request", help="raise an acceptance"))
+    ex_request.add_argument("--control", required=True, help="control id being accepted")
+    ex_request.add_argument("--justification", required=True, help="why the risk is accepted")
+    ex_request.add_argument(
+        "--compensating",
+        action="append",
+        default=[],
+        help="a compensating control; repeat for more than one",
+    )
+    ex_request.add_argument("--expires-in-days", type=int, default=90)
+
+    ex_approve = with_actor(exception_sub.add_parser("approve", help="approve an acceptance"))
+    ex_approve.add_argument("--id", dest="exception_id", required=True)
+
+    ex_revoke = with_actor(exception_sub.add_parser("revoke", help="revoke an acceptance"))
+    ex_revoke.add_argument("--id", dest="exception_id", required=True)
+    ex_revoke.add_argument("--reason", required=True, help="why it is being revoked")
 
     return parser
 
@@ -288,6 +340,58 @@ def cmd_export(args: argparse.Namespace) -> int:
         export_audit_package(result, result.evidence, output)
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
+    return EXIT_OK
+
+
+def cmd_exception(args: argparse.Namespace) -> int:
+    """The risk-acceptance workflow, driven through the service.
+
+    Nothing here reimplements a rule. The permission checks, the state machine
+    and the separation-of-duties rule all live below this, so the CLI and a
+    future HTTP surface cannot drift apart on who may accept what.
+    """
+    store = PolicyStore(Path(args.policy))
+    tenant = store.tenant_id()
+    if not tenant:
+        print(
+            f"{args.policy} names no tenant_id; "
+            "a risk acceptance belongs to a client, not to a file",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    caller = Principal(
+        user_id=args.actor,
+        tenant_id=tenant,
+        roles=frozenset(Role(r) for r in args.role),
+    )
+    service = ComplianceService(store=store)
+
+    if args.exception_command == "list":
+        response = service.list_exceptions(caller, tenant, args.status)
+    elif args.exception_command == "request":
+        response = service.request_exception(
+            caller,
+            ExceptionRequest(
+                tenant_id=tenant,
+                control_id=args.control,
+                justification=args.justification,
+                requested_by=args.actor,
+                compensating_controls=list(args.compensating),
+                expires_in_days=args.expires_in_days,
+            ),
+        )
+    elif args.exception_command == "approve":
+        response = service.approve_exception(caller, tenant, args.exception_id)
+    else:
+        response = service.revoke_exception(caller, tenant, args.exception_id, args.reason)
+
+    if not response.ok:
+        for error in response.errors:
+            print(f"refused: {error}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    _emit(response.data)
     return EXIT_OK
 
 
@@ -481,6 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         "report": lambda: cmd_report(args),
         "export": lambda: cmd_export(args),
         "crosswalk": lambda: cmd_crosswalk(args),
+        "exception": lambda: cmd_exception(args),
     }
 
     try:

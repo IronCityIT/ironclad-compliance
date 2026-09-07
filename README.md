@@ -68,6 +68,12 @@ ironclad assess \
   --out out/
 
 ironclad export --input out/assessment.json --format package --out out/package/
+
+ironclad exception request --policy policy.json --actor alice --role contributor \
+  --control CC1.2 --justification "…" --expires-in-days 90
+ironclad exception approve --policy policy.json --actor bob \
+  --role compliance_manager --id ex-…
+ironclad exception list    --policy policy.json --actor carol --role auditor
 ```
 
 `assess` writes three files:
@@ -215,6 +221,14 @@ until when". Three rules are enforced in the model, not the UI:
 These are enforced by replaying the approval workflow, so a hand-written
 `policy.json` cannot assert an approval the workflow would refuse — a
 self-approval fails `ironclad validate --policy`, not at assessment time.
+
+`ironclad exception request|approve|revoke|list` drives that workflow against a
+tenant policy file, so nobody has to hand-write one. Each step runs through the
+same service an API surface would call, so the permission check and the
+separation-of-duties rule hold identically, and each step is appended to a
+hash-chained trail beside the policy (`policy.json.audit.json`) — the ledger is
+not kept in the margin of the document it describes. The acceptance lands in
+`policy.json`, which is exactly what the next `ironclad assess --policy` reads.
 
 ## The audit trail
 
