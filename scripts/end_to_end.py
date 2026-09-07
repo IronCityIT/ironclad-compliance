@@ -27,6 +27,9 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import TypeVar
+
+T = TypeVar("T")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -49,6 +52,19 @@ class CheckError(Exception):
 def check(condition: bool, message: str) -> None:
     if not condition:
         raise CheckError(message)
+
+
+def require(value: T | None, message: str) -> T:
+    """The value, or a failure naming what was missing.
+
+    `check` narrows nothing for a typechecker, and an `assert` to do the
+    narrowing is removed under -O — which is exactly the objection bandit
+    raises, and it is right: a check that vanishes under an optimisation flag is
+    not a check.
+    """
+    if value is None:
+        raise CheckError(message)
+    return value
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -108,9 +124,10 @@ def main(argv: list[str] | None = None) -> int:
         # ---- read it back ---------------------------------------------------
         # The question none of the unit tests answer: is the number a client
         # reads the number that was stored?
-        record = store.get_assessment(TENANT, assessment_id)
-        check(record is not None, "the assessment could not be read back")
-        assert record is not None
+        record = require(
+            store.get_assessment(TENANT, assessment_id),
+            "the assessment could not be read back",
+        )
         check(
             abs(float(record["readiness_score"]) - summary.readiness_score) < 0.01,
             f"readiness came back as {record['readiness_score']}, not {summary.readiness_score}",
