@@ -2,7 +2,7 @@
 
 **Written:** 2026-09-07 · **Branch:** `productize/ironclad-compliance` ·
 **Open PR:** [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) ·
-**Head at writing:** `26d0867`
+**Head at writing:** `c0c733c`
 
 This document is meant to be portable: someone with this file, the repository and
 no other context should be able to pick the product up. It is written for a
@@ -104,6 +104,7 @@ exists in both frameworks.
 | Risk-acceptance workflow end to end | request → self-approval refused → viewer refused → approved → next assessment moved CC1.2 from `gap` to `accepted_risk`, readiness 24.0% → 25.3%, 28 → 27 remediation items |
 | `firestore.rules` enforces tenant isolation | 53 cases against the Firestore emulator, and a mutation check: replacing `ownsTenant` with `return true` fails 17 of them |
 | Cloud Function decisions | 44 node tests over `functions/core.js` |
+| A result stores and reads back from a NAS-shaped volume and from MariaDB, tenant-scoped, idempotent, chain intact | 70 store tests; the MariaDB half in CI against a real 10.5.29 server, schema applied in 7 statements |
 | Dashboard escaping | 38 node tests, field by field over every render path |
 | Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
 | All 126 shipped control ids are usable as document ids | Test over all four frameworks |
@@ -117,7 +118,8 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Format | `ruff format --check .` | PASS — 65 files |
 | Lint | `ruff check .` | PASS |
 | Typecheck | `mypy` | PASS — 63 source files |
-| Test | `pytest` | PASS — 390 passed, 91% coverage |
+| Test | `pytest` | PASS — 442 passed, 18 skipped (MariaDB, no local server) |
+| Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
 | Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | PASS — 53 passed against the emulator |
@@ -126,9 +128,9 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Build | `python -m build` | PASS in CI |
 | Security | `pip-audit`, `bandit`, secret-literal scan, white-label scan | PASS in CI |
 
-CI run [34070268095](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34070268095):
-Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
-Firestore rules ✅ · Security gate ✅
+CI run [34162039036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34162039036)
+at `c0c733c`: Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions
+and dashboard ✅ · **Persistence (MariaDB) ✅** · Firestore rules ✅ · Security gate ✅
 
 ---
 

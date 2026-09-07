@@ -35,7 +35,8 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
-| Cloud Functions | **DONE, decisions tested, not deployed** | `functions/`, `functions/test/` |
+| Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
+| Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
 | Dashboard | **DONE, rendering tested, not deployed** | `dashboard/public/`, `dashboard/test/` |
 
@@ -48,10 +49,11 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 63 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 61 source files |
-| Test | `pytest --cov=ironclad` | **PASS** — 367 passed, 91% coverage |
+| Test | `pytest --cov=ironclad` | **PASS** — 442 passed, 18 skipped (MariaDB needs a server) |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
+| Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29; 52 locally, 18 skipped without a server |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
 | Build | `python -m build` | **PASS** — sdist + wheel |
@@ -81,11 +83,10 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` as of run
-[34066964922](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34066964922)
-and on PR #4 as of run
-[34066968364](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34066968364):
-Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Security gate ✅
+Green on `productize/ironclad-compliance` at `c0c733c`, run
+[34162039036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34162039036):
+Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
+**Persistence (MariaDB) ✅** · Firestore rules ✅ · Security gate ✅
 
 `ci.yml` now also runs a **Cloud Functions** job. `functions/` previously had no
 gate but `node --check`, and no tests at all, while carrying the code that
@@ -121,6 +122,14 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- The persistence seam against a **real MariaDB 10.5.29** in CI: schema applied
+  (7 statements), 70 store tests passed. Two defects it found on its first real
+  run, both invisible to a mock — MariaDB truncates silently without a strict
+  `sql_mode`, and remediation item ids being deterministic on (tenant, control)
+  meant a client's *second* assessment collided with their first. Then a third,
+  worse than either: the projection was truncating in Python before the database
+  ever saw the value, on both backends. Nothing is truncated now; an over-long
+  value is refused with its table, column and length named.
 - `firestore.rules` executed against the Firestore emulator, both directions:
   a tenant reads its own record and an auditor sees the evidence index, while a
   tenant cannot reach another tenant's documents by any of seven paths, cannot
