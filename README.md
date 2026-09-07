@@ -366,6 +366,16 @@ Secrets are referenced by name and never held in this repository.
 GCP region is **us-east5 (Columbus)** throughout. Auth0 tenant is
 `dev-ws5377dam2tnlv5g.us.auth0.com`, using Organizations for tenant SSO.
 
+## Where the rest is written down
+
+| Document | What it carries |
+|---|---|
+| [`HANDOFF.md`](HANDOFF.md) | The portable developer handoff: current verified state, target architecture, migration off Firebase, blockers, runbooks. Start here. |
+| [`STATUS.md`](STATUS.md) | Phase state, gate results, what is proven and how |
+| [`PRODUCTIZE_NOTES.md`](PRODUCTIZE_NOTES.md) | The code review, the decisions, and every defect found |
+| [`docs/ingestion-contract.md`](docs/ingestion-contract.md) | The evidence contract, versioned |
+| [`docs/control-mapping.md`](docs/control-mapping.md) | The crosswalk, generated from the mapping files |
+
 ## Licence
 
 Proprietary — Iron City IT Advisors.

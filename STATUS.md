@@ -1,6 +1,13 @@
 # STATUS — Ironclad Compliance productization
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-06
+> **Architecture change, 2026-09-07.** Firebase, Firestore, Firebase Hosting and
+> GCP product storage are **retired from the target architecture**. GitHub
+> Actions stays the orchestration layer; persistent state moves to NAS-backed
+> MariaDB and NAS volumes. The Firebase components described below are the
+> *current implementation*, not the target. `HANDOFF.md` classifies every
+> reference and stages the migration; nothing is migrated or deleted yet.
+
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-07
 **PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green.**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
