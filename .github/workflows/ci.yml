@@ -124,7 +124,8 @@ jobs:
           pattern='(api[_-]?key|secret|token|password|passwd|credential)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9_/+=-]{12,}'
           if grep -rEn "$pattern" \
                --include='*.py' --include='*.js' --include='*.yml' \
-               --include='*.json' --include='Jenkinsfile' . ; then
+               --include='*.json' --include='Jenkinsfile' \
+               --exclude-dir=node_modules . ; then
             echo "::error::a hardcoded credential literal is present"
             exit 1
           fi

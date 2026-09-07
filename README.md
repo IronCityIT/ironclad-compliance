@@ -155,6 +155,22 @@ technical safeguards) weigh more. **AI commentary never moves the score** — it
 is carried alongside as advisory text, so the number is reproducible from the
 control register.
 
+### Whose rule is it
+
+Both rules above are **Iron City policy, not the standard's**. No framework
+requires two corroborating documents, and none sets a 90-day window on an access
+review. Every report carries a *Basis of assessment* table saying, rule by rule,
+whether it came from the framework, from Iron City, or from the client's own
+policy file — and the stored record carries the same block, so an auditor
+reading the machine record years later does not need the report beside it.
+
+The table is generated from the constants the engine actually applies
+(`ironclad/method.py`), so a bar that changes in the code cannot keep its old
+description in the report. Naming our bars as ours is what makes them arguable,
+which is the point: a client who wants to debate the 90-day window can find the
+number, see whose rule it is, and change it in one place
+(`ironclad/model/evidence.py::VALIDITY_DAYS`).
+
 ## Evidence ingestion
 
 Evidence arrives under a versioned contract. `docs/ingestion-contract.md` is the

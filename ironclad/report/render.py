@@ -15,6 +15,7 @@ from html import escape
 from typing import Any
 
 from ironclad.ids import utc_now
+from ironclad.method import ICIT_POLICY, method_rules
 from ironclad.model.assessment import ControlStatus
 from ironclad.model.remediation import RemediationPlan
 from ironclad.report.views import ReportView, view_for
@@ -76,6 +77,7 @@ tr:last-child td { border-bottom: none; }
 .pill.low, .pill.info { background: var(--na-bg); color: var(--na); }
 .cid { font-weight: 700; color: var(--navy); white-space: nowrap; }
 .note { font-size: 8.5pt; color: var(--muted); margin-top: 4px; }
+.ours { font-weight: 700; color: var(--navy); white-space: nowrap; }
 .callout { background: #f7fafc; border-left: 4px solid var(--navy);
            padding: 14px 18px; margin: 18px 0; }
 .callout.warn { border-left-color: #dd6b20; background: #fffaf0; }
@@ -181,6 +183,35 @@ def _crosswalk_section(module_output: dict[str, Any]) -> str:
       <thead><tr><th>Framework</th><th>Version</th><th>Addressed by this assessment</th>
       <th>Projected as met</th><th>Requires direct review</th></tr></thead>
       <tbody>{rows}</tbody>
+    </table>
+    """
+
+
+def _method_rows() -> str:
+    rows = []
+    for rule in method_rules():
+        # The Iron City rows are the ones a client or an auditor may want to
+        # argue with, so they are marked rather than left to be spotted.
+        mark = ' class="ours"' if rule.source == ICIT_POLICY else ""
+        value = f'<div class="note">{escape(rule.value)}</div>' if rule.value else ""
+        rows.append(
+            f"<tr><td>{escape(rule.name)}</td>"
+            f"<td{mark}>{escape(rule.source_label)}</td>"
+            f"<td>{escape(rule.statement)}{value}</td></tr>"
+        )
+    return "".join(rows)
+
+
+def _method_section() -> str:
+    return f"""
+    <h2>Basis of assessment</h2>
+    <p>Where each rule behind these verdicts comes from. The rules marked
+       <strong>Iron City policy</strong> are ours, not the framework's: they are
+       deliberate, they are stricter than the standard, and they are open to
+       being argued with.</p>
+    <table>
+      <thead><tr><th>Rule</th><th>Whose rule</th><th>What it is</th></tr></thead>
+      <tbody>{_method_rows()}</tbody>
     </table>
     """
 
@@ -308,6 +339,7 @@ def render_html(result: Any, client_name: str = "", view: ReportView | None = No
 {remediation_block}
 {crosswalk_block}
 {register_block}
+{_method_section()}
 
 <footer>
   {escape(PRODUCT)} &nbsp;·&nbsp; {escape(BRAND)} &nbsp;·&nbsp; engine {escape(__version__)}<br>

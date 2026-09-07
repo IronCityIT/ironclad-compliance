@@ -17,3 +17,4 @@ evidence/
 out/
 results.json
 updates.json
+*-debug.log

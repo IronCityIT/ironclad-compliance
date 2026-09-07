@@ -24,6 +24,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Audit trail (hash-chained) | **DONE, tested** | `ironclad/model/audit.py` |
 | Reports, exports, auditor package | **DONE, tested** | `ironclad/report/` |
 | Assessment types actually shaping the deliverable | **DONE, tested** | `ironclad/report/views.py` |
+| Standards-vs-ICIT-policy disclosure | **DONE, tested** | `ironclad/method.py` |
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
@@ -37,10 +38,10 @@ Run on this branch, this machine, 2026-09-06.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | **PASS** — 61 files |
+| Format | `ruff format --check .` | **PASS** — 63 files |
 | Lint | `ruff check .` | **PASS** |
-| Typecheck | `mypy` | **PASS** — 59 source files |
-| Test | `pytest --cov=ironclad` | **PASS** — 345 passed, 91% coverage |
+| Typecheck | `mypy` | **PASS** — 61 source files |
+| Test | `pytest --cov=ironclad` | **PASS** — 367 passed, 91% coverage |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
 | Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
@@ -111,6 +112,9 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- The report and the stored record both state, rule by rule, whether a bar came
+  from the framework or from Iron City — generated from the constants the engine
+  applies, so the disclosure cannot describe a rule that changed in the code.
 - The tenant slug is byte-identical between `ironclad.ids.slugify` and
   `functions/core.js::toClientId` over a shared table of 21 cases, including
   traversal and reserved-name inputs. A disagreement there writes a client's
@@ -211,7 +215,11 @@ firebase emulators:exec --only firestore "npm --prefix functions test"
 5. **The freshness windows are ICIT policy, not standard.** 90 days for an
    access review, 365 for a policy, 30 for a scan. They are the numbers most
    likely to need arguing with a real auditor. They live in one dict —
-   `ironclad/model/evidence.py::VALIDITY_DAYS`.
+   `ironclad/model/evidence.py::VALIDITY_DAYS`. Every report and every stored
+   record now carries a *Basis of assessment* block that says so explicitly,
+   rule by rule, generated from the constants the engine applies
+   (`ironclad/method.py`). The decision is still open; what is no longer open is
+   whether a client can tell which bars are ours.
 6. **The legacy `scripts/*.py` are now thin wrappers.** They keep the flags the
    old workflow passed. If nothing outside this repo calls them, they can go.
 

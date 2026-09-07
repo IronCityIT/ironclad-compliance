@@ -27,6 +27,7 @@ from ironclad.frameworks.crosswalk import Crosswalk, load_crosswalks
 from ironclad.frameworks.loader import load_framework
 from ironclad.ids import assessment_id as mint_assessment_id
 from ironclad.ids import slugify, utc_now
+from ironclad.method import method_dict
 from ironclad.model.assessment import Assessment
 from ironclad.model.audit import AuditLog
 from ironclad.model.control import Framework
@@ -67,6 +68,10 @@ class RunResult:
             "findings": self.findings_payload(),
             "remediation": self.plan.to_dict(),
             "module_output": self.module_output,
+            # Which bars were the framework's and which were ours. Stored, not
+            # only rendered, so the machine record an auditor is handed can be
+            # read back years later without the report beside it.
+            "method": method_dict(),
             "warnings": list(self.warnings),
             "failed_modules": dict(self.failed_modules),
             "audit": self.audit.to_dict(),
