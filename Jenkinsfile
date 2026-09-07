@@ -120,9 +120,10 @@ pipeline {
             }
           }
 
-          // The Cloud Functions gate needs a runtime this agent image does not
-          // carry. Same contract as the security gate below: an agent that
-          // cannot run it says so rather than reporting a pass it did not earn.
+          // The Cloud Functions and dashboard gates need a runtime this agent
+          // image does not carry. Same contract as the security gate below: an
+          // agent that cannot run them says so rather than reporting a pass it
+          // did not earn.
           def functionsStatus = sh(
             script: '''
               set -eu
@@ -130,6 +131,7 @@ pipeline {
                 echo "node/npm unavailable on this agent"; exit 66; }
               npm --prefix functions run lint
               npm --prefix functions test
+              npm --prefix dashboard test
             ''',
             returnStatus: true
           )

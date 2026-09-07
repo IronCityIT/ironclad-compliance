@@ -52,7 +52,7 @@ export function renderCatalog(catalog) {
       (f) =>
         `<option value="${escapeHtml(f.alias)}">${escapeHtml(f.name)} (${escapeHtml(
           f.version
-        )}) — ${f.control_count} controls</option>`
+        )}) — ${escapeHtml(f.control_count)} controls</option>`
     )
     .join("");
 
@@ -152,7 +152,9 @@ export function renderAssessments(assessments) {
         </div>
         ${
           summary.stale_artifacts
-            ? `<p class="warn">${summary.stale_artifacts} of ${summary.evidence_artifacts} evidence items are out of date.</p>`
+            ? `<p class="warn">${escapeHtml(summary.stale_artifacts)} of ${escapeHtml(
+                summary.evidence_artifacts
+              )} evidence items are out of date.</p>`
             : ""
         }
       </article>`;
@@ -165,6 +167,8 @@ function bar(kind, value, total) {
   return pct ? `<span class="bar ${kind}" style="width:${pct}%"></span>` : "";
 }
 
+// `kind` is always one of the literals at the call sites above, never record
+// data, so it is not escaped here. Nothing else may call these two.
 function count(kind, value) {
   return `<span class="pill ${kind}">${escapeHtml(value ?? 0)} ${escapeHtml(
     STATUS_LABEL[kind]

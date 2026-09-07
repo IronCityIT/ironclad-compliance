@@ -300,6 +300,7 @@ python tools/build_catalog.py         # regenerate the dashboard catalog
 
 npm --prefix functions run lint       # Cloud Functions syntax
 npm --prefix functions test           # Cloud Functions decisions
+npm --prefix dashboard test           # dashboard rendering and escaping
 ```
 
 The Cloud Functions' decisions — tenant slugs, document ids, whether an ingest
@@ -308,6 +309,11 @@ is authorized, whether an evidence path belongs to the caller — live in
 Firestore connection at require time, so anything left inside them could only be
 tested against a live project. `functions/test` runs on the runtime's own test
 runner with no install step.
+
+The dashboard's rendering is tested the same way. Everything on that surface
+builds HTML by string concatenation from data that arrived out of Firestore, so
+escaping is the entire defence, and it is asserted field by field rather than
+read for.
 
 ### Adding a capability
 

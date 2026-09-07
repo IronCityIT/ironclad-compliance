@@ -77,7 +77,7 @@ jobs:
           retention-days: 14
 
   functions:
-    name: Cloud Functions
+    name: Cloud Functions and dashboard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +94,11 @@ jobs:
 
       - name: Test
         run: npm --prefix functions test
+
+      # Client-facing rendering. Everything on this surface builds HTML from
+      # data that arrived out of Firestore, so escaping is the whole defence.
+      - name: Test the dashboard rendering
+        run: npm --prefix dashboard test
 
   security:
     name: Security gate
