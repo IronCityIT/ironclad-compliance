@@ -101,7 +101,7 @@ jobs:
         run: npm --prefix dashboard test
 
   persistence:
-    name: Persistence (MariaDB)
+    name: Persistence and end-to-end
     runs-on: ubuntu-latest
 
     # 10.5 on purpose: it is the version actually running on the NAS
@@ -149,6 +149,19 @@ jobs:
         env:
           IRONCLAD_TEST_DSN: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
         run: pytest tests/test_store.py -v
+
+      # The whole product, against a real database: ingest the sample evidence,
+      # assess it, render the deliverables, publish, and read the record back.
+      # Every part of that path has unit tests and the path as a whole did not,
+      # which left the one question they cannot answer — whether the number a
+      # client reads is the number that was stored.
+      - name: End to end, through MariaDB
+        env:
+          IRONCLAD_STORE: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
+        run: python scripts/end_to_end.py --store "$IRONCLAD_STORE"
+
+      - name: End to end, onto a volume
+        run: python scripts/end_to_end.py --store "$RUNNER_TEMP/ironclad-volume"
 
   rules:
     name: Firestore rules

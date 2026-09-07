@@ -191,6 +191,14 @@ jobs:
     # the wrong trade. The report states that commentary was unavailable.
     if: always() && needs.assess.result == 'success'
     runs-on: ubuntu-latest
+
+    # The `secrets` context is not available in a step-level `if`, so the two
+    # publish paths are selected on env set here. Written as a presence check,
+    # never as a value: nothing below ever echoes either one.
+    env:
+      IRONCLAD_STORE: ${{ secrets.IRONCLAD_STORE }}
+      STORE_RESULTS_URL: ${{ secrets.STORE_RESULTS_URL }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -249,9 +257,29 @@ jobs:
             out/package/
           retention-days: 90
 
-      - name: Publish the result
+      # The target sink: a NAS-backed volume or MariaDB, named by one target
+      # string. Skipped rather than failed when IRONCLAD_STORE is unset, because
+      # the transport to the NAS is not decided yet (see HANDOFF.md §3.2) and an
+      # assessment that ran is still worth its uploaded artifacts.
+      - name: Publish to the store
+        if: env.IRONCLAD_STORE != ''
+        run: |
+          set -euo pipefail
+          python -m ironclad.cli store health
+          python -m ironclad.cli store publish --input out/assessment.json
+
+      - name: Note that no store is configured
+        if: env.IRONCLAD_STORE == ''
+        run: |
+          echo "::warning::IRONCLAD_STORE is not configured — the result is in \
+          this run's artifacts only. See HANDOFF.md §3.2."
+
+      # RETIRED PATH. The Cloud Function ingest that wrote Firestore. Kept only
+      # while a store is not yet configured, and only when its secret is set;
+      # it goes with functions/ once the transport above is decided.
+      - name: Publish to the legacy ingest
+        if: env.IRONCLAD_STORE == '' && env.STORE_RESULTS_URL != ''
         env:
-          STORE_RESULTS_URL: ${{ secrets.STORE_RESULTS_URL }}
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
           CLIENT_ID: ${{ inputs.client_id }}
         run: |

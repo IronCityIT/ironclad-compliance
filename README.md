@@ -401,6 +401,13 @@ a mock.
 The driver (`PyMySQL`) is an optional extra: an assessment needs no database to
 run, only to publish.
 
+`scripts/end_to_end.py --store <target>` runs the whole product against a store
+— the sample evidence in `examples/evidence/`, a real assessment, the
+deliverables, a publish and a read back — and exits non-zero naming the step
+that disagreed. Run it against a volume or a database on the day it is
+provisioned, before a client's result goes near it. CI runs it against both on
+every push.
+
 ## Where the rest is written down
 
 | Document | What it carries |

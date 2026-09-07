@@ -105,6 +105,7 @@ exists in both frameworks.
 | `firestore.rules` enforces tenant isolation | 53 cases against the Firestore emulator, and a mutation check: replacing `ownsTenant` with `return true` fails 17 of them |
 | Cloud Function decisions | 44 node tests over `functions/core.js` |
 | A result stores and reads back from a NAS-shaped volume and from MariaDB, tenant-scoped, idempotent, chain intact | 70 store tests; the MariaDB half in CI against a real 10.5.29 server, schema applied in 7 statements |
+| **The whole path agrees with itself**: ingest → assess → deliverables → publish → read back, against both stores | `scripts/end_to_end.py`, run in CI against MariaDB and against a volume. Checks the readiness a client reads is the readiness stored, the chain head matches, the queue is the tenant's own, and re-publishing leaves one record |
 | Dashboard escaping | 38 node tests, field by field over every render path |
 | Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
 | All 126 shipped control ids are usable as document ids | Test over all four frameworks |
@@ -330,7 +331,7 @@ credential-shaped literal.
 | `STORE_RESULTS_URL` | ingest endpoint | **repoints at the new sink** |
 | `INGEST_API_KEY` | ingest authentication | **required** — an unset key now refuses every write |
 | `GITHUB_DISPATCH_TOKEN` | dashboard-initiated assessments | **NOT PROVISIONED**, not on the approved list |
-| MariaDB credential | the target store | **DOES NOT EXIST YET.** Not on the approved ICIT secret list. Must be provisioned before any migration step can run. Name not invented here. |
+| `IRONCLAD_STORE` | the target sink — one target string naming a NAS volume or a MariaDB DSN | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** The workflow references it by name and skips publishing when it is unset; nothing invents a value. It must be added to the approved list and provisioned before the pipeline can publish to the target store. |
 
 ### 7.2 Policy that is Iron City's, not the standard's
 
@@ -535,6 +536,7 @@ Ordered by value, non-blocked first.
 | B1 | **The transport to NAS MariaDB is undecided.** GitHub-hosted runners cannot reach RFC1918; no self-hosted runner is registered. | `gh api .../actions/runners` → `{"total_count":0,"runners":[]}` (2026-09-07) | Migration stages 4–6 cannot start. Stages 1–3 can. |
 | B2 | **No MariaDB credential.** 3306 answers; nothing can authenticate. | Handshake banner read; no credential attempted | Stage 2 needs a test database; stage 4 needs a real one. Name not invented. |
 | B3 | **`qnap-nas-01` has no SSH credential.** Host NOT CAPTURED. | `ICIT-Infrastructure/hosts/qnap-nas-01/README.md`: `Permission denied (publickey,password,keyboard-interactive)` | Nothing can be provisioned or inspected on the NAS. |
+| B3a | **`IRONCLAD_STORE` is not on the approved ICIT secret list.** `CLAUDE.md` names the approved secrets and says to halt and report anything else. | `CLAUDE.md` secret list; the workflow references the name only | The pipeline runs and uploads artifacts but does not publish. Recorded, not worked around. |
 | B4 | **`GITHUB_DISPATCH_TOKEN` is not provisioned** and is not on the approved ICIT secret list. | `CLAUDE.md` secret list; `functions/trigger.js` references it by name | Dashboard-initiated assessments cannot work, wherever the trigger is hosted. |
 | B5 | **REVIEW ONLY posture.** | `CLAUDE.md` tiering; `STATUS.md` | No merge, no deploy, from this session. |
 | B6 | **`ICIT-Infrastructure/ARCHITECTURE.md` still documents Firebase as the ICIT standard**, contradicting the direction for this product. That repo is HANDS OFF. | Read 2026-09-07 | A reader of the estate architecture will build the retired pattern. |
@@ -563,6 +565,19 @@ risk-acceptance workflow was unreachable.
 
 **Nothing is deployed, so no production runbook can be written honestly yet.**
 What follows is what exists.
+
+### Validate a store before publishing anything real to it
+
+```sh
+python scripts/end_to_end.py --store /srv/ironclad
+python scripts/end_to_end.py --store "$IRONCLAD_STORE"
+```
+
+Runs the whole product against that store — the sample evidence in
+`examples/evidence/`, a real assessment, the deliverables, a publish and a read
+back — and exits non-zero naming the step that disagreed. This is the check to
+run against a NAS volume or a database on the day it is provisioned, before a
+client's result goes anywhere near it.
 
 ### Run an assessment locally
 
