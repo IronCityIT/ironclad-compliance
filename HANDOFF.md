@@ -119,7 +119,7 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Format | `ruff format --check .` | PASS — 65 files |
 | Lint | `ruff check .` | PASS |
 | Typecheck | `mypy` | PASS — 63 source files |
-| Test | `pytest` | PASS — 471 passed, 18 skipped (MariaDB, no local server) |
+| Test | `pytest` | PASS — 490 passed, 18 skipped (MariaDB, no local server) |
 | Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
 | Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
@@ -326,11 +326,12 @@ credential-shaped literal.
 | Name | Used by | State |
 |---|---|---|
 | `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY` | passed through to `consensus-engine` | on the approved ICIT list |
-| `GCP_SA_KEY` | evidence fetch from GCS | **retired with the GCP path** |
+| `GCP_SA_KEY` | evidence fetch from GCS | **retired** — the fallback path only, used when no evidence volume is configured |
 | `GCS_BUCKET` | report storage | **retired with the GCP path** |
 | `STORE_RESULTS_URL` | ingest endpoint | **repoints at the new sink** |
 | `INGEST_API_KEY` | ingest authentication | **required** — an unset key now refuses every write |
 | `GITHUB_DISPATCH_TOKEN` | dashboard-initiated assessments | **NOT PROVISIONED**, not on the approved list |
+| `IRONCLAD_EVIDENCE_ROOT` | the evidence volume, one prefix per tenant | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** Same standing as `IRONCLAD_STORE` below — referenced by name, the workflow falls back to the retired GCS path when it is unset, and refuses outright when neither is configured. |
 | `IRONCLAD_STORE` | the target sink — one target string naming a NAS volume or a MariaDB DSN | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** The workflow references it by name and skips publishing when it is unset; nothing invents a value. It must be added to the approved list and provisioned before the pipeline can publish to the target store. |
 
 ### 7.2 Policy that is Iron City's, not the standard's
@@ -433,11 +434,11 @@ storage and secrets.
 
 ## 12. Storage and NAS — TARGET
 
-| Concern | Target |
-|---|---|
-| Relational state | MariaDB on `qnap-nas-01`, one schema, every row tenant-scoped |
-| Artifacts (reports, auditor packages) | NAS-backed volume, tenant-prefixed paths |
-| Evidence | NAS-backed volume; the database holds references and SHA-256 only |
+| Concern | Target | State |
+|---|---|---|
+| Relational state | MariaDB on `qnap-nas-01`, one schema, every row tenant-scoped | schema and store **built**, tested in CI against a real 10.5 |
+| Artifacts (reports, auditor packages) | NAS-backed volume, tenant-prefixed paths | `FileResultStore` **built** and tested |
+| Evidence | NAS-backed volume, `<root>/<tenant>/`; the database holds references and SHA-256 only | `ironclad evidence stage` **built** and tested; the workflow uses it when a root is configured |
 | Backups | restic → Backblaze already exists on the NAS per `ICIT-Infrastructure` (**not independently verified**); the new schema and volume must be added to it |
 
 **Built and tested (stages 1–3):** `ironclad/store/` — the `ResultStore` port,
@@ -513,7 +514,10 @@ Ordered by value, non-blocked first.
 
 1. **Persistence port + MariaDB implementation** (§13 stages 1–3).
 2. ~~Trend comparison between assessments~~ — **done**, `ironclad compare`.
-3. **Evidence collection from a NAS volume** rather than `gs://`.
+3. ~~Evidence collection from a NAS volume~~ — **done**, `ironclad evidence stage`.
+   The workflow uses it when `IRONCLAD_EVIDENCE_ROOT` is set and falls back to
+   the retired GCS path otherwise. Neither configured is a hard failure, not a
+   silent empty assessment.
 4. **`ComplianceService` HTTP surface** — the service is complete and now has one
    caller (the CLI); an authenticated HTTP surface would give the dashboard a
    backend that is not Firebase.

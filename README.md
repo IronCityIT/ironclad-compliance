@@ -81,6 +81,8 @@ ironclad store list --client acme-corp
 
 ironclad compare --from q3/assessment.json --to q4/assessment.json
 ironclad compare --client acme-corp        # the two most recent, from the store
+
+ironclad evidence stage --client acme-corp --out evidence/
 ```
 
 `assess` writes three files:
@@ -372,6 +374,25 @@ Secrets are referenced by name and never held in this repository.
 
 GCP region is **us-east5 (Columbus)** throughout. Auth0 tenant is
 `dev-ws5377dam2tnlv5g.us.auth0.com`, using Organizations for tenant SSO.
+
+## Where evidence comes from
+
+Evidence lives on a NAS-backed volume, one prefix per tenant:
+`<root>/<client_id>/`. `ironclad evidence stage` copies a tenant's own prefix
+into a working directory and refuses anything that resolves outside it — a
+traversal, a path-shaped client id that would normalise into a *different*
+valid tenant, or a symlink planted inside one tenant's tree pointing at
+another's. The check is structural: resolved path against resolved root, not a
+string comparison.
+
+It also refuses an empty prefix. A fetch that silently produces nothing makes
+the assessment report every control as a gap, which reads to a client as a
+catastrophic result rather than a broken fetch — this pipeline has made exactly
+that mistake before.
+
+Set `IRONCLAD_EVIDENCE_ROOT`, or pass `--root`. The workflow falls back to the
+retired GCS path when no volume is configured, and fails outright when neither
+is.
 
 ## What changed since last time
 

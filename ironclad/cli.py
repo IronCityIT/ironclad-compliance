@@ -32,6 +32,7 @@ from ironclad.api.service import ComplianceService
 from ironclad.compare import compare as compare_assessments
 from ironclad.engine import merge_consensus, run_assessment
 from ironclad.errors import IroncladError, SelectionError, ValidationError
+from ironclad.evidence_root import stage_evidence
 from ironclad.frameworks.crosswalk import load_crosswalks
 from ironclad.frameworks.loader import (
     FRAMEWORK_ALIASES,
@@ -58,6 +59,9 @@ from ironclad.version import __version__
 #: because the value is a DSN and a DSN carries a password: a command line ends
 #: up in a process list, a shell history and a CI log.
 STORE_ENV = "IRONCLAD_STORE"
+
+#: The evidence volume. One prefix per tenant beneath it.
+EVIDENCE_ROOT_ENV = "IRONCLAD_EVIDENCE_ROOT"
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
@@ -127,6 +131,24 @@ def build_parser() -> argparse.ArgumentParser:
     crosswalk = sub.add_parser("crosswalk", help="show the mapping between two frameworks")
     crosswalk.add_argument("--from", dest="source", required=True)
     crosswalk.add_argument("--to", dest="target", required=True)
+
+    evidence_cmd = sub.add_parser(
+        "evidence",
+        help="stage a tenant's evidence from a NAS-backed volume",
+        description=(
+            "Evidence lives on a volume, one prefix per tenant: <root>/<client>/. "
+            "This stages a tenant's own prefix into a working directory, refusing "
+            "anything that resolves outside it — a traversal, or a symlink planted "
+            "in one tenant's tree pointing at another's."
+        ),
+    )
+    evidence_sub = evidence_cmd.add_subparsers(dest="evidence_command", required=True)
+    evidence_fetch = evidence_sub.add_parser("stage", help="copy a tenant's evidence locally")
+    evidence_fetch.add_argument(
+        "--root", default="", help="evidence volume root; defaults to $IRONCLAD_EVIDENCE_ROOT"
+    )
+    evidence_fetch.add_argument("--client", required=True, help="client identifier")
+    evidence_fetch.add_argument("--out", required=True, help="directory to stage into")
 
     compare = sub.add_parser(
         "compare",
@@ -397,6 +419,32 @@ def cmd_export(args: argparse.Namespace) -> int:
         export_audit_package(result, result.evidence, output)
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
+    return EXIT_OK
+
+
+def cmd_evidence(args: argparse.Namespace) -> int:
+    """Stage a tenant's evidence from the volume into a working directory."""
+    root = args.root or os.environ.get(EVIDENCE_ROOT_ENV, "")
+    if not root:
+        print(
+            f"no evidence root: pass --root or set {EVIDENCE_ROOT_ENV}",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    staged = stage_evidence(root, args.client, Path(args.out))
+    print(
+        f"staged {staged.file_count} evidence file(s) for {staged.tenant_id} into {args.out}",
+        file=sys.stderr,
+    )
+    _emit(
+        {
+            "tenant_id": staged.tenant_id,
+            "prefix": str(staged.path),
+            "files": staged.file_count,
+            "staged_to": str(args.out),
+        }
+    )
     return EXIT_OK
 
 
@@ -738,6 +786,7 @@ def main(argv: list[str] | None = None) -> int:
         "report": lambda: cmd_report(args),
         "export": lambda: cmd_export(args),
         "crosswalk": lambda: cmd_crosswalk(args),
+        "evidence": lambda: cmd_evidence(args),
         "compare": lambda: cmd_compare(args),
         "store": lambda: cmd_store(args),
         "exception": lambda: cmd_exception(args),

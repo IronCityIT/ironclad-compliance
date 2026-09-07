@@ -25,9 +25,10 @@ on:
           - pci-dss
           - hipaa
       evidence_path:
-        description: 'GCS path to the evidence (gs://bucket/client/)'
-        required: true
+        description: 'Evidence location — only used by the retired GCS path'
+        required: false
         type: string
+        default: ''
       assessment_type:
         description: 'Which deliverable to issue (everything is always assessed)'
         required: false
@@ -98,6 +99,14 @@ jobs:
     name: Assess controls
     needs: prepare
     runs-on: ubuntu-latest
+
+    # `secrets` is not an available context in a step-level `if`, so the
+    # evidence source is selected on env set here. Presence checks only; no step
+    # below ever echoes a value.
+    env:
+      IRONCLAD_EVIDENCE_ROOT: ${{ secrets.IRONCLAD_EVIDENCE_ROOT }}
+      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+
     outputs:
       findings_b64: ${{ steps.assess.outputs.findings_b64 }}
       readiness: ${{ steps.assess.outputs.readiness }}
@@ -113,14 +122,35 @@ jobs:
         # evidence formats, so they are installed for this job alone.
         run: pip install --quiet PyPDF2 python-docx openpyxl
 
+      # Evidence comes from a NAS-backed volume, one prefix per tenant. The
+      # tenant-prefix rule is in `ironclad evidence stage` rather than in shell:
+      # a containment check written here is a --recursive away from reading
+      # another client's documents, and nothing tests shell. It refuses a
+      # traversal, a symlink out of the prefix, and an empty prefix — the last
+      # because a fetch that silently produced nothing used to make the
+      # assessment report every control as a gap.
+      - name: Stage the client evidence
+        if: env.IRONCLAD_EVIDENCE_ROOT != ''
+        env:
+          CLIENT_ID: ${{ inputs.client_id }}
+        run: |
+          set -euo pipefail
+          python -m ironclad.cli evidence stage --client "$CLIENT_ID" --out evidence/
+
+      # RETIRED PATH. GCS fetch, kept only while no evidence volume is reachable
+      # from the runner. It goes with the rest of the GCP surface once the
+      # transport in HANDOFF.md §3.2 is decided.
       - id: auth
+        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - uses: google-github-actions/setup-gcloud@v2
+      - if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Fetch the client evidence
+      - name: Fetch the client evidence from storage
+        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
         env:
           EVIDENCE_PATH: ${{ inputs.evidence_path }}
         run: |
@@ -136,6 +166,13 @@ jobs:
             echo "::error::no evidence files were fetched from $EVIDENCE_PATH"
             exit 1
           fi
+
+      - name: Refuse to assess with no evidence source
+        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY == ''
+        run: |
+          echo "::error::no evidence source is configured — set IRONCLAD_EVIDENCE_ROOT \
+          to a mounted volume. See HANDOFF.md §3.2."
+          exit 1
 
       - name: Run the assessment
         id: assess
