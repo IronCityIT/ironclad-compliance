@@ -25,6 +25,7 @@ import pytest
 
 from ironclad.engine import run_assessment
 from ironclad.store import (
+    BOUNDS,
     TABLES,
     FileResultStore,
     ResultStore,
@@ -181,6 +182,59 @@ class TestTheTarget:
     def test_a_non_sql_scheme_is_refused_by_the_dsn(self) -> None:
         with pytest.raises(StoreError, match="mysql:// or mariadb://"):
             Dsn("postgres://u:p@db.example/ironclad")
+
+
+class TestNothingIsTruncated:
+    """A value that will not fit is refused, never shortened.
+
+    Truncating an id silently changes which record is written; truncating a
+    control name silently alters what a client is told. Both look like a
+    successful store, and both are found only when somebody notices a name
+    ending mid-word.
+    """
+
+    def test_an_over_long_id_is_refused_and_named(self, document) -> None:
+        document["controls"][0]["control_id"] = "x" * 200
+        with pytest.raises(ValueError, match=r"assessment_controls\.control_id is 200"):
+            rows_from_document(document)
+
+    def test_an_over_long_name_is_refused_too(self, document) -> None:
+        # Not only ids: a client reading a control name that stops mid-word has
+        # been told something the assessment did not say.
+        document["controls"][0]["control_name"] = "n" * 300
+        with pytest.raises(ValueError, match=r"control_name is 300"):
+            rows_from_document(document)
+
+    def test_free_text_is_not_bounded(self, document) -> None:
+        # rationale and guidance are TEXT. A long rationale is not an error.
+        document["controls"][0]["rationale"] = "r" * 5000
+        rows = rows_from_document(document)
+        assert len(rows.assessment_controls[0]["rationale"]) == 5000
+
+    def test_a_json_column_is_not_bounded_by_a_same_named_varchar(self, document) -> None:
+        # assessments.method is a LONGTEXT block; control_evidence.method is a
+        # 32-character link method. Bounds are per table for exactly this.
+        rows = rows_from_document(document)
+        assert len(rows.assessments[0]["method"]) > 1000
+
+    def test_the_bounds_come_from_the_ddl(self) -> None:
+        # Derived, not declared: a second copy of these numbers in Python is a
+        # copy that disagrees with the schema one day.
+        assert BOUNDS["control_evidence"]["method"] == 32
+        assert BOUNDS["assessment_controls"]["control_id"] == 128
+        assert "method" not in BOUNDS["assessments"]
+        assert set(BOUNDS) == set(TABLES)
+
+    def test_every_bounded_column_is_a_real_column(self, document) -> None:
+        rows = rows_from_document(document)
+        for table in TABLES:
+            projected = set(rows.table(table)[0]) if rows.table(table) else set()
+            if not projected:
+                continue
+            unknown = set(BOUNDS[table]) - projected
+            assert not unknown, (
+                f"{table} bounds name columns the projection never writes: {unknown}"
+            )
 
 
 class TestTheSchemaFile:
@@ -450,21 +504,28 @@ class TestMariaDB(StoreContract):
         for original in document["controls"]:
             assert by_id[original["control_id"]]["status"] == original["status"]
 
-    def test_an_over_long_value_is_refused_not_truncated(self, tmp_path: Path, document) -> None:
-        # MariaDB truncates silently unless a strict sql_mode is set, so a
-        # control id past VARCHAR(128) would be shortened and stored as though
-        # nothing had happened. The store sets STRICT_ALL_TABLES for exactly
-        # this; without it the write below succeeds and corrupts the record.
+    def test_the_session_refuses_a_silent_truncation(self, tmp_path: Path) -> None:
+        # Defence in depth behind the projection's own bounds check. MariaDB
+        # shortens an over-long value and reports success unless a strict mode
+        # is set, so a column the projection forgot to bound would corrupt a
+        # record quietly. Asserted on the session, not contrived through a
+        # column, because every column is bounded.
         store = self.store(tmp_path)
-        document["controls"][0]["control_id"] = "x" * 200
-        with pytest.raises(StoreError):
-            store.put_assessment(document)
+        connection = store._connect()  # noqa: SLF001 — the test owns this database
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT @@SESSION.sql_mode AS mode")
+                mode = (cursor.fetchone() or {})["mode"]
+        finally:
+            connection.close()
+        assert "STRICT_ALL_TABLES" in mode
 
     def test_a_failed_write_leaves_nothing_behind(self, tmp_path: Path, document) -> None:
         # All or nothing: half an assessment reads as a client who lost thirty
-        # controls, which is worse than a failed publish.
+        # controls, which is worse than a failed publish. Forced with a
+        # duplicate control id, which the schema refuses mid-transaction.
         store = self.store(tmp_path)
-        document["controls"][0]["control_id"] = "x" * 200
+        document["controls"][1]["control_id"] = document["controls"][0]["control_id"]
         with pytest.raises(StoreError):
             store.put_assessment(document)
         assert store.get_assessment("acme", "acme-store-1") is None

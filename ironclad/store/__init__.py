@@ -15,9 +15,10 @@ loader run beside the database all consume the same rows.
 from ironclad.store.base import ResultStore, StoreError
 from ironclad.store.factory import store_from_target, target_summary
 from ironclad.store.files import FileResultStore
-from ironclad.store.rows import TABLES, RowSet, rows_from_document
+from ironclad.store.rows import BOUNDS, TABLES, RowSet, rows_from_document
 
 __all__ = [
+    "BOUNDS",
     "TABLES",
     "FileResultStore",
     "ResultStore",
