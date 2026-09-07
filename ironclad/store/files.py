@@ -167,14 +167,23 @@ class FileResultStore:
         return found[:limit]
 
     def list_remediation(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
-        base = self._tenant_dir(tenant_id) / "assessments"
-        if not base.is_dir():
+        """The tenant's current queue: the most recent assessment's items.
+
+        Not every item ever raised. A control outstanding in March and again in
+        June is one piece of work, and returning it twice would make the queue
+        grow every time an assessment is re-run.
+        """
+        latest = self.list_assessments(tenant_id, limit=1)
+        if not latest:
             return []
-        items: list[dict[str, Any]] = []
-        for directory in base.iterdir():
-            path = directory / "rows" / "remediation_items.json"
-            if path.exists():
-                items.extend(json.loads(path.read_text(encoding="utf-8")))
+        path = (
+            self._assessment_dir(tenant_id, str(latest[0]["assessment_id"]))
+            / "rows"
+            / "remediation_items.json"
+        )
+        if not path.exists():
+            return []
+        items: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
         items.sort(key=lambda row: (int(row.get("priority", 0)), str(row.get("due_date", ""))))
         return items[:limit]
 

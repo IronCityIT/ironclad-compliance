@@ -76,10 +76,18 @@ class MariaDBResultStore:
 
     # -------------------------------------------------------------- internals
 
+    #: Set on every connection. Without it MariaDB silently truncates a value
+    #: that is too long for its column, so a control id past VARCHAR(128) would
+    #: be shortened and stored as though nothing happened — a corrupt record
+    #: that reports success. Found by a test against a real server, which is why
+    #: this backend is not tested against a mock.
+    SQL_MODE = "STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION"
+
     def _connect(self) -> Any:
         pymysql = _driver()
         try:
             return pymysql.connect(
+                init_command=f"SET SESSION sql_mode = '{self.SQL_MODE}'",
                 host=self.dsn.host,
                 port=self.dsn.port,
                 user=self.dsn.user,
@@ -238,10 +246,20 @@ class MariaDBResultStore:
         )
 
     def list_remediation(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        """The tenant's current queue: the most recent assessment's items.
+
+        Not every item ever raised. A control that was outstanding in March and
+        again in June is one piece of work, and returning it twice would make a
+        remediation queue grow every time an assessment is re-run.
+        """
         return self._query(
-            "SELECT * FROM remediation_items WHERE tenant_id = %s "
-            "ORDER BY priority ASC, due_date ASC LIMIT %s",
-            (tenant_id, int(limit)),
+            "SELECT r.* FROM remediation_items r "
+            "JOIN assessments a ON a.assessment_id = r.assessment_id "
+            "WHERE r.tenant_id = %s AND a.assessment_id = ("
+            "  SELECT assessment_id FROM assessments WHERE tenant_id = %s "
+            "  ORDER BY started_at DESC, assessment_id DESC LIMIT 1"
+            ") ORDER BY r.priority ASC, r.due_date ASC LIMIT %s",
+            (tenant_id, tenant_id, int(limit)),
         )
 
     def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:

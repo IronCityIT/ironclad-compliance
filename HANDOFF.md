@@ -442,6 +442,19 @@ the row projection, `schema.sql`, `MariaDBResultStore`, `FileResultStore` for
 the volume, and `ironclad store health|init|publish|list`. The MariaDB half runs
 in CI against a MariaDB 10.5 service container, matching the NAS server version.
 
+Two defects the MariaDB job found on its first real run, both of which a mock
+would have hidden:
+
+- **MariaDB truncates silently** unless a strict `sql_mode` is set. A control id
+  past `VARCHAR(128)` was shortened and stored as though nothing had happened.
+  The store now sets `STRICT_ALL_TABLES` on every connection.
+- **Remediation item ids are deterministic on (tenant, control)**, so the same
+  control yields the same id in every assessment of that client. Keyed globally,
+  a client's *second* assessment collided with their first and could not be
+  stored. The key is `(assessment_id, item_id)` now, and `list_remediation`
+  returns the latest assessment's queue rather than every item ever raised —
+  one control outstanding in two runs is one piece of work.
+
 **Still open:** the transport (§3.2) and the artifact layout for reports and
 auditor packages on the volume. The transport decision does not change any of
 the above: a self-hosted runner, an ingest service and a NAS-side loader all

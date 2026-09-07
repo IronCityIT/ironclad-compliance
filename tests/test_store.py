@@ -74,7 +74,9 @@ def other_document(document) -> dict[str, Any]:
     other["remediation"]["assessment_id"] = "beta-store-1"
     for item in other["remediation"]["items"]:
         item["tenant_id"] = "beta"
-        item["item_id"] = item["item_id"].replace("acme", "beta", 1)
+        # The real id is a hash of (tenant, control), so a string substitution
+        # is a no-op and both tenants would carry identical item ids.
+        item["item_id"] = item["item_id"].replace("rm-", "rm-beta-", 1)
     other["audit"]["tenant_id"] = "beta"
     for event in other["audit"]["events"]:
         event["tenant_id"] = "beta"
@@ -247,6 +249,43 @@ class StoreContract:
         store.put_assessment(document)
         assert len(store.list_remediation("acme")) == before, "detail rows duplicated"
 
+    def test_a_second_assessment_for_one_tenant_stores(self, tmp_path: Path, document) -> None:
+        # Remediation item ids are deterministic on (tenant, control), so the
+        # same control produces the same id in every assessment of that client.
+        # A store that keys them globally rejects the client's second run.
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        second = json.loads(json.dumps(document))
+        second["assessment_id"] = "acme-store-2"
+        second["started_at"] = "2026-12-01T00:00:00+00:00"
+        second["remediation"]["assessment_id"] = "acme-store-2"
+        for event in second["audit"]["events"]:
+            event["object_id"] = "acme-store-2"
+        store.put_assessment(second)
+
+        stored = [a["assessment_id"] for a in store.list_assessments("acme")]
+        assert sorted(stored) == ["acme-store-1", "acme-store-2"]
+
+    def test_the_queue_is_the_latest_assessment_not_every_run(
+        self, tmp_path: Path, document
+    ) -> None:
+        # One control outstanding in two runs is one piece of work. A queue that
+        # grew on every re-run would be unusable within a quarter.
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        expected = len(store.list_remediation("acme"))
+        assert expected > 0
+
+        second = json.loads(json.dumps(document))
+        second["assessment_id"] = "acme-store-2"
+        second["started_at"] = "2026-12-01T00:00:00+00:00"
+        second["remediation"]["assessment_id"] = "acme-store-2"
+        store.put_assessment(second)
+
+        queue = store.list_remediation("acme")
+        assert len(queue) == expected
+        assert {row["assessment_id"] for row in queue} == {"acme-store-2"}
+
     def test_no_read_crosses_a_tenant(self, tmp_path: Path, document, other_document) -> None:
         store = self.store(tmp_path)
         store.put_assessment(document)
@@ -411,14 +450,25 @@ class TestMariaDB(StoreContract):
         for original in document["controls"]:
             assert by_id[original["control_id"]]["status"] == original["status"]
 
+    def test_an_over_long_value_is_refused_not_truncated(self, tmp_path: Path, document) -> None:
+        # MariaDB truncates silently unless a strict sql_mode is set, so a
+        # control id past VARCHAR(128) would be shortened and stored as though
+        # nothing had happened. The store sets STRICT_ALL_TABLES for exactly
+        # this; without it the write below succeeds and corrupts the record.
+        store = self.store(tmp_path)
+        document["controls"][0]["control_id"] = "x" * 200
+        with pytest.raises(StoreError):
+            store.put_assessment(document)
+
     def test_a_failed_write_leaves_nothing_behind(self, tmp_path: Path, document) -> None:
         # All or nothing: half an assessment reads as a client who lost thirty
         # controls, which is worse than a failed publish.
         store = self.store(tmp_path)
-        document["controls"][0]["control_id"] = "x" * 200  # longer than the column
+        document["controls"][0]["control_id"] = "x" * 200
         with pytest.raises(StoreError):
             store.put_assessment(document)
         assert store.get_assessment("acme", "acme-store-1") is None
+        assert store.list_remediation("acme") == []
 
 
 class TestTheStoreCommand:

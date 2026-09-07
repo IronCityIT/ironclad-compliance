@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS control_evidence (
     REFERENCES assessments (assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- item_id is deterministic on (tenant, control), so the same control produces
+-- the same id in every assessment of that tenant. It is therefore NOT a global
+-- primary key: a second assessment for the same client would collide with the
+-- first. An item belongs to the assessment that raised it.
 CREATE TABLE IF NOT EXISTS remediation_items (
   item_id        VARCHAR(128) NOT NULL,
   assessment_id  VARCHAR(255) NOT NULL,
@@ -128,9 +132,9 @@ CREATE TABLE IF NOT EXISTS remediation_items (
   exception_id   VARCHAR(64) NOT NULL DEFAULT '',
   source         VARCHAR(64) NOT NULL DEFAULT '',
   created_at     VARCHAR(64) NOT NULL DEFAULT '',
-  PRIMARY KEY (item_id),
+  PRIMARY KEY (assessment_id, item_id),
   KEY idx_remediation_tenant (tenant_id, priority, due_date),
-  KEY idx_remediation_assessment (assessment_id),
+  KEY idx_remediation_item (item_id),
   CONSTRAINT fk_remediation_assessment FOREIGN KEY (assessment_id)
     REFERENCES assessments (assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
