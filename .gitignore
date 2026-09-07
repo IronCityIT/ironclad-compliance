@@ -13,7 +13,11 @@ dist/
 build/
 *.egg-info/
 .firebase/
+# A client's evidence never enters the repository. The synthetic sample under
+# examples/ is the exception, and is what CI's end-to-end job runs on.
 evidence/
+!examples/evidence/
+!examples/evidence/**
 out/
 results.json
 updates.json
