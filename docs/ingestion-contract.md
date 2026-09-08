@@ -69,9 +69,14 @@ The freshness window is derived from it. An access review from fourteen months
 ago does not evidence a control today, and an auditor will say so — the engine
 says so first.
 
+The classes below are matched as substrings of `evidence_type`, longest match
+first, so `Quarterly vulnerability scan` takes the scan window rather than the
+default. This table is checked against the engine's own `VALIDITY_DAYS` by a
+test — a window that changes in the code and not here fails the build.
+
 | Evidence class | Window |
 |---|---|
-| vulnerability scan, backup, log, monitoring | 30 days |
+| scan, vulnerability scan, backup, log, monitoring | 30 days |
 | access review, review, ticket | 90 days |
 | meeting minutes | 180 days |
 | policy, charter, training, risk assessment, penetration test | 365 days |

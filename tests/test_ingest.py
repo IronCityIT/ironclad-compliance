@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -11,12 +12,16 @@ from ironclad.errors import ValidationError
 from ironclad.ingest.collectors import collect_from_directory, collect_from_manifest
 from ironclad.ingest.contract import (
     CONTRACT_VERSION,
+    VALID_CLASSIFICATIONS,
     build_manifest,
     load_manifest,
     manifest_from_directory,
     validate_manifest,
 )
 from ironclad.ingest.extractors import extract_text, supported_extensions
+from ironclad.model.evidence import DEFAULT_VALIDITY_DAYS, VALIDITY_DAYS
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def valid_manifest(**overrides) -> dict:
@@ -252,3 +257,64 @@ class TestCollection:
         one, _ = collect_from_directory("acme", first)
         two, _ = collect_from_directory("acme", second)
         assert next(iter(one)).artifact_id == next(iter(two)).artifact_id
+
+
+class TestTheContractDocumentMatchesTheEngine:
+    """The document a client is asked to submit evidence against.
+
+    `docs/ingestion-contract.md` is the agreement: it tells whoever collects a
+    client's evidence what shape to send and how long each class of document
+    counts for. A contract that has drifted from the implementation is the same
+    defect as a wrapper that has — it states something the engine does not do,
+    and the person who finds out is the client whose control read as a gap.
+
+    Checked rather than read. The freshness table was already one class short:
+    a bare `scan` is a 30-day class in the code and the document did not say so,
+    so a client submitting `Q3 scan.pdf` got a 30-day clock the contract never
+    mentioned.
+    """
+
+    DOC = REPO_ROOT / "docs" / "ingestion-contract.md"
+
+    def _documented_windows(self) -> dict[str, int]:
+        text = self.DOC.read_text(encoding="utf-8")
+        windows: dict[str, int] = {}
+        for classes, days in re.findall(r"^\| ([^|]+?) \| (\d+) days \|$", text, re.M):
+            for name in (c.strip() for c in classes.split(",")):
+                windows[name] = int(days)
+        return windows
+
+    def test_every_evidence_class_is_documented(self) -> None:
+        documented = self._documented_windows()
+        assert set(VALIDITY_DAYS) <= set(documented), (
+            f"undocumented evidence classes: {set(VALIDITY_DAYS) - set(documented)}"
+        )
+
+    def test_no_class_is_documented_with_the_wrong_window(self) -> None:
+        documented = self._documented_windows()
+        wrong = {
+            name: (documented[name], VALIDITY_DAYS[name])
+            for name in set(documented) & set(VALIDITY_DAYS)
+            if documented[name] != VALIDITY_DAYS[name]
+        }
+        assert not wrong, f"documented window != engine window: {wrong}"
+
+    def test_the_default_window_is_documented(self) -> None:
+        assert self._documented_windows().get("anything else") == DEFAULT_VALIDITY_DAYS
+
+    def test_no_class_is_documented_that_the_engine_does_not_have(self) -> None:
+        # A client reading the contract must not plan around a class the engine
+        # will not recognise; it would silently take the default window.
+        documented = set(self._documented_windows()) - {"anything else"}
+        assert documented <= set(VALIDITY_DAYS), (
+            f"documented but not in the engine: {documented - set(VALIDITY_DAYS)}"
+        )
+
+    def test_the_documented_contract_version_is_the_supported_one(self) -> None:
+        text = self.DOC.read_text(encoding="utf-8")
+        assert f'must be `"{CONTRACT_VERSION}"`' in text
+
+    def test_the_documented_classifications_are_the_accepted_ones(self) -> None:
+        text = self.DOC.read_text(encoding="utf-8")
+        for classification in VALID_CLASSIFICATIONS:
+            assert f"`{classification}`" in text, classification
