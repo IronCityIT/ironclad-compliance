@@ -2,7 +2,12 @@ name: CI
 
 # The same gates the Jenkins pipeline runs, so a change is checked whichever
 # route it takes. Jenkinsfile is the authority on the gate order; keep the two
-# in step.
+# in step — they had drifted once already, with CI running the persistence,
+# rules and end-to-end gates and Jenkins not knowing they existed.
+#
+# Where Jenkins cannot run a gate on its agent it reports UNAVAILABLE and marks
+# the build unstable rather than passing it. Here every gate has what it needs,
+# so a skip would be a defect rather than a fact about the machine.
 
 on:
   push:

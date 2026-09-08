@@ -455,6 +455,14 @@ last run, and the workflow commits only `frameworks/framework-check-state.json`.
 PR #3 needs closing rather than merging; the evidence is recorded as a comment
 on it, and closing somebody else's PR is not this session's call.
 
+The Jenkins pipeline runs the same gates. It had drifted — CI gained the
+persistence, rules and end-to-end gates and `Jenkinsfile` did not know they
+existed — which matters because the two exist to check a change whichever route
+it takes. All three are in both now. On an agent without node, a JVM or a
+MariaDB the two that need them report UNAVAILABLE and mark the build unstable
+rather than passing; the end-to-end gate needs no service at all, because a
+directory in the workspace is a volume, so it runs everywhere.
+
 `compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
 `workflow_call`. Its real contract — read from that repository, not assumed — is
 `findings_json` as **base64** and exactly one output, `consensus_b64`. This

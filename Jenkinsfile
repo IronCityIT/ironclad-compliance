@@ -105,6 +105,11 @@ pipeline {
             [name: 'typecheck', cmd: 'mypy'],
             [name: 'test',     cmd: 'pytest --cov=ironclad --cov-report=xml --cov-report=term-missing --junitxml=junit.xml'],
             [name: 'artifacts', cmd: 'python scripts/validate_artifacts.py'],
+            // The whole path against a real store: ingest the sample evidence,
+            // assess, render the deliverables, publish, read the record back and
+            // re-checksum it. Needs no service — a directory in the workspace is
+            // a volume — so unlike the two gates below this one always runs.
+            [name: 'end-to-end', cmd: 'python scripts/end_to_end.py --store "$WORKSPACE/.ironclad-volume"'],
             [name: 'build',    cmd: 'python -m build'],
           ]
 
@@ -118,6 +123,61 @@ pipeline {
             } else {
               echo "── gate ${gate.name} passed"
             }
+          }
+
+          // Two gates below need a service this agent image does not carry, and
+          // one needs a runtime it does not have. Each reports UNAVAILABLE and
+          // marks the build unstable rather than passing: `ci.yml` runs all
+          // three, and a pipeline that silently does not know a gate exists has
+          // drifted from the one that does.
+
+          // firestore.rules against the emulator. Needs node and a JVM.
+          def rulesStatus = sh(
+            script: '''
+              set -eu
+              command -v npm >/dev/null 2>&1 || {
+                echo "node/npm unavailable on this agent"; exit 66; }
+              command -v java >/dev/null 2>&1 || {
+                echo "no JVM on this agent; the Firestore emulator needs one"; exit 66; }
+              npm --prefix tests/rules ci
+              npm --prefix tests/rules test
+            ''',
+            returnStatus: true
+          )
+          if (rulesStatus == 66) {
+            echo '── gate rules UNAVAILABLE — reported, not passed'
+            unstable('firestore.rules gate could not run on this agent')
+          } else if (rulesStatus != 0) {
+            failed << 'rules'
+            echo '── gate rules FAILED'
+          } else {
+            echo '── gate rules passed'
+          }
+
+          // The store against a real MariaDB. Needs one bound to IRONCLAD_TEST_DSN;
+          // the DSN carries a password, so it comes from a credential and is
+          // never echoed.
+          def persistenceStatus = sh(
+            script: '''
+              set -eu
+              [ -n "${IRONCLAD_TEST_DSN:-}" ] || {
+                echo "IRONCLAD_TEST_DSN is not bound; no MariaDB to test against"; exit 66; }
+              pip install --quiet PyMySQL
+              python -m ironclad.cli store init --to "$IRONCLAD_TEST_DSN"
+              pytest tests/test_store.py -q
+              python scripts/end_to_end.py --store "$IRONCLAD_TEST_DSN" \
+                --artifacts "$WORKSPACE/.ironclad-artifacts"
+            ''',
+            returnStatus: true
+          )
+          if (persistenceStatus == 66) {
+            echo '── gate persistence UNAVAILABLE — reported, not passed'
+            unstable('persistence gate could not run on this agent')
+          } else if (persistenceStatus != 0) {
+            failed << 'persistence'
+            echo '── gate persistence FAILED'
+          } else {
+            echo '── gate persistence passed'
           }
 
           // The Cloud Functions and dashboard gates need a runtime this agent
