@@ -317,6 +317,10 @@ gh workflow run "Compliance Assessment" \
 ```sh
 pip install -r requirements-dev.txt
 
+sh scripts/gates.sh                   # every gate CI runs that needs no service
+sh scripts/gates.sh --all             # plus node, and MariaDB given a DSN
+
+# or one at a time
 ruff format --check .                 # format
 ruff check .                          # lint
 mypy                                  # typecheck
@@ -329,6 +333,11 @@ npm --prefix functions test           # Cloud Functions decisions
 npm --prefix dashboard test           # dashboard rendering and escaping
 npm --prefix tests/rules test         # firestore.rules, against the emulator
 ```
+
+Prefer `scripts/gates.sh`. It exists because running the gates by hand went
+wrong exactly once — a local pass that checked formatting and forgot
+`ruff check`, so a lint error reached CI. A gate you have to remember to invoke
+is a gate that gets forgotten under time pressure, which is when it matters.
 
 The Cloud Functions' decisions — tenant slugs, document ids, whether an ingest
 is authorized, whether an evidence path belongs to the caller — live in

@@ -496,13 +496,13 @@ See §2.5 for results. To run everything on a fresh checkout:
 
 ```sh
 pip install -r requirements-dev.txt
-ruff format --check . && ruff check . && mypy && pytest
-python scripts/validate_artifacts.py
-python tools/build_catalog.py --check
-npm --prefix functions test
-npm --prefix dashboard test
+sh scripts/gates.sh --all
 npm --prefix tests/rules ci && npm --prefix tests/rules test   # needs a JVM
 ```
+
+`scripts/gates.sh` is the whole set CI runs, in one command, so a local pass
+means the same thing. It exists because running them by hand went wrong once —
+a local run that checked formatting and forgot `ruff check`.
 
 `bandit` will not install on this build container under PEP 668; it runs in CI,
 where its first run found a real defect (`file://` reachable through the publish
