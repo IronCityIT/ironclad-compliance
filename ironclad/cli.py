@@ -121,6 +121,12 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--out", required=True, help="path to write the report to")
     report.add_argument("--client-name", default="", help="display name for the client")
     report.add_argument(
+        "--compare-to",
+        dest="compare_to",
+        default="",
+        help="a previous assessment.json; adds a 'since the last assessment' section",
+    )
+    report.add_argument(
         "--view",
         default="",
         choices=("", *ASSESSMENT_TYPES),
@@ -416,8 +422,19 @@ def cmd_report(args: argparse.Namespace) -> int:
     # A stored result carries the type it was run as; --view re-issues the same
     # assessment as a different deliverable without re-running anything.
     view = view_for(args.view) if args.view else None
-    output.write_text(render_html(result, args.client_name, view=view), encoding="utf-8")
+
+    comparison = None
+    if args.compare_to:
+        earlier = json.loads(Path(args.compare_to).read_text(encoding="utf-8"))
+        comparison = compare_assessments(earlier, result.to_dict())
+
+    output.write_text(
+        render_html(result, args.client_name, view=view, comparison=comparison),
+        encoding="utf-8",
+    )
     print(f"report written: {output}", file=sys.stderr)
+    if comparison is not None:
+        print(f"  {comparison.headline()}", file=sys.stderr)
     return EXIT_OK
 
 

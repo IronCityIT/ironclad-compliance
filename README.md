@@ -81,6 +81,7 @@ ironclad store list --client acme-corp
 
 ironclad compare --from q3/assessment.json --to q4/assessment.json
 ironclad compare --client acme-corp        # the two most recent, from the store
+ironclad report --input q4.json --compare-to q3.json --out report.html
 
 ironclad evidence stage --client acme-corp --out evidence/
 
@@ -432,6 +433,14 @@ Three rules keep a trend from flattering a client by accident:
 Controls present in only one of the two runs are named, never dropped — a
 control that disappears is either a scope change or a defect, and omitting it
 hides which.
+
+`ironclad report --compare-to <previous>` puts the same answer in the client's
+report, high in the document: at a second assessment the first question is
+whether the work done in between showed up, and an answer buried under thirty
+control rows is an answer nobody reads. The honesty rules travel with it — a
+scope change appears in its own callout explaining that it lifts the score
+without any control being fixed, and a comparison the engine has marked not
+comparable renders its reason and no movement figure at all.
 
 ## Where a result comes to rest
 

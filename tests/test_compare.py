@@ -284,3 +284,109 @@ class TestTheCompareCommand:
         b = self._write(tmp_path / "q4.json", later)
         main(["compare", "--from", str(a), "--to", str(b)])
         assert "caveat:" in capsys.readouterr().err
+
+
+class TestTheTrendReachesTheClient:
+    """The comparison existed as JSON and never reached the deliverable.
+
+    At a second assessment the client's first question is whether the work they
+    did in between showed up, and the answer was available only to whoever ran
+    the CLI. It is a section in the report now — high in the document, because
+    an answer buried under thirty control rows is an answer nobody reads.
+
+    What matters here is that the honesty rules survive the trip to the page. A
+    scope change that reads as an improvement in a JSON blob nobody opens is a
+    latent problem; the same thing in a client's report is a wrong statement
+    about their compliance position.
+    """
+
+    @staticmethod
+    def _rendered(earlier: dict, later: dict) -> str:
+        from ironclad.cli import _StoredResult
+        from ironclad.report.render import render_html
+
+        return render_html(_StoredResult(later), "Acme Corp", comparison=compare(earlier, later))
+
+    def test_the_section_is_absent_without_a_comparison(self, earlier) -> None:
+        from ironclad.cli import _StoredResult
+        from ironclad.report.render import render_html
+
+        html = render_html(_StoredResult(earlier), "Acme Corp")
+        assert "Since the last assessment" not in html
+
+    def test_it_names_the_movement_and_the_earlier_assessment(self, earlier) -> None:
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        later["summary"]["readiness_score"] = 80.0
+        html = self._rendered(earlier, later)
+        assert "Since the last assessment" in html
+        assert "acme-q3" in html
+        assert "Readiness change" in html
+
+    def test_an_improvement_names_the_control_and_both_ends(self, earlier) -> None:
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        html = self._rendered(earlier, later)
+        assert "CC9.9" in html
+        assert "Improved (1)" in html
+
+    def test_a_regression_is_shown_as_one(self, earlier) -> None:
+        later = revised(earlier, **{"CC6.1": "gap"})
+        html = self._rendered(earlier, later)
+        assert "Regressed (1)" in html
+        assert "CC6.1" in html
+
+    def test_a_scope_change_is_not_presented_as_an_improvement(self, earlier) -> None:
+        # The rule that matters most on a client-facing page.
+        later = revised(earlier, **{"CC9.9": "not_applicable"})
+        html = self._rendered(earlier, later)
+        assert "Improved" not in html
+        assert "Scope changed" in html
+        assert "leaves the readiness denominator" in html
+
+    def test_an_incomparable_pair_says_so_and_shows_no_figure(self, earlier) -> None:
+        # A movement figure across two framework versions is a number that looks
+        # like a trend and is not.
+        later = revised(earlier)
+        later["framework"]["version"] = "2.0"
+        later["summary"]["readiness_score"] = 99.0
+        html = self._rendered(earlier, later)
+        assert "Since the last assessment" in html
+        assert "Read with care" in html
+        assert "Readiness change" not in html
+
+    def test_client_text_in_a_comparison_cannot_inject_markup(self, earlier) -> None:
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        for control in later["controls"]:
+            if control["control_id"] == "CC9.9":
+                control["control_name"] = "<script>alert(1)</script>"
+        html = self._rendered(earlier, later)
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_the_section_names_no_underlying_tool(self, earlier) -> None:
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        html = self._rendered(earlier, later).lower()
+        for name in ("zap", "nuclei", "wazuh", "prowler", "openai", "anthropic", "groq"):
+            assert name not in html
+
+    def test_the_report_command_takes_a_previous_assessment(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        previous = tmp_path / "q3.json"
+        previous.write_text(json.dumps(earlier), encoding="utf-8")
+        current = tmp_path / "q4.json"
+        current.write_text(json.dumps(revised(earlier, **{"CC9.9": "compliant"})), encoding="utf-8")
+        out = tmp_path / "report.html"
+        code = main(
+            [
+                "report",
+                "--input",
+                str(current),
+                "--compare-to",
+                str(previous),
+                "--out",
+                str(out),
+            ]
+        )
+        assert code == 0
+        assert "Since the last assessment" in out.read_text(encoding="utf-8")
+        assert "improved" in capsys.readouterr().err

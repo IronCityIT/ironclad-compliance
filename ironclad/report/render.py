@@ -78,6 +78,10 @@ tr:last-child td { border-bottom: none; }
 .cid { font-weight: 700; color: var(--navy); white-space: nowrap; }
 .note { font-size: 8.5pt; color: var(--muted); margin-top: 4px; }
 .ours { font-weight: 700; color: var(--navy); white-space: nowrap; }
+.improved { color: var(--met); font-weight: 700; }
+.regressed { color: var(--gap); font-weight: 700; }
+.scoped { color: var(--muted); font-weight: 700; }
+h3 { font-size: 11pt; margin: 22px 0 8px; color: var(--navy); }
 .callout { background: #f7fafc; border-left: 4px solid var(--navy);
            padding: 14px 18px; margin: 18px 0; }
 .callout.warn { border-left-color: #dd6b20; background: #fffaf0; }
@@ -216,7 +220,99 @@ def _method_section() -> str:
     """
 
 
-def render_html(result: Any, client_name: str = "", view: ReportView | None = None) -> str:
+def _movement_rows(changes: list[Any], direction: str) -> str:
+    rows = []
+    for change in changes:
+        rows.append(
+            f'<tr><td class="cid">{escape(change.control_id)}</td>'
+            f"<td>{escape(change.control_name)}</td>"
+            f"<td>{_pill(change.was, STATUS_LABEL.get(change.was, change.was))}</td>"
+            f"<td>{_pill(change.now, STATUS_LABEL.get(change.now, change.now))}</td>"
+            f'<td class="{escape(direction)}">{escape(direction)}</td></tr>'
+        )
+    return "".join(rows)
+
+
+def _comparison_section(comparison: Any) -> str:
+    """What moved since the last assessment.
+
+    Placed high in the report on purpose. At a second assessment the first
+    question is not what the readiness is but whether the work done in between
+    showed up, and an answer buried under thirty control rows is an answer
+    nobody reads.
+
+    A comparison the engine has marked not comparable renders its reason and
+    stops. Showing a movement figure across two framework versions would be a
+    number that looks like a trend and is not.
+    """
+    change = comparison.readiness_change
+    arrow = "▲" if change > 0 else ("▼" if change < 0 else "—")
+    tone = "improved" if change > 0 else ("regressed" if change < 0 else "")
+
+    caveats = "".join(
+        f'<div class="callout warn"><strong>Read with care</strong> — {escape(c)}</div>'
+        for c in comparison.caveats
+    )
+
+    if not comparison.comparable:
+        return f"""
+        <h2>Since the last assessment</h2>
+        {caveats}
+        """
+
+    def table(title: str, changes: list[Any], direction: str) -> str:
+        if not changes:
+            return ""
+        return f"""
+        <h3>{escape(title)} ({len(changes)})</h3>
+        <table>
+          <thead><tr><th>Control</th><th>Name</th><th>Was</th><th>Now</th><th></th></tr></thead>
+          <tbody>{_movement_rows(changes, direction)}</tbody>
+        </table>
+        """
+
+    scope = ""
+    if comparison.scoped_out or comparison.scoped_in:
+        scope = f"""
+        <div class="callout">
+          <strong>Scope changed</strong> — {len(comparison.scoped_out)} control(s) were
+          taken out of scope and {len(comparison.scoped_in)} brought back in. A control
+          taken out of scope leaves the readiness denominator, which lifts the score
+          without any control being fixed. It is reported here rather than counted as
+          an improvement.
+        </div>
+        {table("Taken out of scope", comparison.scoped_out, "scoped")}
+        {table("Brought back into scope", comparison.scoped_in, "scoped")}
+        """
+
+    return f"""
+    <h2>Since the last assessment</h2>
+    <p>Compared with {escape(comparison.earlier_id)}.</p>
+    {caveats}
+    <div class="scores">
+      <div class="card"><div class="value {escape(tone)}">{arrow} {abs(change)}</div>
+        <div class="label">Readiness change</div></div>
+      <div class="card"><div class="value">{comparison.readiness_before}%</div>
+        <div class="label">Was</div></div>
+      <div class="card"><div class="value">{comparison.readiness_after}%</div>
+        <div class="label">Now</div></div>
+      <div class="card"><div class="value">{len(comparison.remediation_closed)}</div>
+        <div class="label">Remediation closed</div></div>
+      <div class="card"><div class="value">{len(comparison.remediation_opened)}</div>
+        <div class="label">Newly raised</div></div>
+    </div>
+    {table("Improved", comparison.improved, "improved")}
+    {table("Regressed", comparison.regressed, "regressed")}
+    {scope}
+    """
+
+
+def render_html(
+    result: Any,
+    client_name: str = "",
+    view: ReportView | None = None,
+    comparison: Any = None,
+) -> str:
     """Render the assessment as a self-contained HTML document.
 
     The view comes from the assessment type unless one is passed explicitly. An
@@ -308,6 +404,8 @@ def render_html(result: Any, client_name: str = "", view: ReportView | None = No
 
     crosswalk_block = _crosswalk_section(result.module_output) if view.show_crosswalk else ""
 
+    comparison_block = _comparison_section(comparison) if comparison is not None else ""
+
     generated = utc_now().strftime("%d %B %Y")
 
     return f"""<!DOCTYPE html>
@@ -333,6 +431,7 @@ def render_html(result: Any, client_name: str = "", view: ReportView | None = No
    ({escape(framework.version)}) using {summary.evidence_artifacts} items of evidence.</p>
 <div class="scores">{_score_cards(summary)}</div>
 {omission_block}
+{comparison_block}
 {stale_block}
 {consensus_block}
 {warning_block}
