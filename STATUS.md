@@ -221,6 +221,26 @@ authorization and the evidence-path check, with no firebase imports, and
 
 ## Live evidence from `main`
 
+**The fixed checker was run against the four real sources, twice.** Both runs
+reported `updates_found=false` for all four — the first recording fingerprints,
+the second comparing against them, which is the run the old checker could never
+get right because its answer did not depend on the previous one.
+
+Applying the old rule to the same pages fetched in the same run: it reports an
+update on the NIST page, matching the word "latest", where the new rule reports
+unchanged. One of four today rather than the three it hit on 2026-08-29 —
+the pages have moved since — but the failure is the same one, and it is the
+reason PR #3 exists.
+
+```
+framework                          old rule                       new rule
+SOC 2 Trust Service Criteria       no update                      unchanged
+NIST Cybersecurity Framework       UPDATE — matched 'latest'      unchanged
+PCI Data Security Standard         no update                      unchanged
+HIPAA Security Rule                no update                      unchanged
+```
+
+
 **PR #3 is an open false positive.** The quarterly framework checker on `main`
 matched the word "latest" on three standards pages and reported all three as
 updated — its own diff says `"details": "Found 'latest'"` for each. It also adds
