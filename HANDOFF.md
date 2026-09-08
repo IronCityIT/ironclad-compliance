@@ -421,7 +421,22 @@ gate, open a PR and stop. Nothing is merged, nothing is deployed, and no
 |---|---|---|
 | `ci.yml` | push, PR | **Green.** Five jobs: quality gates ×2 Python versions, Cloud Functions and dashboard, Firestore rules, security gate. |
 | `compliance-assessment.yml` | `workflow_dispatch` | **Never executed.** YAML parses; framework choices are checked against the loader by a test. |
-| `framework-updates.yml` | schedule + dispatch | Last run 2026-08-29 on `main`, success. |
+| `framework-updates.yml` | schedule + dispatch | Last run 2026-08-29 on `main`, success — **and its output was wrong**, see below. |
+
+**PR #3 is a live false positive, still open.** The quarterly checker on `main`
+decided a framework had changed by searching the source page for any of
+`["new version", "updated", "revision", "latest"]`. Its own diff records the
+result: `"details": "Found 'latest' - manual review recommended"` for SOC 2,
+NIST CSF and PCI DSS alike. "latest" appears permanently on a standards body's
+page, so the check could not return false and would have reported an update
+every quarter forever. The PR also adds `updates.json`, which is in `.gitignore`
+— a transient run output, not repository state.
+
+Fixed on this branch: the checker now compares a version token against the one
+this repository tracks and a content fingerprint against what was actually seen
+last run, and the workflow commits only `frameworks/framework-check-state.json`.
+PR #3 needs closing rather than merging; the evidence is recorded as a comment
+on it, and closing somebody else's PR is not this session's call.
 
 `compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
 `workflow_call`. Its real contract — read from that repository, not assumed — is
@@ -524,8 +539,8 @@ Ordered by value, non-blocked first.
    and a result store as two collaborators and writes to a real volume or
    database, which is what an HTTP surface needs. Adding one would give the
    dashboard a backend that is not Firebase (migration stage 5).
-5. **Framework update checker → a PR that a human reviews**, rather than a
-   notification.
+5. **Close PR #3.** A false positive from the checker defect above, proposing to
+   commit a gitignored file. Evidence recorded as a comment on it.
 6. **Coverage gaps:** `ironclad/policy.py` 86%, `freshness_check` 85%.
 7. **Retire the legacy `scripts/*.py` wrappers** if nothing outside this
    repository calls them.

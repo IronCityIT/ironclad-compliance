@@ -219,6 +219,15 @@ authorization and the evidence-path check, with no firebase imports, and
    checked; the assessment id is refused rather than rewritten, because a
    sanitized substitute silently splits a re-run into a second record.
 
+## Live evidence from `main`
+
+**PR #3 is an open false positive.** The quarterly framework checker on `main`
+matched the word "latest" on three standards pages and reported all three as
+updated — its own diff says `"details": "Found 'latest'"` for each. It also adds
+`updates.json`, which `.gitignore` excludes. Both defects are fixed on this
+branch; the finding is recorded as a comment on PR #3, which needs closing
+rather than merging. Not closed here — that is Bill's call.
+
 ## Blocked
 
 **`GITHUB_DISPATCH_TOKEN` is not provisioned.** `functions/trigger.js` needs a
