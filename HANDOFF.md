@@ -2,7 +2,7 @@
 
 **Written:** 2026-09-07 · **Branch:** `productize/ironclad-compliance` ·
 **Open PR:** [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) ·
-**Head at writing:** `c0c733c`
+**Head at writing:** `3fe0a48`
 
 This document is meant to be portable: someone with this file, the repository and
 no other context should be able to pick the product up. It is written for a
@@ -55,13 +55,16 @@ ironclad/          the engine. Python 3.10+, standard library only at its core
   ingest/          the versioned evidence contract, collectors, extractors
   report/          HTML render, exports, auditor package, per-type views
   api/             request/response schemas, ComplianceService, PolicyStore
+  store/           the persistence seam: rows, schema.sql, MariaDB, volume, artifacts
+  compare.py       what changed between two assessments
+  evidence_root.py a tenant's evidence prefix on a volume
   method.py        which bars are the framework's and which are Iron City's
   cli.py           every surface drives the engine through here
 frameworks/        four framework definitions + crosswalks, as JSON
 functions/         Cloud Functions — SEE SECTION 4, these are being retired
 dashboard/         static dashboard — SEE SECTION 4, its backend is being retired
-tests/             390 Python tests
-scripts/, tools/   pipeline wrappers and generators
+tests/             645 Python tests
+scripts/, tools/   pipeline wrappers, generators, the gate runner, the E2E check
 ```
 
 Line counts: engine ~3,200; total Python under test 2,563 statements at 91%
@@ -109,6 +112,13 @@ exists in both frameworks.
 | **The whole path agrees with itself**: ingest → assess → deliverables → publish → read back, against both stores | `scripts/end_to_end.py`, run in CI against MariaDB and against a volume. Checks the readiness a client reads is the readiness stored, the chain head matches, the queue is the tenant's own, and re-publishing leaves one record |
 | Dashboard escaping | 38 node tests, field by field over every render path |
 | Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
+| **Evidence extraction reports a failure as a failure** | Never an empty document, never a raised exception, never a placeholder — a document that fails to extract silently is a met control read as a gap. Corrupt, empty, truncated-zip, missing-dependency, unsupported-suffix and no-suffix cases each assert a named error with empty text. `extractors.py` 52% → 92% |
+| **A policy that validates also loads** | Every status a policy may claim — draft, pending, approved, rejected, revoked, expired — validates and loads into that state. A rejection used to pass `validate --policy` and raise at assessment time. `policy.py` 86% → 97% |
+| **A withdrawn decision does not hide a failing control** | End to end: with a rejected, revoked, expired, draft or pending acceptance the control does not read as `accepted_risk`; with a live approval it does |
+| **Both assessment entry points agree** | `scripts/assess_controls.py` had no `--policy` and silently dropped scope exclusions and risk acceptances. Identical verdicts and readiness against the same evidence and policy are now asserted |
+| **The ingestion contract matches the engine** | Every documented rule checked against the validator; the freshness table is checked against `VALIDITY_DAYS` by a test, verified by breaking it on purpose |
+| **Ageing evidence is flagged, never downgraded** | `freshness_check` 85% → 100%. Evidence inside its window supports the control; expired evidence is not reported as ageing |
+| **The trend reaches the client** | `ironclad report --compare-to` renders it, with the scope-change and not-comparable rules intact on the page |
 | All 126 shipped control ids are usable as document ids | Test over all four frameworks |
 
 ### 2.5 Gates, and their last results
@@ -117,10 +127,10 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | PASS — 65 files |
+| Format | `ruff format --check .` | PASS — 90 files |
 | Lint | `ruff check .` | PASS |
-| Typecheck | `mypy` | PASS — 63 source files |
-| Test | `pytest` | PASS — 542 passed, 19 skipped in CI; 91% coverage |
+| Typecheck | `mypy` | PASS — 81 source files |
+| Test | `pytest` | PASS — 645 passed, 19 skipped in CI; 92% coverage |
 | Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
 | Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
@@ -130,9 +140,15 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Build | `python -m build` | PASS in CI |
 | Security | `pip-audit`, `bandit`, secret-literal scan, white-label scan | PASS in CI |
 
-CI run [34162039036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34162039036)
-at `c0c733c`: Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions
-and dashboard ✅ · **Persistence (MariaDB) ✅** · Firestore rules ✅ · Security gate ✅
+CI run [34207153569](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34207153569)
+at `3fe0a48`: Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions
+and dashboard ✅ · Persistence and end-to-end ✅ · Firestore rules ✅ ·
+Security gate ✅
+
+Locally the same suite is 639 passed and 25 skipped: the six extra skips are the
+binary-extraction tests, which need optional dependencies PEP 668 will not let
+this machine install. `scripts/gates.sh` says so rather than reporting a pass
+that checked less than CI did.
 
 ---
 
@@ -530,7 +546,8 @@ endpoint). Do not conclude the security gate is green from a local run.
 
 Ordered by value, non-blocked first.
 
-1. **Persistence port + MariaDB implementation** (§13 stages 1–3).
+1. ~~Persistence port + MariaDB implementation~~ — **done** (§13 stages 1–3),
+   with the artifact store and the end-to-end round trip alongside it.
 2. ~~Trend comparison between assessments~~ — **done**, `ironclad compare`.
 3. ~~Evidence collection from a NAS volume~~ — **done**, `ironclad evidence stage`.
    The workflow uses it when `IRONCLAD_EVIDENCE_ROOT` is set and falls back to
@@ -542,14 +559,16 @@ Ordered by value, non-blocked first.
    dashboard a backend that is not Firebase (migration stage 5).
 5. **Close PR #3.** A false positive from the checker defect above, proposing to
    commit a gitignored file. Evidence recorded as a comment on it.
-6. **Coverage gaps:** `freshness_check` 85%,
-   `api/service.py` 84%. `extractors.py` (52% → 92%), `frameworks/updates.py`
-   (80%, two real defects found) and `policy.py` (86% → 97%, two real defects
-   found) are done, and each turned up a defect rather than only a number. `store/mariadb.py` reads as 40% locally
-   and is covered in CI against a real server; the local number is an artefact
-   of the skip, not a gap.
-7. **Retire the legacy `scripts/*.py` wrappers** if nothing outside this
-   repository calls them. Nothing inside does — `assess_controls.py` and
+6. **Coverage.** 92% overall. `api/service.py` at 84% is the last gap of any
+   size and is lower consequence than the five closed this session:
+   `extractors.py` 52 → 92%, `frameworks/updates.py` (blind on three of four
+   sources), `policy.py` 86 → 97%, `freshness_check` 85 → 100%, and the legacy
+   wrappers, which had none. Four of the five turned up a real defect;
+   `freshness_check` did not, and saying so matters — a coverage gap is not
+   evidence of a bug. `store/mariadb.py` reads as 40% locally and is covered in
+   CI against a real server; that number is an artefact of the skip, not a gap.
+7. ~~Retire the legacy `scripts/*.py` wrappers~~ — **decided: kept and tested.**
+   Nothing inside this repository calls them — `assess_controls.py` and
    `generate_report.py` are referenced only by documentation, and the workflow
    calls `python -m ironclad.cli` directly. They are kept rather than deleted
    because `STATUS.md` promises external callers still work and that cannot be
@@ -580,6 +599,23 @@ report; the update checker could not return false; the ingest failed open; the
 evidence-path check was traversable; payload ids could steer a storage path; two
 dashboard fields were unescaped; the assessment type was ignored; the
 risk-acceptance workflow was unreachable.
+
+Since, and each found by measuring rather than reading:
+
+| Defect | How it showed |
+|---|---|
+| **The update checker was blind on three of four sources.** `meta` and `link` are void elements and were in the extractor's skip set, so the skip counter never unwound and every text node after the first `<meta>` was discarded | Fetching the real pages: SOC 2, PCI DSS and HIPAA yielded 0 characters, NIST 5,368 — and NIST only because it self-closes its meta tags |
+| An empty or blocked response was fingerprinted as a content change, and recorded as the new baseline | Two false pull requests from one WAF interstitial |
+| **A policy that passed `validate --policy` failed to load.** A rejection was replayed without being submitted first | Asking what each status a policy may claim actually does |
+| An expired acceptance was silently demoted to a draft | The same |
+| **`scripts/assess_controls.py` ignored the tenant policy.** No `--policy` flag, no discovery beside the evidence | Running both entry points over the same evidence and comparing |
+| MariaDB truncated silently without a strict `sql_mode`; the row projection truncated before the database saw it at all | The first CI run against a real MariaDB |
+| A client's second assessment collided on a deterministic remediation id | The same run |
+| The `scan` evidence class was undocumented in the ingestion contract | Checking the document against `VALIDITY_DAYS` |
+
+The pattern is worth naming for whoever picks this up: every one of these was
+found by executing something against reality — a live page, a real database, two
+entry points side by side — and none by reading the code.
 
 ### Open product task, found by the checker
 
@@ -677,14 +713,17 @@ it will not come again.
 ## 19. Provenance
 
 Everything in §2 was executed on this build container or read from this
-repository at `26d0867`. CI evidence is linked by run id. §3.1 facts about the
+repository at `3fe0a48`. CI evidence is linked by run id. §3.1 facts about the
 NAS come from two sources, separated: a live TCP probe from this container
 (MariaDB banner), and `ICIT-Infrastructure` documents, which are cited as
 documents rather than restated as verified fact.
 
 The build container: Ubuntu 24.04 on kernel 5.10.60-qnap, hostname
 `dd2032e4524d` — a Container Station container on the QNAP, with LAN access to
-192.168.1.177. No `docker`, `mysql` or `psql` client is installed.
+192.168.1.177. No `docker`, `mysql` or `psql` client is installed, and PEP 668
+blocks installing into its Python, which is why `bandit` and the evidence
+extraction extras run in CI rather than here. `scripts/gates.sh` reports that
+gap rather than passing over it.
 
 **What this document does not know**, restated so it is not mistaken for
 completeness: MariaDB credentials, whether a schema exists, how
