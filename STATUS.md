@@ -125,6 +125,17 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- **A policy file that validates now also loads.** `ironclad validate --policy`
+  accepted a rejected acceptance and `load_policy` then raised on it: the replay
+  never submitted the exception, and the state machine correctly refuses
+  draft → rejected. An expired one was not replayed at all and came out as a
+  draft, silently discarding the status the file claimed. Every status a policy
+  may carry — draft, pending, approved, rejected, revoked, expired — now
+  validates and loads into that state. `policy.py` 86% → 97%.
+- **A withdrawn decision does not make a failing control disappear.** Asserted
+  end to end: with a rejected, revoked, expired, draft or still-pending
+  acceptance on CC1.1, the control does not read as `accepted_risk`; with a live
+  approval it does, so the negative tests are not passing because nothing works.
 - **Evidence extraction, where a met control becomes a gap if it goes wrong.**
   `ironclad/ingest/extractors.py` was the least covered module in the engine at
   52% and the most consequential: a document that fails to extract produces no

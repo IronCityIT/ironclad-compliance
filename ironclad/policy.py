@@ -183,16 +183,19 @@ def validate_policy(document: Any) -> list[str]:
             valid_statuses = {member.value for member in ExceptionStatus}
             if status not in valid_statuses:
                 errors.append(f"{where}.status {status!r} is not one of {sorted(valid_statuses)}")
-            elif status == ExceptionStatus.APPROVED.value:
+            elif status in (ExceptionStatus.APPROVED.value, ExceptionStatus.EXPIRED.value):
                 # An approved acceptance in a policy file must carry the
-                # evidence of its approval, or it is just an assertion.
+                # evidence of its approval, or it is just an assertion. An
+                # expired one was approved once and then ran out, so it carries
+                # exactly the same evidence — and it must, or it cannot be
+                # replayed into the state the file claims for it.
                 if not str(raw.get("approved_by", "")).strip():
                     errors.append(
-                        f"{where}({control_id}).approved_by is required for an approved acceptance"
+                        f"{where}({control_id}).approved_by is required for an {status} acceptance"
                     )
                 if not raw.get("expires_at"):
                     errors.append(
-                        f"{where}({control_id}).expires_at is required for an approved "
+                        f"{where}({control_id}).expires_at is required for an {status} "
                         f"acceptance — an open-ended acceptance is an unfixed gap"
                     )
 
@@ -251,18 +254,37 @@ def policy_from_document(document: dict[str, Any]) -> TenantPolicy:
         # Replay the workflow rather than assigning the end state, so a policy
         # file cannot smuggle in an approval that the workflow would refuse —
         # a self-approval, most importantly.
-        status = str(raw.get("status", "approved"))
-        if status in (ExceptionStatus.PENDING_APPROVAL.value, ExceptionStatus.APPROVED.value):
+        #
+        # The replay has to reach every state the file may legitimately claim,
+        # or a document that passes `ironclad validate --policy` fails to load,
+        # which is the worst of both. It used to: a rejection was replayed
+        # without being submitted first, and the state machine correctly refuses
+        # draft -> rejected, so a policy carrying one raised at load time. An
+        # expired acceptance fared worse — nothing replayed it at all, so it
+        # came out as a draft and the file's own status was quietly discarded.
+        status = str(raw.get("status", ExceptionStatus.APPROVED.value))
+        approver = str(raw.get("approved_by", "")).strip()
+        approved_at = _parse_moment(raw.get("approved_at"), "", []) or requested_at
+
+        # Everything but a draft was requested by somebody.
+        if status != ExceptionStatus.DRAFT.value:
             exception.submit()
-        if status == ExceptionStatus.APPROVED.value:
-            exception.approve(
-                str(raw["approved_by"]).strip(),
-                at=_parse_moment(raw.get("approved_at"), "", []) or requested_at,
-            )
+
+        # Approved, expired and a revocation that names an approver all passed
+        # through approval to get where they are. Replaying that step is what
+        # keeps approved_by and approved_at on the object rather than inferring
+        # them from a status.
+        if status in (ExceptionStatus.APPROVED.value, ExceptionStatus.EXPIRED.value) or (
+            status == ExceptionStatus.REVOKED.value and approver
+        ):
+            exception.approve(approver, at=approved_at)
+
+        if status == ExceptionStatus.EXPIRED.value:
+            exception.expire()
         elif status == ExceptionStatus.REJECTED.value:
-            exception.reject(str(raw.get("approved_by", "")), str(raw.get("note", "rejected")))
+            exception.reject(approver, str(raw.get("note", "rejected")))
         elif status == ExceptionStatus.REVOKED.value:
-            exception.revoke(str(raw.get("approved_by", "")), str(raw.get("note", "revoked")))
+            exception.revoke(approver, str(raw.get("note", "revoked")))
 
         exceptions.append(exception)
 

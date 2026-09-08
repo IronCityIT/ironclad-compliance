@@ -542,10 +542,10 @@ Ordered by value, non-blocked first.
    dashboard a backend that is not Firebase (migration stage 5).
 5. **Close PR #3.** A false positive from the checker defect above, proposing to
    commit a gitignored file. Evidence recorded as a comment on it.
-6. **Coverage gaps:** `ironclad/policy.py` 86%, `freshness_check` 85%,
-   `frameworks/updates.py` 80%, `api/service.py` 84%. `extractors.py` was the
-   worst at 52% and is now 92% — it was also the most consequential, so the
-   remainder is genuinely lower value. `store/mariadb.py` reads as 40% locally
+6. **Coverage gaps:** `freshness_check` 85%,
+   `api/service.py` 84%. `extractors.py` (52% → 92%), `frameworks/updates.py`
+   (80%, two real defects found) and `policy.py` (86% → 97%, two real defects
+   found) are done, and each turned up a defect rather than only a number. `store/mariadb.py` reads as 40% locally
    and is covered in CI against a real server; the local number is an artefact
    of the skip, not a gap.
 7. **Retire the legacy `scripts/*.py` wrappers** if nothing outside this

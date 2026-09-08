@@ -448,3 +448,181 @@ class TestPolicyThroughTheCli:
         )
         assert main(["validate", "--policy", str(path)]) == 2
         assert "second person" in capsys.readouterr().out
+
+
+class TestEveryStatusAPolicyMayClaim:
+    """A document that passes validation must load, into the state it claims.
+
+    Both halves went wrong. A rejection was replayed without being submitted
+    first, and the state machine correctly refuses draft -> rejected, so a
+    policy carrying one passed `ironclad validate --policy` and then raised at
+    assessment time — validation and loading disagreeing, which is the worst of
+    both. An expired acceptance was not replayed at all: it came out as a draft,
+    and the file's own status was quietly discarded.
+    """
+
+    @staticmethod
+    def _document(status: str, **overrides) -> dict:
+        item = {
+            "control_id": "CC1.1",
+            "justification": "Remediation is scheduled for the next release train.",
+            "requested_by": "alice",
+            "approved_by": "bob",
+            "approved_at": "2026-08-15T00:00:00+00:00",
+            "expires_at": "2026-11-15T00:00:00+00:00",
+            "status": status,
+        }
+        item.update(overrides)
+        return policy_doc(exceptions=[item])
+
+    @pytest.mark.parametrize(
+        "status",
+        ["draft", "pending_approval", "approved", "rejected", "revoked", "expired"],
+    )
+    def test_it_validates_and_then_loads(self, status: str) -> None:
+        document = self._document(status)
+        assert validate_policy(document) == [], status
+        loaded = policy_from_document(document)
+        assert str(loaded.exceptions[0].status) == status
+
+    @pytest.mark.parametrize("status", ["approved", "expired", "revoked"])
+    def test_a_status_reached_by_approval_keeps_its_approver(self, status: str) -> None:
+        # Replayed through the approval step rather than inferred from a status,
+        # so an auditor reading the record sees who signed and when.
+        exception = policy_from_document(self._document(status)).exceptions[0]
+        assert exception.approved_by == "bob"
+        assert exception.approved_at is not None
+
+    @pytest.mark.parametrize(
+        "status", ["draft", "pending_approval", "rejected", "revoked", "expired"]
+    )
+    def test_only_an_approved_acceptance_is_active(self, status: str) -> None:
+        assert not policy_from_document(self._document(status)).exceptions[0].is_active()
+
+    def test_an_expired_acceptance_must_carry_its_approval(self) -> None:
+        # It was approved once and then ran out. Without the approver it cannot
+        # be replayed into the state the file claims for it.
+        errors = validate_policy(self._document("expired", approved_by=""))
+        assert any("approved_by is required for an expired" in e for e in errors)
+
+    def test_an_unknown_status_is_named(self) -> None:
+        errors = validate_policy(self._document("half-approved"))
+        assert any("is not one of" in e for e in errors)
+
+
+class TestANonApprovedAcceptanceDoesNotAcceptTheRisk:
+    """The consequence, asserted end to end rather than on the model.
+
+    A control with a revoked, rejected, expired or still-pending acceptance is
+    a control that is not met and has no live decision behind it. If any of them
+    reached `accepted_risk`, a failing control would disappear from a client's
+    report on the strength of a decision that was withdrawn or never made.
+    """
+
+    @staticmethod
+    def _policy(tmp_path: Path, status: str) -> Path:
+        path = tmp_path / "policy.json"
+        path.write_text(
+            json.dumps(
+                policy_doc(
+                    exceptions=[
+                        {
+                            "control_id": "CC1.1",
+                            "justification": "Remediation scheduled for the next release.",
+                            "requested_by": "alice",
+                            "approved_by": "bob",
+                            "approved_at": "2026-08-15T00:00:00+00:00",
+                            "expires_at": "2026-11-15T00:00:00+00:00",
+                            "status": status,
+                        }
+                    ]
+                )
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    @pytest.mark.parametrize(
+        "status", ["draft", "pending_approval", "rejected", "revoked", "expired"]
+    )
+    def test_the_control_is_not_accepted(
+        self, tmp_path: Path, tiny_framework, evidence, status: str
+    ) -> None:
+        policy = load_policy(self._policy(tmp_path, status), expected_tenant="acme")
+        result = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            policy=policy,
+            group="deep",
+            as_of=NOW,
+        )
+        assert verdict_for(result, "CC1.1").status is not ControlStatus.ACCEPTED_RISK
+
+    def test_an_approved_one_still_is(self, tmp_path: Path, tiny_framework, evidence) -> None:
+        # The control: the same path with a live approval does accept the risk,
+        # so the tests above are not passing because nothing works.
+        policy = load_policy(self._policy(tmp_path, "approved"), expected_tenant="acme")
+        result = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            policy=policy,
+            group="deep",
+            as_of=NOW,
+        )
+        assert verdict_for(result, "CC1.1").status is ControlStatus.ACCEPTED_RISK
+
+
+class TestAMalformedPolicyIsRefusedNotPartlyApplied:
+    """A hand-edited policy file is the normal case, and garbage in it must not
+    be half-honoured. Each of these is a shape somebody will produce."""
+
+    def test_a_policy_that_is_not_an_object(self) -> None:
+        assert validate_policy(["not", "a", "policy"]) == ["tenant policy must be a JSON object"]
+
+    def test_scope_exclusions_must_be_an_array(self) -> None:
+        errors = validate_policy(policy_doc(scope_exclusions={"control_id": "CC9.9"}))
+        assert any("'scope_exclusions' must be an array" in e for e in errors)
+
+    def test_an_exclusion_entry_must_be_an_object(self) -> None:
+        errors = validate_policy(policy_doc(scope_exclusions=["CC9.9"]))
+        assert any("scope_exclusions[0] must be an object" in e for e in errors)
+
+    def test_exceptions_must_be_an_array(self) -> None:
+        errors = validate_policy(policy_doc(exceptions="none"))
+        assert any("'exceptions' must be an array" in e for e in errors)
+
+    def test_an_exception_entry_must_be_an_object(self) -> None:
+        errors = validate_policy(policy_doc(exceptions=["CC1.1"]))
+        assert any("exceptions[0] must be an object" in e for e in errors)
+
+    def test_compensating_controls_must_be_an_array(self) -> None:
+        errors = validate_policy(policy_doc(exceptions=[acceptance(compensating_controls="one")]))
+        assert any("compensating_controls must be an array" in e for e in errors)
+
+    def test_owners_must_be_an_object(self) -> None:
+        errors = validate_policy(policy_doc(owners=["a.smith"]))
+        assert any("'owners' must be an object" in e for e in errors)
+
+    def test_a_file_that_is_not_json_names_the_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "policy.json"
+        path.write_text("{ not json", encoding="utf-8")
+        with pytest.raises(ValidationError, match="not valid JSON"):
+            load_policy(path)
+
+
+class TestOwnershipEdges:
+    def test_a_control_with_no_owner_has_none(self) -> None:
+        policy = policy_from_document(policy_doc(owners={"CC6.*": "platform"}))
+        assert policy.owner_for("CC1.1") == ""
+
+    def test_a_wildcard_does_not_match_a_shorter_id(self) -> None:
+        policy = policy_from_document(policy_doc(owners={"CC6.1.*": "platform"}))
+        assert policy.owner_for("CC6.1") == ""
+        assert policy.owner_for("CC6.1.2") == "platform"
+
+    def test_an_exclusion_lookup_misses_cleanly(self) -> None:
+        policy = policy_from_document(policy_doc(scope_exclusions=[exclusion()]))
+        assert policy.exclusion_for("CC9.9") is not None
+        assert policy.exclusion_for("CC1.1") is None
