@@ -25,6 +25,21 @@ run() {
   fi
 }
 
+# A local pass and a CI pass mean the same thing only when the environment does.
+# The extraction extras are in requirements-dev.txt and cannot be installed into
+# an externally-managed Python (PEP 668), so on a machine without them both the
+# binary-format tests and mypy's view of those imports differ from CI. Said out
+# loud rather than left to be discovered from a red CI run — which is how it was
+# discovered.
+if python3 -c "import pypdf, docx, openpyxl" 2>/dev/null; then
+  printf '── environment: matches CI (extraction extras present)\n'
+else
+  printf '── environment: NO extraction extras — the binary-format tests will\n'
+  printf '   skip and mypy sees those imports as Any. A pass here is weaker\n'
+  printf '   than a pass in CI. Use a venv to match:\n'
+  printf '     python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt\n'
+fi
+
 run "format"    ruff format --check .
 run "lint"      ruff check .
 run "typecheck" mypy

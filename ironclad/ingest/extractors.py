@@ -71,15 +71,15 @@ def _pdf_reader() -> Any:
     expose `PdfReader` with the same signature, so preferring one costs nothing.
     """
     try:
-        from pypdf import PdfReader  # noqa: PLC0415 — optional dependency
+        from pypdf import PdfReader as Maintained  # noqa: PLC0415 — optional dependency
     except ImportError:
         pass
     else:
-        return PdfReader
+        return Maintained
 
-    from PyPDF2 import PdfReader  # noqa: PLC0415 — the superseded fallback
+    from PyPDF2 import PdfReader as Superseded  # noqa: PLC0415 — the fallback
 
-    return PdfReader
+    return Superseded
 
 
 def _extract_pdf(path: Path) -> Extraction:
