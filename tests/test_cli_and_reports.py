@@ -332,34 +332,10 @@ class TestUpdateChecker:
         path.write_text("{ not json")
         assert load_state(path) == {}
 
-    def test_a_source_that_cannot_be_read_is_unchecked_not_changed(self, monkeypatch) -> None:
-        # A standards body being down must not open a PR claiming a revision.
-        from ironclad.frameworks.updates import check_framework
-
-        monkeypatch.setattr(
-            "ironclad.frameworks.updates._fetch", lambda url: ("", "connection refused")
-        )
-        result = check_framework("soc2", FRAMEWORK_SOURCES["soc2"], {})
-        assert result.status == "unchecked"
-        assert not result.update_detected
-
-    def test_an_unchanged_page_reports_no_update(self, monkeypatch) -> None:
-        from ironclad.frameworks.updates import check_framework
-
-        page = "<p>The Trust Services Criteria (2017) remain current.</p>"
-        monkeypatch.setattr("ironclad.frameworks.updates._fetch", lambda url: (page, ""))
-        seen = fingerprint(visible_text(page))
-        result = check_framework("soc2", FRAMEWORK_SOURCES["soc2"], {"soc2": seen})
-        assert result.status == "unchanged"
-        assert not result.update_detected
-
-    def test_a_changed_page_reports_a_content_change(self, monkeypatch) -> None:
-        from ironclad.frameworks.updates import check_framework
-
-        monkeypatch.setattr(
-            "ironclad.frameworks.updates._fetch",
-            lambda url: ("<p>Substantially different wording here.</p>", ""),
-        )
-        result = check_framework("soc2", FRAMEWORK_SOURCES["soc2"], {"soc2": "an-old-digest"})
-        assert result.status == "content_changed"
-        assert result.update_detected
+    # The three `check_framework` cases that used to live here — a source that
+    # cannot be read, an unchanged page and a changed one — moved to
+    # tests/test_update_checker.py. They were written against pages a few dozen
+    # characters long, which no real source is, and which the checker now
+    # correctly refuses to compare: a response that short is a blocked or empty
+    # fetch, not a change. Rewriting them with realistic pages belonged beside
+    # the rest of the checker's behaviour rather than here.

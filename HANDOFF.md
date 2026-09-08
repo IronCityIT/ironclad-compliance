@@ -105,7 +105,7 @@ exists in both frameworks.
 | `firestore.rules` enforces tenant isolation | 53 cases against the Firestore emulator, and a mutation check: replacing `ownsTenant` with `return true` fails 17 of them |
 | Cloud Function decisions | 44 node tests over `functions/core.js` |
 | A result stores and reads back from a NAS-shaped volume and from MariaDB, tenant-scoped, idempotent, chain intact | 70 store tests; the MariaDB half in CI against a real 10.5.29 server, schema applied in 7 statements |
-| **The framework update checker does not false-positive** | Run against the four real sources twice on 2026-09-07: `updates_found=false` both times, the second comparing against the fingerprints the first recorded. The old rule applied to the same fetched pages reports an update on NIST, matching the word "latest" |
+| **The framework update checker reads all four sources and detects a real change** | It could not before: `meta` and `link` are void elements and were in the extractor's skip set, so the skip counter never unwound and three of four sources fingerprinted as the empty string. Fixed 2026-09-08; all four now yield 5,368–9,139 characters, and the first working run detected **PCI DSS 4.0.1 against the 4.0 we ship** — a true positive, stable across two runs |
 | **The whole path agrees with itself**: ingest → assess → deliverables → publish → read back, against both stores | `scripts/end_to_end.py`, run in CI against MariaDB and against a volume. Checks the readiness a client reads is the readiness stored, the chain head matches, the queue is the tenant's own, and re-publishing leaves one record |
 | Dashboard escaping | 38 node tests, field by field over every render path |
 | Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
@@ -575,6 +575,15 @@ report; the update checker could not return false; the ingest failed open; the
 evidence-path check was traversable; payload ids could steer a storage path; two
 dashboard fields were unescaped; the assessment type was ignored; the
 risk-acceptance workflow was unreachable.
+
+### Open product task, found by the checker
+
+**`frameworks/pci-dss-4.0.json` is a revision behind.** The source advertises
+PCI DSS 4.0.1; this repository ships 27 controls against 4.0. Updating it means
+reading the published document and revising the control text, the points of
+focus, `current_version` in `framework-versions.json` and the affected
+crosswalks. Not done here: the checker deliberately never transcribes a
+regulator's wording automatically, and neither does this session.
 
 ### Open questions that are decisions, not defects
 

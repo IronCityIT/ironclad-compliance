@@ -232,16 +232,43 @@ authorization and the evidence-path check, with no firebase imports, and
 
 ## Live evidence from `main`
 
-**The fixed checker was run against the four real sources, twice.** Both runs
-reported `updates_found=false` for all four — the first recording fingerprints,
-the second comparing against them, which is the run the old checker could never
-get right because its answer did not depend on the previous one.
+**Correction to an earlier entry.** This previously recorded that the fixed
+checker "reported `updates_found=false` for all four" across two live runs, as
+evidence it does not false-positive. That was true and it was not the whole
+story: it could not false-positive on three of the four because **it was seeing
+nothing at all**. `meta` and `link` were in the extractor's skip set and both are
+void — `<meta charset="utf-8">` has no closing tag — so the skip counter went up
+on the first one in `<head>` and never came back down, discarding every text
+node after it. SOC 2, PCI DSS and HIPAA were being fingerprinted as the empty
+string, compared against the empty string, and reported unchanged with
+confidence. NIST worked only because that page self-closes its meta tags.
 
-Applying the old rule to the same pages fetched in the same run: it reports an
-update on the NIST page, matching the word "latest", where the new rule reports
-unchanged. One of four today rather than the three it hit on 2026-08-29 —
-the pages have moved since — but the failure is the same one, and it is the
-reason PR #3 exists.
+Fixed, and the first working run found a real update — see below.
+
+Applying the *original* rule to the same pages: it reports an update on NIST,
+matching the word "latest", where the current rule reports unchanged. That
+comparison stands; it is the reason PR #3 exists.
+
+### The first working run found a real one: PCI DSS 4.0.1
+
+With the extractor fixed, all four sources yield real text — 5,368 to 9,139
+characters — and the checker immediately reported:
+
+```
+! PCI Data Security Standard: version_detected — The source advertises 4.0.1
+  while this repository tracks 4.0.
+```
+
+**This is a true positive and an open product task.** `frameworks/pci-dss-4.0.json`
+carries 27 controls against 4.0; the source publishes 4.0.1. The control text
+has not been touched here — the checker never transcribes a regulator's wording
+and neither does this session. Reading the published document and updating the
+control set, the version in `framework-versions.json` and the affected
+crosswalks is work for someone who can read the standard.
+
+A second run against the recorded fingerprints reported `unchanged` for the
+other three and the same version detection for PCI, so the result is stable
+rather than a one-off.
 
 ```
 framework                          old rule                       new rule

@@ -66,10 +66,53 @@ FRAMEWORK_SOURCES: dict[str, dict[str, Any]] = {
 }
 
 
-class _TextExtractor(HTMLParser):
-    """Visible text only. Replaces the BeautifulSoup dependency."""
+#: Elements that have a start tag and no end tag. Treating one as the start of a
+#: skipped region raises a counter that nothing ever lowers.
+#: Below this many characters of visible text, a response is treated as a failed
+#: fetch rather than as a changed page. The four real sources yield 5,368 to
+#: 9,139 characters (measured 2026-09-08), so the floor is an order of magnitude
+#: clear of anything legitimate and well above a block page or an error page.
+MIN_VISIBLE_CHARS = 500
 
-    SKIP = frozenset({"script", "style", "noscript", "head", "meta", "link"})
+#: Elements that have a start tag and no end tag. Treating one as the start of a
+#: skipped region raises a counter that nothing ever lowers.
+VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+
+
+class _TextExtractor(HTMLParser):
+    """Visible text only. Replaces the BeautifulSoup dependency.
+
+    `meta` and `link` used to be in SKIP. Both are void: `<meta charset="utf-8">`
+    has no closing tag, so the skip counter went up on the first one in `<head>`
+    and never came back down, and every text node in the document after it was
+    discarded. The extractor returned an empty string for any page written in
+    HTML5 — and returned text for any page using XHTML-style `<meta />`, because
+    HTMLParser synthesises an end tag for a self-closed element, which is why
+    this looked like it worked.
+
+    Neither carries a text node in any case: what they hold is in attributes.
+    They are out of SKIP entirely, and `head` — which does have an end tag —
+    still covers everything inside it.
+    """
+
+    SKIP = frozenset({"script", "style", "noscript", "head"})
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -77,7 +120,7 @@ class _TextExtractor(HTMLParser):
         self._skipping = 0
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
-        if tag in self.SKIP:
+        if tag in self.SKIP and tag not in VOID_ELEMENTS:
             self._skipping += 1
 
     def handle_endtag(self, tag: str) -> None:
@@ -197,6 +240,25 @@ def check_framework(
         return result
 
     text = visible_text(html)
+
+    # A page that yields almost no text is not a page that changed — it is a
+    # fetch that did not work: a WAF interstitial, a CDN error, an empty 200, or
+    # an extractor that stopped working. Fingerprinting it does two kinds of
+    # damage. It reports a content change that did not happen, and it records
+    # the digest of nothing as the new baseline, so the *next* run compares the
+    # real page against nothing and reports a change again.
+    #
+    # The floor is set against the real sources, which yield 5,000-9,000
+    # characters each. Nothing legitimate comes close to it.
+    if len(text.strip()) < MIN_VISIBLE_CHARS:
+        result.status = "unchecked"
+        result.error = f"the source returned {len(text.strip())} characters of text"
+        result.detail = (
+            "Too little text to compare — a blocked or empty response, not a change. "
+            "The recorded fingerprint is left alone."
+        )
+        return result
+
     result.fingerprint = fingerprint(text)
     result.detected_versions = newer_versions(
         text, str(config.get("version_pattern", "")), result.current_version
