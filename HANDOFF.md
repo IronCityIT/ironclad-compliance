@@ -105,6 +105,7 @@ exists in both frameworks.
 | `firestore.rules` enforces tenant isolation | 53 cases against the Firestore emulator, and a mutation check: replacing `ownsTenant` with `return true` fails 17 of them |
 | Cloud Function decisions | 44 node tests over `functions/core.js` |
 | A result stores and reads back from a NAS-shaped volume and from MariaDB, tenant-scoped, idempotent, chain intact | 70 store tests; the MariaDB half in CI against a real 10.5.29 server, schema applied in 7 statements |
+| **The framework update checker does not false-positive** | Run against the four real sources twice on 2026-09-07: `updates_found=false` both times, the second comparing against the fingerprints the first recorded. The old rule applied to the same fetched pages reports an update on NIST, matching the word "latest" |
 | **The whole path agrees with itself**: ingest → assess → deliverables → publish → read back, against both stores | `scripts/end_to_end.py`, run in CI against MariaDB and against a volume. Checks the readiness a client reads is the readiness stored, the chain head matches, the queue is the tenant's own, and re-publishing leaves one record |
 | Dashboard escaping | 38 node tests, field by field over every render path |
 | Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
