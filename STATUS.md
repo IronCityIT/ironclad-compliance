@@ -52,7 +52,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 77 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 75 source files |
-| Test | `pytest` | **PASS** — 490 passed, 18 skipped (MariaDB needs a server) |
+| Test | `pytest` | **PASS** — 542 passed, 19 skipped in CI (MariaDB and the superseded PDF reader) |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -125,6 +125,17 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- **Evidence extraction, where a met control becomes a gap if it goes wrong.**
+  `ironclad/ingest/extractors.py` was the least covered module in the engine at
+  52% and the most consequential: a document that fails to extract produces no
+  matched terms, so the control it supports reads as unevidenced. 92% in CI now,
+  with the failure paths asserted individually — corrupt file, empty file,
+  truncated zip behind a `.docx`, missing dependency, unsupported suffix, no
+  suffix — each coming back as a named error with empty text rather than as an
+  empty document.
+- **The PDF reader is a maintained one.** PyPDF2 announces its own deprecation
+  on import and no longer receives fixes; this parser reads documents a client
+  uploads. `pypdf` is preferred, PyPDF2 still accepted.
 - **The whole path agrees with itself.** `scripts/end_to_end.py` ingests the
   sample evidence, assesses it, renders the deliverables, publishes and reads
   the record back — against MariaDB and against a volume, in CI on every push.
