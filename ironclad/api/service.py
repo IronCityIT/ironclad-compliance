@@ -34,14 +34,20 @@ from ironclad.model.exception import ExceptionStatus, RiskException, new_excepti
 from ironclad.model.tenant import authorize
 
 
-class Store(Protocol):
-    """What the service needs from whatever holds the data."""
+class PolicyRecords(Protocol):
+    """The client's own determinations, and the trail of who decided them.
 
-    def save_assessment(self, tenant_id: str, result: dict[str, Any]) -> None: ...
+    A different job from holding an assessment, and now a different object. A
+    policy file is where risk acceptances belong and is emphatically not where a
+    hundred-kilobyte result document belongs, so `PolicyStore` implements this
+    and nothing else. `InMemoryStore` implements this and the result half both,
+    which is what makes it useful as a reference and in tests.
 
-    def get_assessment(self, tenant_id: str, assessment_id: str) -> dict[str, Any] | None: ...
-
-    def list_assessments(self, tenant_id: str, limit: int = 25) -> list[dict[str, Any]]: ...
+    Assessments go to an `ironclad.store.ResultStore`. Two protocols rather than
+    one is the point: the service used to declare a single `Store` that no real
+    implementation satisfied, so wiring it to a policy file produced a service
+    whose `run_assessment` raised from three frames down.
+    """
 
     def save_exception(self, tenant_id: str, exception: RiskException) -> None: ...
 
@@ -60,8 +66,24 @@ class InMemoryStore:
         self._exceptions: dict[str, dict[str, RiskException]] = {}
         self._audit: dict[str, list[dict[str, Any]]] = {}
 
-    def save_assessment(self, tenant_id: str, result: dict[str, Any]) -> None:
-        self._assessments.setdefault(tenant_id, {})[result["assessment_id"]] = result
+    def put_assessment(self, document: dict[str, Any]) -> str:
+        """Store one result document, trail and all.
+
+        The same contract `ironclad.store.ResultStore` states: idempotent on
+        assessment_id, and the audit events travel with the record rather than
+        needing a second call the file and database stores do not have.
+        """
+        tenant_id = str(document.get("tenant_id") or document.get("client_id") or "")
+        assessment_id = str(document.get("assessment_id", ""))
+        self._assessments.setdefault(tenant_id, {})[assessment_id] = document
+        recorded = {e.get("event_id") for e in self._audit.get(tenant_id, [])}
+        fresh = [
+            event
+            for event in (document.get("audit") or {}).get("events") or []
+            if event.get("event_id") not in recorded
+        ]
+        self.append_audit(tenant_id, fresh)
+        return assessment_id
 
     def get_assessment(self, tenant_id: str, assessment_id: str) -> dict[str, Any] | None:
         return self._assessments.get(tenant_id, {}).get(assessment_id)
@@ -70,6 +92,16 @@ class InMemoryStore:
         items = list(self._assessments.get(tenant_id, {}).values())
         items.sort(key=lambda a: a.get("started_at", ""), reverse=True)
         return items[:limit]
+
+    def list_remediation(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        recent = self.list_assessments(tenant_id, limit=1)
+        if not recent:
+            return []
+        items = (recent[0].get("remediation") or {}).get("items") or []
+        return list(items)[:limit]
+
+    def health(self) -> dict[str, Any]:
+        return {"store": "memory", "writable": True, "detail": "nothing here survives the process"}
 
     def save_exception(self, tenant_id: str, exception: RiskException) -> None:
         self._exceptions.setdefault(tenant_id, {})[exception.exception_id] = exception
@@ -87,11 +119,46 @@ class InMemoryStore:
         return self._audit.get(tenant_id, [])[-limit:]
 
 
+#: Said once, wherever an assessment method is reached without somewhere to put
+#: the answer. Names the fix rather than the symptom.
+NO_RESULT_STORE = (
+    "this service has no result store, so it cannot run or read assessments; "
+    "construct it with results=<a NAS volume or MariaDB store>"
+)
+
+
+def _as_result_store(store: Any) -> Any | None:
+    """The store itself when it can hold assessments, otherwise nothing.
+
+    Asked by capability rather than by type, because the answer is the same for
+    InMemoryStore, a volume and a database, and none of them share a base class.
+    """
+    return store if hasattr(store, "put_assessment") else None
+
+
 class ComplianceService:
     """The authorized entry point to everything the engine does."""
 
-    def __init__(self, store: Any | None = None, framework_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        store: Any | None = None,
+        results: Any | None = None,
+        framework_dir: Path | None = None,
+    ) -> None:
+        """Two collaborators, because they are two jobs.
+
+        `store` holds the client's determinations and the trail of who decided
+        them. `results` holds assessments — an `ironclad.store.ResultStore`: a
+        NAS-backed volume, or MariaDB.
+
+        One object may do both, and `InMemoryStore` does, so the common case is
+        still a single argument. When `store` cannot hold assessments — a
+        `PolicyStore` over a policy file cannot — `results` is left unset and the
+        assessment methods say so plainly rather than raising from inside a
+        persist three frames down.
+        """
         self.store = store if store is not None else InMemoryStore()
+        self.results = results if results is not None else _as_result_store(self.store)
         self.framework_dir = framework_dir
 
     # ---------------------------------------------------------------- assessments
@@ -105,6 +172,9 @@ class ComplianceService:
         as_of: datetime | None = None,
     ) -> ServiceResponse:
         """Run an assessment and store the result."""
+        if self.results is None:
+            return ServiceResponse.failure(NO_RESULT_STORE)
+
         errors = validate_assessment_request(request)
         if errors:
             return ServiceResponse.failure(*errors)
@@ -136,7 +206,7 @@ class ComplianceService:
         except (IroncladError, ValueError) as exc:
             return ServiceResponse.failure(str(exc))
 
-        self._persist(request.tenant_id, result)
+        self._persist(result)
 
         return ServiceResponse.success(
             assessment_id=result.assessment.assessment_id,
@@ -147,33 +217,43 @@ class ComplianceService:
             failed_modules=result.failed_modules,
         )
 
-    def _persist(self, tenant_id: str, result: RunResult) -> None:
-        """Store the result and its audit events.
+    def _persist(self, result: RunResult) -> None:
+        """Store the result. The trail travels with it.
+
+        One call, because every result store takes the whole document and writes
+        the audit events as part of it. Appending the trail separately would
+        double-write it on the file and database stores, which is the kind of
+        difference two protocols hid.
 
         Exceptions are not re-saved here. The run mutates the same objects the
         store handed out (an expiry sweep can move one to EXPIRED), so writing
         them back is the store's own concern, not a copy made at persist time.
         """
-        self.store.save_assessment(tenant_id, result.to_dict())
-        self.store.append_audit(tenant_id, [e.to_dict() for e in result.audit.events])
+        if self.results is None:  # pragma: no cover — the caller checked first
+            raise IroncladError(NO_RESULT_STORE)
+        self.results.put_assessment(result.to_dict())
 
     def get_assessment(self, principal: Any, tenant_id: str, assessment_id: str) -> ServiceResponse:
+        if self.results is None:
+            return ServiceResponse.failure(NO_RESULT_STORE)
         try:
             authorize(principal, "assessment:read", tenant_id)
         except AuthorizationError as exc:
             return ServiceResponse.failure(str(exc))
 
-        record = self.store.get_assessment(tenant_id, assessment_id)
+        record = self.results.get_assessment(tenant_id, assessment_id)
         if record is None:
             return ServiceResponse.failure(f"no assessment {assessment_id!r} for this tenant")
         return ServiceResponse.success(assessment=record)
 
     def list_assessments(self, principal: Any, tenant_id: str, limit: int = 25) -> ServiceResponse:
+        if self.results is None:
+            return ServiceResponse.failure(NO_RESULT_STORE)
         try:
             authorize(principal, "assessment:read", tenant_id)
         except AuthorizationError as exc:
             return ServiceResponse.failure(str(exc))
-        return ServiceResponse.success(assessments=self.store.list_assessments(tenant_id, limit))
+        return ServiceResponse.success(assessments=self.results.list_assessments(tenant_id, limit))
 
     # ----------------------------------------------------------------- exceptions
 

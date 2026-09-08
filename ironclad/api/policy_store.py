@@ -22,9 +22,11 @@ process that might not be the only one running.
 what is not. They are separate files for the same reason a ledger is not kept in
 the margin of the document it describes.
 
-Assessments are not this store's business. `ironclad assess` writes its own
-output and its own hash-chained trail; the three assessment methods here refuse
-rather than inventing a second storage layout that nothing reads.
+Assessments are not this store's business, and this store does not pretend they
+might be. It implements `ComplianceService`'s `PolicyRecords` and nothing else;
+results go to an `ironclad.store.ResultStore` — a volume or MariaDB. A service
+handed only this reports that plainly when asked for an assessment, rather than
+raising from inside a persist.
 """
 
 from __future__ import annotations
@@ -136,23 +138,6 @@ class PolicyStore:
         if not isinstance(document, dict) or not isinstance(events, list):
             raise IroncladError(f"{self.audit_path} is not an audit trail")
         return document
-
-    # ------------------------------------------------------------ assessments
-
-    def save_assessment(self, tenant_id: str, result: dict[str, Any]) -> None:
-        raise IroncladError(_NOT_A_RESULT_STORE)
-
-    def get_assessment(self, tenant_id: str, assessment_id: str) -> dict[str, Any] | None:
-        raise IroncladError(_NOT_A_RESULT_STORE)
-
-    def list_assessments(self, tenant_id: str, limit: int = 25) -> list[dict[str, Any]]:
-        raise IroncladError(_NOT_A_RESULT_STORE)
-
-
-_NOT_A_RESULT_STORE = (
-    "a policy file stores the tenant's determinations, not assessment results; "
-    "run `ironclad assess --out` and store what it writes"
-)
 
 
 def _policy_entry(exception: RiskException) -> dict[str, Any]:

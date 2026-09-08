@@ -243,15 +243,26 @@ class TestTheTrailIsChainedAndSeparate:
 
 
 class TestTheStoreKnowsWhatItIsNot:
-    @pytest.mark.parametrize("method", ["save_assessment", "get_assessment", "list_assessments"])
-    def test_it_refuses_to_store_assessment_results(self, policy_path: Path, method: str) -> None:
-        # Rather than inventing a second storage layout that nothing reads.
+    def test_it_does_not_claim_to_hold_assessments(self, policy_path: Path) -> None:
+        # A policy file is where a client's determinations belong and is
+        # emphatically not where a hundred-kilobyte result document belongs.
         store = PolicyStore(policy_path)
-        args = {"save_assessment": (TENANT, {}), "get_assessment": (TENANT, "a1")}.get(
-            method, (TENANT,)
-        )
-        with pytest.raises(IroncladError, match="not assessment results"):
-            getattr(store, method)(*args)
+        assert not hasattr(store, "put_assessment")
+
+    def test_a_service_with_only_a_policy_store_says_so_plainly(self, service) -> None:
+        # It used to raise from three frames down inside a persist. The message
+        # names the fix rather than the symptom.
+        response = service.list_assessments(principal(Role.OWNER), TENANT)
+        assert not response.ok
+        assert any("no result store" in e for e in response.errors)
+
+    def test_the_exception_workflow_still_works_without_one(
+        self, service, policy_path: Path
+    ) -> None:
+        # The two halves are independent: a policy store is all the risk
+        # acceptance workflow has ever needed.
+        assert service.request_exception(principal(Role.CONTRIBUTOR), request_for()).ok
+        assert document(policy_path)["exceptions"]
 
     def test_a_missing_policy_file_reads_as_empty_rather_than_failing(self, tmp_path: Path) -> None:
         store = PolicyStore(tmp_path / "absent.json")

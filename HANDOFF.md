@@ -520,9 +520,10 @@ Ordered by value, non-blocked first.
    The workflow uses it when `IRONCLAD_EVIDENCE_ROOT` is set and falls back to
    the retired GCS path otherwise. Neither configured is a hard failure, not a
    silent empty assessment.
-4. **`ComplianceService` HTTP surface** — the service is complete and now has one
-   caller (the CLI); an authenticated HTTP surface would give the dashboard a
-   backend that is not Firebase.
+4. **`ComplianceService` HTTP surface** — the service now takes a policy store
+   and a result store as two collaborators and writes to a real volume or
+   database, which is what an HTTP surface needs. Adding one would give the
+   dashboard a backend that is not Firebase (migration stage 5).
 5. **Framework update checker → a PR that a human reviews**, rather than a
    notification.
 6. **Coverage gaps:** `ironclad/policy.py` 86%, `freshness_check` 85%.

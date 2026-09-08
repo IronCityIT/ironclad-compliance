@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from ironclad.api.schemas import (
@@ -97,7 +100,9 @@ class TestAssessmentCalls:
     def test_a_caller_cannot_read_another_tenants_assessment(
         self, service: ComplianceService
     ) -> None:
-        service.store.save_assessment("other-co", {"assessment_id": "a1", "summary": {}})
+        service.store.put_assessment(
+            {"tenant_id": "other-co", "assessment_id": "a1", "summary": {}}
+        )
         response = service.get_assessment(principal(Role.OWNER, tenant="acme"), "other-co", "a1")
         assert not response.ok
 
@@ -270,3 +275,82 @@ def _fake_run(framework, kwargs):
         plan=RemediationPlan(tenant_id=kwargs["tenant_id"], assessment_id="a-1"),
         audit=AuditLog(tenant_id=kwargs["tenant_id"]),
     )
+
+
+class TestTheServiceWritesToARealStore:
+    """The point of splitting the collaborators.
+
+    `ComplianceService` used to declare one `Store` protocol that no shipped
+    implementation satisfied. Handed a policy file it raised from inside a
+    persist; handed nothing it forgot everything when the process ended. It can
+    now be given a policy store and a result store, which is what an HTTP
+    surface would need and what the CLI already has half of.
+    """
+
+    @staticmethod
+    def _policy(tmp_path) -> Path:
+        path = tmp_path / "policy.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "policy_version": "1.0",
+                    "tenant_id": "acme",
+                    "scope_exclusions": [],
+                    "exceptions": [],
+                    "owners": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_an_assessment_lands_on_a_volume(self, tmp_path, evidence) -> None:
+        from ironclad.api.policy_store import PolicyStore
+        from ironclad.store import FileResultStore
+
+        service = ComplianceService(
+            store=PolicyStore(self._policy(tmp_path)),
+            results=FileResultStore(tmp_path / "volume"),
+        )
+        response = service.run_assessment(
+            principal(Role.COMPLIANCE_MANAGER),
+            AssessmentRequest(tenant_id="acme", framework="soc2", group="quick"),
+            evidence=evidence,
+        )
+        assert response.ok, response.errors
+
+        assessment_id = response.data["assessment_id"]
+        stored = service.get_assessment(principal(Role.OWNER), "acme", assessment_id)
+        assert stored.ok, stored.errors
+        assert stored.data["assessment"]["assessment_id"] == assessment_id
+
+    def test_the_trail_is_written_once_not_twice(self, evidence) -> None:
+        # Every result store writes the audit events as part of the document.
+        # Appending them separately, as the old two-protocol path did, would
+        # double the trail on a volume and on a database.
+        service = ComplianceService()
+        response = service.run_assessment(
+            principal(Role.COMPLIANCE_MANAGER),
+            AssessmentRequest(tenant_id="acme", framework="soc2", group="quick"),
+            evidence=evidence,
+        )
+        assert response.ok, response.errors
+        events = service.store.list_audit("acme")
+        assert len({e["event_id"] for e in events}) == len(events)
+
+    def test_a_service_without_a_result_store_says_so(self, tmp_path) -> None:
+        from ironclad.api.policy_store import PolicyStore
+
+        service = ComplianceService(store=PolicyStore(self._policy(tmp_path)))
+        assert service.results is None
+        for response in (
+            service.list_assessments(principal(Role.OWNER), "acme"),
+            service.get_assessment(principal(Role.OWNER), "acme", "a1"),
+        ):
+            assert not response.ok
+            assert any("no result store" in e for e in response.errors)
+
+    def test_one_object_may_still_do_both(self) -> None:
+        # InMemoryStore does, so the common case stays a single argument.
+        service = ComplianceService()
+        assert service.results is service.store
