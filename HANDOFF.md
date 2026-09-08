@@ -549,7 +549,12 @@ Ordered by value, non-blocked first.
    and is covered in CI against a real server; the local number is an artefact
    of the skip, not a gap.
 7. **Retire the legacy `scripts/*.py` wrappers** if nothing outside this
-   repository calls them.
+   repository calls them. Nothing inside does — `assess_controls.py` and
+   `generate_report.py` are referenced only by documentation, and the workflow
+   calls `python -m ironclad.cli` directly. They are kept rather than deleted
+   because `STATUS.md` promises external callers still work and that cannot be
+   verified from here; they are tested against the engine now, so keeping them
+   costs a drift check rather than a latent defect.
 
 ---
 

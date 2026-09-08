@@ -360,3 +360,16 @@ npm --prefix tests/rules ci && npm --prefix tests/rules test
 and `store_results.py` all still exist and still take the arguments they always
 took. Their logic moved into the package; the files are wrappers. Nothing that
 called them before needs to change.
+
+That promise had nothing behind it until now — none of them had a test, and one
+had stopped keeping it. **`assess_controls.py` had no `--policy` flag and did not
+look for a policy beside the evidence**, so a client's scope exclusions and risk
+acceptances were silently not applied: a control the client had formally
+accepted came back as a gap. Fixed, and both entry points are now asserted to
+reach identical verdicts and an identical readiness score over the same evidence
+and policy. Its `--assessment-type` is constrained to the real set too; it used
+to accept anything and fall back to the full view without a word.
+
+`generate_report.py` and `check_framework_updates.py` were checked against the
+engine and are faithful. `store_results.py` is the retired ingest path and goes
+with `functions/`.
