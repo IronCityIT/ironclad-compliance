@@ -123,9 +123,15 @@ The three types are defined once, in `ironclad/report/views.py`. The CLI's
 choices, the service API's validation and the dashboard's dropdown all derive
 from it.
 
-Reading PDF, DOCX or XLSX evidence needs `pip install PyPDF2 python-docx openpyxl`.
+Reading PDF, DOCX or XLSX evidence needs `pip install pypdf python-docx openpyxl`.
 Without them those items are catalogued and reported as unreadable rather than
-silently ignored.
+silently ignored — a document that fails to extract must never look like a
+document with nothing relevant in it, because the control it supports would then
+read as a gap.
+
+`pypdf` rather than `PyPDF2`: the latter announces its own deprecation on import
+and no longer receives fixes, and this parser reads documents a client uploads.
+Either is accepted; the maintained one is preferred when both are present.
 
 ## Capabilities
 

@@ -207,7 +207,7 @@ pipeline {
             error('CLIENT_ID is required when RUN_ASSESSMENT is set')
           }
         }
-        sh 'pip install --quiet PyPDF2 python-docx openpyxl'
+        sh 'pip install --quiet pypdf python-docx openpyxl'
         withEnv([
           "CLIENT_ID=${params.CLIENT_ID}",
           "FRAMEWORK=${params.FRAMEWORK}",

@@ -5,3 +5,15 @@ pytest-cov>=4.1.0
 ruff>=0.1.0
 mypy>=1.7.0
 pyyaml>=6.0
+
+# The optional evidence-extraction extras. Not runtime dependencies — the engine
+# core is standard-library only and an assessment over text evidence needs none
+# of these — but the extraction paths are where a client's policy document turns
+# into matched control terms, and an untested extractor is how a met control
+# comes to read as a gap. They are installed here so those paths are gated.
+#
+# pypdf, not PyPDF2: PyPDF2 announces its own deprecation on import and no
+# longer receives fixes, and this parser reads documents a client uploads.
+pypdf>=4.0.0
+python-docx>=1.1.0
+openpyxl>=3.1.0

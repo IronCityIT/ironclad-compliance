@@ -120,7 +120,11 @@ jobs:
       - name: Install evidence extraction support
         # The engine core is stdlib-only. These are needed only to read binary
         # evidence formats, so they are installed for this job alone.
-        run: pip install --quiet PyPDF2 python-docx openpyxl
+        #
+        # pypdf rather than PyPDF2: the latter announces its own deprecation on
+        # import and no longer receives fixes, and this parser is pointed at
+        # documents a client uploads. The extractor accepts either.
+        run: pip install --quiet pypdf python-docx openpyxl
 
       # Evidence comes from a NAS-backed volume, one prefix per tenant. The
       # tenant-prefix rule is in `ironclad evidence stage` rather than in shell:

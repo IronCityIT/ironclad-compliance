@@ -12,12 +12,19 @@ mattered kept and the parts that hid problems fixed:
 
 Binary format support is optional. An engine that cannot read a PDF should say
 so on that one artifact and keep assessing the rest, not fail the run.
+
+The PDF reader prefers `pypdf` over `PyPDF2`. PyPDF2 announces its own
+deprecation on import and no longer receives fixes, and this parser is pointed
+at documents a client uploads. Both expose the same `PdfReader`, so preferring
+the maintained one costs nothing and the superseded one still works as a
+fallback.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # Bounds memory across a large evidence set. Control matching keys on evidence
 # type and section headings, which sit near the top of a policy document, so the
@@ -54,15 +61,36 @@ def _clip(text: str) -> Extraction:
     return Extraction(text=text)
 
 
+def _pdf_reader() -> Any:
+    """The PDF reader class, preferring the maintained library.
+
+    `pypdf` is the continuation of `PyPDF2`, which announces its own deprecation
+    on import and no longer receives fixes. This parser is pointed at documents
+    a client uploads, so running the unmaintained one when the maintained one is
+    installed would be a choice worth defending and there is no defence. Both
+    expose `PdfReader` with the same signature, so preferring one costs nothing.
+    """
+    try:
+        from pypdf import PdfReader  # noqa: PLC0415 — optional dependency
+    except ImportError:
+        pass
+    else:
+        return PdfReader
+
+    from PyPDF2 import PdfReader  # noqa: PLC0415 — the superseded fallback
+
+    return PdfReader
+
+
 def _extract_pdf(path: Path) -> Extraction:
     try:
-        import PyPDF2  # noqa: PLC0415 — optional dependency, imported on demand
+        reader_class = _pdf_reader()
     except ImportError:
-        return Extraction(error="PDF support is not installed (PyPDF2)")
+        return Extraction(error="PDF support is not installed (pypdf, or PyPDF2)")
 
     try:
         with path.open("rb") as handle:
-            reader = PyPDF2.PdfReader(handle)
+            reader = reader_class(handle)
             pages = [(page.extract_text() or "") for page in reader.pages[:MAX_PDF_PAGES]]
         return _clip("\n".join(pages))
     except Exception as exc:  # noqa: BLE001 — any parser fault is reported, not raised
