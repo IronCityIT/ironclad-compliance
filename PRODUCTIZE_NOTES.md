@@ -1,7 +1,12 @@
 # Productization notes — Ironclad Compliance
 
 The required code review, the plan that came out of it, and the decisions worth
-arguing with. Written against the repository as it stood at `8246f45`.
+arguing with. §§1–7 were written against the repository as it stood at `8246f45`
+and describe what was found there; §§8–11 record what has been found since, each
+against the code at the time. Verified against `ad2d57a` — where a claim in the
+earlier sections no longer holds it is struck through and pointed at what
+replaced it, rather than quietly rewritten, because the review is a record of
+what was true when as much as a description of what is true now.
 
 ---
 
@@ -279,10 +284,19 @@ told which.
 verdict from a partial one and is deliberately crude — it is a readiness signal
 for a human reviewer, not an audit opinion.
 
-**`InMemoryStore` is the reference store.** The Firestore-backed implementation
-of the `Store` protocol is the Cloud Function; the service layer has no
-production persistence of its own yet. Authorization and workflow rules live in
-the service rather than the store, so they hold whichever backing is in use.
+**~~`InMemoryStore` is the reference store.~~ Superseded — §11.5–11.6 and
+`HANDOFF.md` §13.** This
+said the Firestore-backed implementation of the `Store` protocol was the Cloud
+Function and the service layer had no production persistence of its own. Both
+halves are now false: Firestore is retired from the target architecture, and
+`ironclad/store/` holds a persistence seam with a NAS-volume and a MariaDB
+backend, both exercised against real storage. The single `Store` protocol has
+split in two — `PolicyRecords` for a client's determinations, `ResultStore` for
+assessments — because no shipped implementation could satisfy the combined one.
+
+What still holds, and was the point of the original paragraph: authorization and
+workflow rules live in the service rather than the store, so they hold whichever
+backing is in use.
 
 ---
 
@@ -292,8 +306,11 @@ Referenced by name only. No value is written anywhere in this repository, and a
 grep for hardcoded credential patterns returns nothing.
 
 Approved and used: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
-(passed through to `consensus-engine`), `GCP_SA_KEY`, `GCS_BUCKET`,
-`FIREBASE_PROJECT_ID`, `GITHUB_TOKEN`.
+(passed through to `consensus-engine`), `GITHUB_TOKEN`.
+
+Retired with the GCP path: `GCP_SA_KEY`, `GCS_BUCKET`, `FIREBASE_PROJECT_ID`.
+They remain referenced only by the fallback branches that run when no NAS volume
+or store is configured, and go with `functions/` when the transport is decided.
 
 **Not on the approved list, and therefore not invented — HALT items:**
 
@@ -302,9 +319,19 @@ Approved and used: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
   dashboard can start an assessment. Referenced by name; the function will not
   deploy until it exists in Secret Manager (us-east5). Only the dashboard's
   "Start assessment" button depends on it.
-- `STORE_RESULTS_URL` and `INGEST_API_KEY` — the ingest endpoint and its key.
-  `store_results.py` prints the record instead of posting when the endpoint is
-  unset, so the pipeline runs without them; it simply does not publish.
+- `STORE_RESULTS_URL` and `INGEST_API_KEY` — the retired ingest endpoint and its
+  key. `store_results.py` prints the record instead of posting when the endpoint
+  is unset, so the pipeline runs without them; it simply does not publish. The
+  key is no longer optional at the far end: an unset `INGEST_API_KEY` makes the
+  ingest refuse every write rather than accept unauthenticated ones (§8.1), and
+  `store_results.py` says so before it posts rather than leaving it to be
+  inferred from a 503.
+- `IRONCLAD_STORE`, `IRONCLAD_EVIDENCE_ROOT`, `IRONCLAD_ARTIFACTS` — the target
+  architecture's three: where a result is written, where a tenant's evidence is
+  read from, and where the deliverables land. Referenced by name only. The
+  workflow skips publishing when the store is unset and **fails outright** when
+  no evidence source is configured, because an unconfigured evidence source must
+  never become an assessment of nothing. None is on the approved ICIT list.
 - Jenkins credential ids `ironclad-store-results-url` and
   `ironclad-ingest-api-key` do not exist on any agent yet.
 
@@ -314,8 +341,9 @@ Approved and used: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`
 
 Added after the first PR was open, when the question "what is the highest-value
 thing here that nobody has looked at" had an obvious answer: `functions/`. Three
-files, 558 lines, carrying the code that decides which tenant a write lands in —
-and the whole gate on them was `node --check`, a syntax check. `CLAUDE.md` says
+files and 558 lines *as they stood then*, carrying the code that decides which
+tenant a write lands in — and the whole gate on them was `node --check`, a
+syntax check. (They are 717 lines now; `core.js` is the difference.) `CLAUDE.md` says
 "Never expose one client's data path to another"; nothing was verifying it.
 
 They could not be tested as written: each file opens a Firestore connection at
@@ -451,12 +479,151 @@ This is the only gate needing an installed toolchain, so it is its own CI job.
 
 ---
 
-## 11. What has not been proven
+## 11. Eight more defects, and how each was found
 
-Set out in full in `STATUS.md`. In short: everything that runs locally has been
-run, repeatedly. Nothing that needs a GitHub runner, a Jenkins agent or a GCP
-project has run at all. The consensus contract fix in §2.1 is the most valuable
-untested path — CI on the PR is the first time it executes for real.
+Everything in §2 came out of reading the original code. Everything here came out
+of **running something against reality** — a live page, a real database, two
+entry points side by side. That difference is the most useful thing in this
+document: after §2 the reading was done, and the remaining defects were all
+invisible to it.
+
+### 11.1 The update checker was blind on three of four sources
+
+`meta` and `link` were in the HTML extractor's skip set. Both are void elements —
+`<meta charset="utf-8">` has no closing tag — so the skip counter went up on the
+first one in `<head>` and nothing ever brought it down. Every text node after it
+was discarded.
+
+SOC 2, PCI DSS and HIPAA were being fingerprinted as the empty string, compared
+against the empty string, and reported "unchanged" with confidence. The checker
+could not have detected a change to three of the four frameworks it watches,
+ever. NIST worked — which is why this looked fine — because that page
+self-closes its meta tags and HTMLParser synthesises the end tag.
+
+Found by fetching the four real pages and printing the character counts: 0,
+5,368, 0, 0. Nothing in the code says "returns empty for most inputs".
+
+**The first working run found a real update: PCI DSS 4.0.1 against the 4.0 this
+repository ships.** That is an open product task in `HANDOFF.md`, not something
+to fix automatically — the checker never transcribes a regulator's wording.
+
+### 11.2 An empty response read as a content change
+
+A WAF interstitial, a CDN error or an empty 200 produced a fingerprint of
+nothing, which differs from the stored one. So the checker reported a change
+*and* recorded the digest of nothing as the new baseline — poisoning it, so the
+next run compared the real page against nothing and reported a change again. Two
+false pull requests from one blip.
+
+A response yielding under 500 characters of visible text is "unchecked" now and
+leaves the recorded fingerprint alone. The floor is set against the real
+sources, which yield 5,368 to 9,139 characters.
+
+### 11.3 A policy file that validated could fail to load
+
+`policy_from_document` replayed a rejection without submitting the exception
+first, and the state machine correctly refuses draft → rejected. So a policy
+carrying `"status": "rejected"` passed `ironclad validate --policy` and then
+raised at assessment time. Validation and loading disagreeing is the worst of
+both: the check that exists to catch a bad file said the file was fine.
+
+An expired acceptance was worse in a quieter way — nothing replayed it, so it
+came out as a draft and the file's own status was silently discarded.
+
+Found by asking what every status a policy may legitimately carry actually does,
+and running all six.
+
+### 11.4 The legacy wrapper ignored the tenant policy
+
+`scripts/assess_controls.py` had no `--policy` flag and did not look for one
+beside the evidence. A client's scope exclusions and risk acceptances were
+silently not applied: a control the client had formally accepted, with a written
+justification and a named approver, came back as a gap.
+
+`STATUS.md` promised anything that called these scripts still worked. Nothing
+verified it — none of the four had a test. Found by running both entry points
+over the same evidence and comparing verdicts, which is now the test.
+
+### 11.5 MariaDB truncated silently, and the projection truncated first
+
+The first CI run against a real MariaDB 10.5 found that an over-long value is
+shortened and reported as stored unless a strict `sql_mode` is set. Adding one
+did not fix it, which was the more interesting result: `rows.py` truncated every
+bounded value itself, so the database never saw anything too long. The same
+silent truncation applied to the volume store, which has no column widths at all.
+
+Nothing is truncated now — an over-long value is refused with its table, column
+and length named — and the bounds are parsed from `schema.sql` rather than
+declared twice.
+
+### 11.6 A client's second assessment could not be stored
+
+Remediation item ids are deterministic on (tenant, control), so the same control
+produces the same id in every assessment of that client. Keyed globally, the
+second run collided with the first. The key is `(assessment_id, item_id)` now,
+and `list_remediation` returns the latest assessment's queue rather than every
+item ever raised — one control outstanding in two runs is one piece of work.
+
+Both found by the persistence job's first run against a real server. Neither
+would have appeared against a mock, which is the argument for testing a database
+with a database.
+
+### 11.7 The ingestion contract had drifted from the engine
+
+A bare `scan` is a 30-day evidence class in the code and `docs/ingestion-contract.md`
+did not list it, so a client submitting `Q3 scan.pdf` got a 30-day clock the
+contract never mentioned. Every other documented rule was checked against the
+validator and holds.
+
+The freshness table is checked against `VALIDITY_DAYS` by a test now, verified by
+breaking it on purpose. A contract nobody checks is prose.
+
+### 11.8 Two pipelines that were meant to be identical were not
+
+`ci.yml` opens by saying it runs the same gates as the Jenkins pipeline. CI
+gained the persistence, rules and end-to-end gates and `Jenkinsfile` was never
+told. A pipeline that silently does not know a gate exists is worse than one
+that cannot run it, because only the second says so.
+
+### 11.9 What this pattern means for whoever picks this up
+
+Four of the five modules whose coverage was raised this session turned up a real
+defect; `freshness_check` did not. A coverage gap is not evidence of a bug, and
+saying so matters as much as the four that were.
+
+The defects that remained after §2 were not findable by reading. They needed the
+real page fetched, the real database written to, the two entry points run side
+by side, the document checked against the constant. When the next gap has to be
+chosen, prefer the check that executes something over the one that inspects it.
+
+---
+
+## 12. What has not been proven
+
+Set out in full in `STATUS.md` and `HANDOFF.md` §16. This section said, when it
+was written, that nothing needing a GitHub runner, a Jenkins agent or a GCP
+project had run at all. That is no longer the shape of it, and the correction is
+worth more than the edit:
+
+**A GitHub runner has run a great deal.** CI executes six jobs on every push,
+including the store against a real MariaDB 10.5 and the whole path end to end
+against both a database and a volume. The consensus contract fix in §2.1 has
+been exercised by every CI run since.
+
+**A Jenkins agent still has not.** The pipeline is syntactically balanced and
+its gates are the ones run here by hand, and it has never executed. Three of its
+gates will report UNAVAILABLE on the current agent image, which is accurate
+rather than a defect (§11.8).
+
+**No GCP project has run anything, and none now should.** Firebase, Firestore
+and GCP product storage are retired from the target architecture. Nothing was
+ever deployed, so the retirement costs no client data — which is the one piece
+of luck in the changeover and will not come again.
+
+**The NAS has not been written to.** MariaDB 10.5.8 answers on
+192.168.1.177:3306 and no credential exists; the transport from a GitHub-hosted
+runner to an RFC1918 address is undecided and is what gates the rest of the
+migration.
 
 `ci.yml` originally had no security gate at all, despite `CLAUDE.md` listing one
 and the Jenkins pipeline running it. That was fixed rather than explained away:
