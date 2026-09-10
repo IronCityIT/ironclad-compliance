@@ -2,7 +2,7 @@
 
 **Written:** 2026-09-07 · **Branch:** `productize/ironclad-compliance` ·
 **Open PR:** [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) ·
-**Head at writing:** `3fe0a48`
+**Head at writing:** `e381e94`
 
 This document is meant to be portable: someone with this file, the repository and
 no other context should be able to pick the product up. It is written for a
@@ -130,7 +130,7 @@ Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
 | Format | `ruff format --check .` | PASS — 90 files |
 | Lint | `ruff check .` | PASS |
 | Typecheck | `mypy` | PASS — 81 source files |
-| Test | `pytest` | PASS — 645 passed, 19 skipped in CI; 92% coverage |
+| Test | `pytest` | PASS — 668 passed, 19 skipped in CI; 93% coverage |
 | Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
 | Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
@@ -567,8 +567,9 @@ Ordered by value, non-blocked first.
    dashboard a backend that is not Firebase (migration stage 5).
 5. **Close PR #3.** A false positive from the checker defect above, proposing to
    commit a gitignored file. Evidence recorded as a comment on it.
-6. **Coverage.** 92% overall. `api/service.py` at 84% is the last gap of any
-   size and is lower consequence than the five closed this session:
+6. **Coverage.** 93% overall, and no module of consequence is now materially
+   uncovered. `api/service.py` was the last gap of any size at 84% and is 100%;
+   the others closed this session were:
    `extractors.py` 52 → 92%, `frameworks/updates.py` (blind on three of four
    sources), `policy.py` 86 → 97%, `freshness_check` 85 → 100%, and the legacy
    wrappers, which had none. Four of the five turned up a real defect;

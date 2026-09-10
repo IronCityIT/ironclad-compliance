@@ -7,7 +7,7 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-07
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-10
 **PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green.**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
@@ -49,10 +49,10 @@ Run on this branch, this machine, 2026-09-06.
 
 | Gate | Command | Result |
 |---|---|---|
-| Format | `ruff format --check .` | **PASS** — 77 files |
+| Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
-| Typecheck | `mypy` | **PASS** — 75 source files |
-| Test | `pytest` | **PASS** — 542 passed, 19 skipped in CI (MariaDB and the superseded PDF reader) |
+| Typecheck | `mypy` | **PASS** — 81 source files |
+| Test | `pytest` | **PASS** — 668 passed, 19 skipped in CI, 93% coverage |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -87,7 +87,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `9c54269`:
+Green on `productize/ironclad-compliance` at `e381e94`, run
+[the latest on the branch](https://github.com/IronCityIT/ironclad-compliance/actions):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -125,6 +126,11 @@ decides which tenant a write lands in.
   stored document id — checked, not assumed, and a framework carrying one that
   is not now fails validation with the control named, rather than losing that
   control at storage time behind a 200.
+- **Every permission refusal is exercised.** `api/service.py` 84% → 100%: a
+  viewer running an assessment, an auditor running one, a contributor revoking
+  an acceptance, a stranger reading another tenant's assessments, a viewer
+  reading the exception register. A refusal that silently succeeded would be a
+  viewer revoking a risk acceptance. Coverage across the engine is 93%.
 - **A policy file that validates now also loads.** `ironclad validate --policy`
   accepted a rejected acceptance and `load_policy` then raised on it: the replay
   never submitted the exception, and the state machine correctly refuses
