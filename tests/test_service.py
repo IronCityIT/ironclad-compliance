@@ -354,3 +354,294 @@ class TestTheServiceWritesToARealStore:
         # InMemoryStore does, so the common case stays a single argument.
         service = ComplianceService()
         assert service.results is service.store
+
+
+class TestEveryCallIsAuthorized:
+    """The permission surface, refusal by refusal.
+
+    `ComplianceService` exists so that no surface — the CLI, a future HTTP
+    endpoint — can act on a tenant without the permission for it. Most of those
+    refusal branches were the uncovered half of this module: the paths that run
+    when somebody is told no.
+
+    A refusal that silently succeeds is a viewer revoking a risk acceptance, so
+    each is asserted to return a failure naming the permission rather than
+    raising, which is what a caller can turn into a 403.
+    """
+
+    def _service_with_an_acceptance(self):
+        service = ComplianceService()
+        raised = service.request_exception(
+            principal(Role.CONTRIBUTOR),
+            ExceptionRequest(
+                tenant_id="acme",
+                control_id="CC1.1",
+                justification="Remediation is scheduled for the next release train.",
+                requested_by="alice",
+            ),
+        )
+        assert raised.ok, raised.errors
+        return service, raised.data["exception"]["exception_id"]
+
+    def test_a_viewer_cannot_run_an_assessment(self, evidence) -> None:
+        response = ComplianceService().run_assessment(
+            principal(Role.VIEWER),
+            AssessmentRequest(tenant_id="acme", framework="soc2", group="quick"),
+            evidence=evidence,
+        )
+        assert not response.ok
+        assert any("assessment:run" in e for e in response.errors)
+
+    def test_an_auditor_cannot_run_one_either(self, evidence) -> None:
+        # An auditor sees everything and changes nothing.
+        response = ComplianceService().run_assessment(
+            principal(Role.AUDITOR),
+            AssessmentRequest(tenant_id="acme", framework="soc2", group="quick"),
+            evidence=evidence,
+        )
+        assert not response.ok
+
+    def test_an_invalid_request_is_refused_before_authorization(self, evidence) -> None:
+        # Both would refuse it; the validation message is the more useful one.
+        response = ComplianceService().run_assessment(
+            principal(Role.OWNER),
+            AssessmentRequest(tenant_id="", framework="", group="quick"),
+            evidence=evidence,
+        )
+        assert not response.ok
+        assert any("tenant_id" in e for e in response.errors)
+
+    def test_an_unknown_framework_is_refused_by_validation(self, evidence) -> None:
+        response = ComplianceService().run_assessment(
+            principal(Role.OWNER),
+            AssessmentRequest(tenant_id="acme", framework="iso-27001", group="quick"),
+            evidence=evidence,
+        )
+        assert not response.ok
+        assert any("iso-27001" in e for e in response.errors)
+
+    def test_an_engine_failure_is_reported_not_raised(self, evidence) -> None:
+        # The engine refuses to assess one tenant's evidence into another's
+        # record. That fault has to come back as a failure a caller can render,
+        # not as a traceback out of the service.
+        response = ComplianceService().run_assessment(
+            Principal(user_id="u1", tenant_id="beta", roles=frozenset({Role.OWNER})),
+            AssessmentRequest(tenant_id="beta", framework="soc2", group="quick"),
+            evidence=evidence,  # belongs to acme
+        )
+        assert not response.ok
+        assert any("evidence set belongs to" in e for e in response.errors)
+
+    def test_an_invalid_acceptance_request_is_refused(self) -> None:
+        response = ComplianceService().request_exception(
+            principal(Role.CONTRIBUTOR),
+            ExceptionRequest(tenant_id="acme", control_id="", justification="  ", requested_by=""),
+        )
+        assert not response.ok
+        assert len(response.errors) >= 2
+
+    def test_a_service_with_no_result_store_refuses_to_run_one(self, tmp_path, evidence) -> None:
+        from ironclad.api.policy_store import PolicyStore
+
+        policy = tmp_path / "policy.json"
+        policy.write_text(json.dumps({"policy_version": "1.0", "tenant_id": "acme"}), "utf-8")
+        response = ComplianceService(store=PolicyStore(policy)).run_assessment(
+            principal(Role.OWNER),
+            AssessmentRequest(tenant_id="acme", framework="soc2", group="quick"),
+            evidence=evidence,
+        )
+        assert not response.ok
+        assert any("no result store" in e for e in response.errors)
+
+    def test_a_tenant_reads_its_own_assessments(self) -> None:
+        # The success path, which nothing reached: every other test of
+        # list_assessments asserted a refusal, so "returns the assessments" was
+        # the one thing about it never checked.
+        store = InMemoryStore()
+        store.put_assessment(
+            {"tenant_id": "acme", "assessment_id": "acme-1", "started_at": "2026-01-01"}
+        )
+        service = ComplianceService(store=store)
+        response = service.list_assessments(principal(Role.AUDITOR), "acme")
+        assert response.ok, response.errors
+        assert [a["assessment_id"] for a in response.data["assessments"]] == ["acme-1"]
+
+    def test_a_stranger_cannot_read_a_tenant_s_assessments(self) -> None:
+        response = ComplianceService().list_assessments(
+            Principal(user_id="mallory", tenant_id="beta", roles=frozenset({Role.OWNER})),
+            "acme",
+        )
+        assert not response.ok
+
+    def test_a_viewer_cannot_read_the_exception_register(self) -> None:
+        # A viewer sees the readiness position, not who accepted which risk.
+        response = ComplianceService().list_exceptions(principal(Role.VIEWER), "acme")
+        assert not response.ok
+        assert any("exception:read" in e for e in response.errors)
+
+    def test_a_viewer_cannot_request_an_acceptance(self) -> None:
+        response = ComplianceService().request_exception(
+            principal(Role.VIEWER),
+            ExceptionRequest(
+                tenant_id="acme",
+                control_id="CC1.1",
+                justification="A long enough justification to pass validation.",
+                requested_by="v",
+            ),
+        )
+        assert not response.ok
+
+    def test_a_contributor_cannot_revoke(self) -> None:
+        service, exception_id = self._service_with_an_acceptance()
+        response = service.revoke_exception(
+            principal(Role.CONTRIBUTOR), "acme", exception_id, "no longer needed"
+        )
+        assert not response.ok
+        assert any("exception:approve" in e for e in response.errors)
+
+    def test_revoking_something_that_is_not_there_says_so(self) -> None:
+        response = ComplianceService().revoke_exception(
+            principal(Role.OWNER), "acme", "ex-nothing", "reason"
+        )
+        assert not response.ok
+        assert any("no risk acceptance" in e for e in response.errors)
+
+    def test_revoking_twice_is_refused_by_the_workflow(self) -> None:
+        # The state machine, not the service, decides this — and the service
+        # reports it rather than letting it raise.
+        service, exception_id = self._service_with_an_acceptance()
+        first = service.revoke_exception(
+            principal(Role.OWNER, user="bob"), "acme", exception_id, "withdrawn"
+        )
+        assert first.ok, first.errors
+        second = service.revoke_exception(
+            principal(Role.OWNER, user="bob"), "acme", exception_id, "again"
+        )
+        assert not second.ok
+
+    def test_an_unknown_exception_status_filter_is_named(self) -> None:
+        response = ComplianceService().list_exceptions(
+            principal(Role.AUDITOR), "acme", status="half-approved"
+        )
+        assert not response.ok
+        assert any("unknown exception status" in e for e in response.errors)
+
+    def test_a_known_status_filters(self) -> None:
+        service, _ = self._service_with_an_acceptance()
+        pending = service.list_exceptions(
+            principal(Role.AUDITOR), "acme", status="pending_approval"
+        )
+        assert pending.ok, pending.errors
+        assert len(pending.data["exceptions"]) == 1
+        assert (
+            service.list_exceptions(principal(Role.AUDITOR), "acme", status="approved").data[
+                "exceptions"
+            ]
+            == []
+        )
+
+
+class TestFindingAnExceptionWithoutAGetter:
+    """A store need not offer `get_exception`.
+
+    `ResultStore` and `PolicyRecords` both describe listing; a single-item getter
+    is an optimisation a store may or may not have. The service falls back to a
+    scan, and that fallback had never run — so a store without the getter would
+    have failed to find anything to approve or revoke.
+    """
+
+    class ListOnlyStore:
+        """A policy store with no `get_exception`."""
+
+        def __init__(self) -> None:
+            self._exceptions: list = []
+            self._audit: list = []
+
+        def save_exception(self, tenant_id: str, exception) -> None:
+            self._exceptions = [
+                e for e in self._exceptions if e.exception_id != exception.exception_id
+            ]
+            self._exceptions.append(exception)
+
+        def list_exceptions(self, tenant_id: str) -> list:
+            return list(self._exceptions)
+
+        def append_audit(self, tenant_id: str, events: list) -> None:
+            self._audit.extend(events)
+
+        def list_audit(self, tenant_id: str, limit: int = 200) -> list:
+            return self._audit[-limit:]
+
+    def test_an_acceptance_is_found_by_scanning(self) -> None:
+        service = ComplianceService(store=self.ListOnlyStore())
+        raised = service.request_exception(
+            principal(Role.CONTRIBUTOR),
+            ExceptionRequest(
+                tenant_id="acme",
+                control_id="CC1.1",
+                justification="Remediation is scheduled for the next release train.",
+                requested_by="alice",
+            ),
+        )
+        assert raised.ok, raised.errors
+        approved = service.approve_exception(
+            principal(Role.OWNER, user="bob"), "acme", raised.data["exception"]["exception_id"]
+        )
+        assert approved.ok, approved.errors
+        assert approved.data["exception"]["status"] == "approved"
+
+    def test_an_unknown_id_still_reports_cleanly(self) -> None:
+        service = ComplianceService(store=self.ListOnlyStore())
+        response = service.approve_exception(principal(Role.OWNER), "acme", "ex-nothing")
+        assert not response.ok
+
+
+class TestTheReferenceStore:
+    """InMemoryStore is what the service uses when given nothing, and what the
+    tests above run against. Its own behaviour was mostly uncovered."""
+
+    def test_assessments_come_back_most_recent_first(self) -> None:
+        store = InMemoryStore()
+        for stamp, name in (("2026-01-01", "a"), ("2026-06-01", "b"), ("2026-03-01", "c")):
+            store.put_assessment({"tenant_id": "acme", "assessment_id": name, "started_at": stamp})
+        assert [a["assessment_id"] for a in store.list_assessments("acme")] == ["b", "c", "a"]
+
+    def test_the_limit_is_honoured(self) -> None:
+        store = InMemoryStore()
+        for n in range(5):
+            store.put_assessment(
+                {"tenant_id": "acme", "assessment_id": str(n), "started_at": f"2026-0{n + 1}-01"}
+            )
+        assert len(store.list_assessments("acme", limit=2)) == 2
+
+    def test_the_queue_is_the_latest_assessment_s(self) -> None:
+        store = InMemoryStore()
+        store.put_assessment(
+            {
+                "tenant_id": "acme",
+                "assessment_id": "old",
+                "started_at": "2026-01-01",
+                "remediation": {"items": [{"item_id": "rm-1"}, {"item_id": "rm-2"}]},
+            }
+        )
+        store.put_assessment(
+            {
+                "tenant_id": "acme",
+                "assessment_id": "new",
+                "started_at": "2026-06-01",
+                "remediation": {"items": [{"item_id": "rm-1"}]},
+            }
+        )
+        assert [i["item_id"] for i in store.list_remediation("acme")] == ["rm-1"]
+
+    def test_an_unknown_tenant_reads_empty(self) -> None:
+        store = InMemoryStore()
+        assert store.list_assessments("nobody") == []
+        assert store.list_remediation("nobody") == []
+
+    def test_it_says_plainly_that_it_forgets(self) -> None:
+        # A store that claims to be writable and loses everything at exit should
+        # say the second part.
+        health = InMemoryStore().health()
+        assert health["writable"] is True
+        assert "survives" in health["detail"]
