@@ -190,9 +190,11 @@ def test_the_workflow_fold_step_runs_verbatim_against_a_stored_result(tmp_path: 
     (workdir / "consensus").mkdir()
     (workdir / "consensus" / "result.json").write_text(json.dumps(answers))
     decoy = base64.b64encode(json.dumps([answers[0]]).encode()).decode()
+    (workdir / "github-output").write_text("")
     env = {
         **os.environ,
         "CONSENSUS_B64": decoy,
+        "GITHUB_OUTPUT": str(workdir / "github-output"),
         "PYTHONPATH": str(REPO_ROOT),
     }
     completed = subprocess.run(
@@ -211,6 +213,8 @@ def test_the_workflow_fold_step_runs_verbatim_against_a_stored_result(tmp_path: 
     assert "consensus from the run artifact" in completed.stdout
     assert f"consensus status: ok analysed: {len(sent)} of {len(sent)}" in completed.stdout
 
+    outputs = (workdir / "github-output").read_text()
+    assert "status=ok\n" in outputs and f"analysed={len(sent)}\n" in outputs
     folded = json.loads((workdir / "out" / "assessment.json").read_text())
     assert folded["consensus"]["status"] == "ok"
     assert folded["consensus"]["severity"] == "high"

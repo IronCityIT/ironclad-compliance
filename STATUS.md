@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-12
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `cd5cedd`, all six jobs.**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `0a7d547`, all six jobs. The product workflow has run twice as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -43,7 +43,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Standards-vs-ICIT-policy disclosure | **DONE, tested** | `ironclad/method.py` |
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
-| GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
+| GitHub workflows | **DONE; `ci.yml` green; `compliance-assessment.yml` executed twice as a dry run, report stage proven, AI job red on the engine's output size (consensus-engine PR #6)** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
 | Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
 | Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
@@ -223,14 +223,36 @@ decides which tenant a write lands in.
   check), and it is red on the working tree for exactly the reason it should
   be.
 
+## Dry runs — the product workflow has now executed
+
+`Compliance Assessment` gained a `dry_run` input: the synthetic sample
+evidence, every stage, artifacts uploaded, nothing published, the assessment
+id suffixed `-dry-run`. Dispatched twice on this branch against the throwaway
+client "ICIT Dry Run", framework `soc2`. Full account in
+`PRODUCTIZE_NOTES.md` §15.
+
+| Run | prepare | assess | ai-consensus | report | What it proved |
+|---|---|---|---|---|---|
+| [34722216087](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34722216087) | ✅ | ✅ 46.5% | ❌ 23 min | ✅ | The engine analysed all 57 findings — 14 of 15 models on every one — then the job failed at the **1 MB job-output cap** ("Maximum object size exceeded"). The report ran with `consensus: unavailable`. Reading the artifact it also uploaded showed the merge would have rejected the result anyway: a list, and field names the merge never read. |
+| [34723682288](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34723682288) | ✅ | ✅ 46.5% | ❌ 13 min | ✅ **`consensus status: ok analysed: 25 of 25`** | On the fixed workflow: 25 findings sent (one per control, gaps only, capped), the report job read the engine's **artifact** — 707 KB — merged it, rendered the report with the commentary block populated, exported the auditor package, validated the artifacts, published nowhere. The AI job is still red: 25 results are 0.9 MB base64 and the step output is counted alongside the job output. |
+
+The red AI job is the engine's output size, not its analysis. Fixed at the
+source in **[consensus-engine PR #6](https://github.com/IronCityIT/consensus-engine/pull/6)**
+(REVIEW ONLY — opened, not merged): the output drops the model transcripts,
+which were ~90% of the bytes; the artifact keeps them. Until it merges, the
+report is right and the run summary says so — it reports the fold's outcome
+and the AI job's status side by side.
+
+Seen in both runs and belonging to the engine's owner: `gemini-flash` **403
+Forbidden on all 82 calls** — `GEMINI_API_KEY` is rejected or the project
+behind it is not enabled — and `gpt-oss-20b` returning no JSON on 27 of 82.
+
 **Not proven — needs a GitHub runner:**
 
-`ci.yml` runs green on this branch. The two *product* workflows have never
-executed. Their YAML parses and the framework
-choices are checked against the loader by a test, but no run has fetched
-evidence from GCS, called `consensus-engine`, or posted to the ingest function.
-The consensus contract fix is the highest-value untested path: it is the reason
-this branch exists, and CI on the PR is the first time it runs for real.
+The evidence-staging and publishing steps of the product workflow — a real
+tenant's evidence from a volume, a real store — are exactly the steps a dry
+run skips, and they need the transport decision (HANDOFF §3.2). The framework
+update checker workflow has not been dispatched from this branch.
 
 **Not proven — needs a Jenkins agent:**
 

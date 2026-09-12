@@ -751,3 +751,103 @@ committing them as they stand.
 None of this is a judgement on the demo's purpose. It is that the tree cannot
 be committed in this state without breaking a gate and a rule, and the gate
 that would have let it through has been fixed first.
+
+---
+
+## 15. The product workflow ran for the first time, and what it found
+
+2026-09-12. The `Compliance Assessment` workflow had never executed: without an
+evidence secret it stops at "Refuse to assess with no evidence source", so no
+run had reached the consensus-engine call — the contract fix that is the reason
+this branch exists — or the report stage. A `dry_run` input now assesses the
+synthetic sample evidence, runs every stage, uploads the deliverables and
+publishes nowhere; a test asserts that every publishing and evidence-reading
+step is gated on it. The REVIEW ONLY definition of done asks for exactly this
+dispatch.
+
+### 15.1 Run 1 — [34722216087](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34722216087)
+
+`prepare` ✅ 7s · `assess` ✅ 11s, readiness 46.5% over the sample evidence,
+identical to the local run · `ai-consensus` ❌ after **23 minutes** ·
+`report` ✅ (it runs regardless, and said `consensus status: unavailable`).
+
+The consensus stage did not fail at analysing. It analysed all 57 findings,
+14 of 15 models answered every one, and it wrote a valid 1.6 MB result. It
+failed at *"Evaluate and set job outputs — Maximum object size exceeded"*: the
+`consensus_b64` job output is capped at 1 MB and the base64 was 1.7 MB. The
+analysis was lost at the boundary, after it had been paid for. The engine also
+uploads the same result as an artifact, `consensus-result-<run id>`, and that
+upload succeeded — 208 KB compressed, downloaded and read here.
+
+Reading what came back against what the merge expected found the rest:
+
+| | The engine emits | The merge read |
+|---|---|---|
+| shape | a JSON **list**, one result per finding, index-aligned, naming no finding | a dict; a list was `unexpected_shape` — and a test asserted that |
+| severity | `consensus_severity` | `severity` |
+| confidence | `confidence_percent` | `confidence` |
+
+So had the output fitted, every real assessment would still have discarded its
+analysis, and the report's commentary block had never had a field to show.
+The input half of the contract was fixed on this branch in §2.1; the output
+half was written from the engine's README rather than from its dataclass.
+
+And the 57: the control mapping and the remediation plan each raise a finding
+for the same gap, so half the payload restated the other half and the AI
+analysed each gap twice; three `info` coverage notes had nothing to triage.
+Fifteen model calls per item is the cost model, so the payload is now one item
+per control, gaps only, most severe first, capped at 25 —
+`consensus_findings()`, the one function both the payload and the merge call,
+because the results come back by position and nothing else.
+
+Run 1's real output, merged through the fixed code: 25 analysed, overall
+critical, 80% mean confidence, 342 of 375 model answers.
+
+Two things for the engine's owner, not this repository:
+
+- `gemini-flash` answered **403 Forbidden on all 57 calls**. The `GEMINI_API_KEY`
+  org secret is rejected by the endpoint, or the project behind it is not
+  enabled. The engine degrades to 14 models and says so; nothing here fails.
+- `gpt-oss-20b` returned no JSON object on 18 of 57 calls.
+
+### 15.2 Found by reading the report job, not by running it
+
+- **The auditor package certified an empty trail.** The report job exports
+  the package from the stored `assessment.json` through `_StoredResult`, which
+  started with a fresh, empty `AuditLog`. So `audit-trail.csv` was a header
+  and `package.json` carried the genesis hash as a *verified* chain head —
+  for every package the pipeline would have issued. `STATUS.md`'s "a verified
+  audit chain" was true of a chain with nothing in it. `AuditLog.from_dict`
+  rebuilds the stored trail with its digests intact; a stored event edited on
+  disk now fails `verify()` rather than being re-signed.
+- **The fold step doubled every warning** — it extended the document's list
+  with a result list that already contained it.
+- **The consensus-merged audit event was thrown away**, recorded on the fresh
+  log and never written back. It is chained and persisted now.
+
+The fold step is the one piece of Python that lives in YAML. A test extracts it
+from the workflow as committed and runs it against a real stored assessment,
+with the artifact carrying the answers and the job output carrying a decoy.
+
+### 15.3 Run 2 — [34723682288](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34723682288)
+
+On the fixed workflow. 25 findings sent; the engine took 13 minutes; the
+report job downloaded the engine's artifact (707 KB), and the fold step
+printed **`consensus status: ok analysed: 25 of 25`**. The report rendered
+with the commentary block populated for the first time, the auditor package
+exported with its real trail, the artifacts validated, nothing published.
+
+The AI job was still red — *"Job outputs exceed 1,048,576 bytes"*, with every
+step green — because 25 results are 0.9 MB of base64 and the step output is
+counted alongside the job output. That is the engine's output, not its
+analysis, and the fix belongs there: [consensus-engine PR #6](https://github.com/IronCityIT/consensus-engine/pull/6)
+drops the model transcripts from the output (~90% of the bytes; 57 results
+become 203 KB) and keeps them in the artifact. REVIEW ONLY: opened, not
+merged. DNSGuard reached the same limit earlier by a different route —
+"Argument list too long" through an environment variable — and reads the
+artifact for the same reason; it also strips `model_responses` on receipt as
+vendor-naming, so no caller loses anything from the output.
+
+Until it merges, the run summary reports what the report got and what the AI
+job said, side by side, rather than letting a red job stand for a lost
+analysis.

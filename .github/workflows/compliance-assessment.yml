@@ -292,6 +292,7 @@ jobs:
           path: consensus/
 
       - name: Fold in the AI consensus
+        id: fold
         env:
           CONSENSUS_B64: ${{ needs.ai-consensus.outputs.consensus_b64 }}
         run: |
@@ -320,6 +321,9 @@ jobs:
           path.write_text(json.dumps(document, indent=2) + "\n")
           print("consensus status:", consensus.get("status"),
                 "analysed:", consensus.get("analysed", 0), "of", consensus.get("sent", 0))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"status={consensus.get('status')}\n")
+              out.write(f"analysed={consensus.get('analysed', 0)}\n")
           PY
 
       - name: Render the report and the auditor package
@@ -409,5 +413,9 @@ jobs:
             echo "| Framework | ${{ inputs.framework }} |"
             echo "| Assessment | \`${{ needs.prepare.outputs.assessment_id }}\` |"
             echo "| Readiness | ${{ needs.assess.outputs.readiness }}% |"
-            echo "| AI commentary | ${{ needs.ai-consensus.result }} |"
+            # What the report got, not what the AI job's status says: the
+            # engine's output can exceed the 1 MB job-output cap after a
+            # successful analysis, which reads as a failed job, while the
+            # artifact carried the result to the report regardless.
+            echo "| AI commentary | ${{ steps.fold.outputs.status }} (${{ steps.fold.outputs.analysed }} gaps analysed; AI job: ${{ needs.ai-consensus.result }}) |"
           } >> "$GITHUB_STEP_SUMMARY"
