@@ -16,7 +16,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -291,13 +291,18 @@ test("the status labels are client language, not engine language", async (t) => 
     assert.equal(STATUS_LABEL.pending, "Not assessed");
   });
 
-  await t.test("no underlying tool is named anywhere in the dashboard module", () => {
-    const source = readFileSync(
-      path.join(REPO_ROOT, "dashboard", "public", "app.js"),
-      "utf8"
-    ).toLowerCase();
-    for (const name of ["zap", "nuclei", "wazuh", "prowler", "puppeteer", "openai", "groq"]) {
-      assert.ok(!source.includes(name), `the dashboard names ${name}`);
+  await t.test("no underlying tool is named in anything the dashboard serves", () => {
+    // Every file under public/ is served to a client, so every file is a
+    // surface. This used to read app.js alone, which is how a data file
+    // naming a SIEM product could sit beside it unread.
+    const served = path.join(REPO_ROOT, "dashboard", "public");
+    const files = readdirSync(served).filter((f) => statSync(path.join(served, f)).isFile());
+    assert.ok(files.includes("app.js"), "the served directory is the one being scanned");
+    for (const file of files) {
+      const source = readFileSync(path.join(served, file), "utf8").toLowerCase();
+      for (const name of ["zap", "nuclei", "wazuh", "prowler", "puppeteer", "openai", "groq"]) {
+        assert.ok(!source.includes(name), `${file} names ${name}`);
+      }
     }
   });
 });

@@ -215,6 +215,7 @@ pipeline {
                 echo "security tooling unavailable on this agent"; exit 66; }
               pip-audit --strict --desc || exit 1
               bandit -q -r ironclad scripts -x tests || exit 1
+              sh scripts/check_white_label.sh || exit 1
             ''',
             returnStatus: true
           )

@@ -237,12 +237,7 @@ jobs:
 
       - name: Check the white-label rule
         # No underlying tool or model vendor may be named on a client-facing
-        # surface: the report, the dashboard, or the capability catalog.
-        run: |
-          set -euo pipefail
-          surfaces="ironclad/report/render.py dashboard/public/index.html dashboard/public/app.js dashboard/public/catalog.json"
-          if grep -inE 'zap|nuclei|wazuh|prowler|puppeteer|openai|anthropic|groq|gemini' $surfaces ; then
-            echo "::error::an underlying tool is named on a client-facing surface"
-            exit 1
-          fi
-          echo "no tool names on any client-facing surface"
+        # surface: the report, the dashboard and anything served beside it, or
+        # the capability catalog. One script, shared with gates.sh and Jenkins,
+        # scanning whole directories rather than a list of files.
+        run: sh scripts/check_white_label.sh
