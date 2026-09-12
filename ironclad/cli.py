@@ -951,10 +951,17 @@ class _StoredResult:
             )
         self.evidence = evidence
 
-        self.audit = AuditLog(tenant_id=tenant)
+        # The stored trail, not a fresh one. The auditor package exported from
+        # a stored result used to carry an empty audit-trail.csv and certify
+        # the genesis hash as a verified chain head.
+        self.audit = AuditLog.from_dict(document.get("audit") or {}, tenant_id=tenant)
         self.module_output = document.get("module_output", {})
         self.warnings = list(document.get("warnings", []))
         self.failed_modules = dict(document.get("failed_modules", {}))
+
+    def findings_payload(self) -> list[dict]:
+        """The stored findings, as `merge_consensus` needs them to match results."""
+        return list(self.raw.get("findings", []))
 
     def to_dict(self) -> dict:
         return self.raw

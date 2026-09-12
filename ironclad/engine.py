@@ -81,10 +81,55 @@ class RunResult:
         """Base64 findings, as the consensus-engine `workflow_call` contract wants.
 
         The engine's `findings_json` input is base64-encoded JSON — passing raw
-        JSON there produces an analysis over nothing.
+        JSON there produces an analysis over nothing. What goes in it is the
+        subset `consensus_findings` chooses, not every finding: see there.
         """
-        encoded = json.dumps(self.findings_payload(), separators=(",", ":"))
+        encoded = json.dumps(consensus_findings(self.findings_payload()), separators=(",", ":"))
         return base64.b64encode(encoded.encode("utf-8")).decode("ascii")
+
+
+#: The most findings sent for AI analysis in one assessment. The consensus
+#: engine queries fifteen models per finding, sequentially per finding, so
+#: this number is the cost and the wall-clock of the AI stage. The first dry
+#: run sent 57 and took the better part of an hour.
+CONSENSUS_MAX_FINDINGS = 25
+
+_SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+
+
+def consensus_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The subset of findings sent for AI analysis, in the order it is sent.
+
+    The consensus engine answers with one result per finding, index-aligned,
+    and echoes nothing that identifies which finding a result is about. So this
+    function is the contract between the payload and the merge: both call it
+    over the same stored findings and get the same list in the same order.
+
+    Three rules, each because of what the first real run showed:
+
+    - **One item per control.** The control mapping and the remediation plan
+      both raise a finding for the same gap, so half the payload was the other
+      half restated and the AI analysed every gap twice.
+    - **Gaps only.** An `info` finding — crosswalk coverage, a note — has no
+      severity to triage.
+    - **Most severe first, capped.** Fifteen model calls per item; the cap is
+      the bound on cost and time, and it drops the least severe.
+    """
+    chosen: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        if finding.get("severity", "info") == "info":
+            continue
+        target = str(finding.get("target", ""))
+        current = chosen.get(target)
+        if current is None or _SEVERITY_RANK.get(
+            finding.get("severity", ""), 0
+        ) > _SEVERITY_RANK.get(current.get("severity", ""), 0):
+            chosen[target] = finding
+    ordered = sorted(
+        chosen.values(),
+        key=lambda f: -_SEVERITY_RANK.get(f.get("severity", ""), 0),
+    )
+    return ordered[:CONSENSUS_MAX_FINDINGS]
 
 
 def run_assessment(
@@ -227,12 +272,23 @@ def run_assessment(
     return result
 
 
-def merge_consensus(result: RunResult, consensus_b64: str) -> dict[str, Any]:
+def merge_consensus(result: Any, consensus_b64: str) -> dict[str, Any]:
     """Fold the AI engine's base64 consensus output into the result.
 
     Decoding is defensive on purpose: the consensus engine documents that its
     output is empty when analysis fails, and an assessment must still be stored
     and reported when the AI enrichment did not come back.
+
+    The engine's output is one `ConsensusResult` per finding sent — a JSON
+    list, or a bare object when exactly one finding was sent — carrying
+    `consensus_severity`, `confidence_percent`, `aggregated_remediation` and
+    model counts, and nothing that names the finding. Results are matched to
+    findings by position over `consensus_findings`, which is the same list the
+    payload was built from. The first version of this function treated a list
+    as an unexpected shape, so every real assessment discarded its analysis.
+
+    `result` is a `RunResult` or the stored-result stand-in the report job
+    rebuilds; both carry `findings_payload()`, `assessment` and `warnings`.
     """
     if not consensus_b64:
         result.assessment.consensus = {"status": "unavailable"}
@@ -246,18 +302,111 @@ def merge_consensus(result: RunResult, consensus_b64: str) -> dict[str, Any]:
         result.assessment.consensus = {"status": "undecodable"}
         return result.assessment.consensus
 
-    if not isinstance(payload, dict):
-        result.warnings.append("AI consensus output was not an object")
+    if isinstance(payload, dict):
+        payload = [payload]
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        result.warnings.append("AI consensus output was neither an object nor a list of them")
         result.assessment.consensus = {"status": "unexpected_shape"}
         return result.assessment.consensus
 
-    payload.setdefault("status", "ok")
-    result.assessment.consensus = payload
+    sent = consensus_findings(result.findings_payload())
+    if len(payload) != len(sent):
+        result.warnings.append(
+            f"AI consensus returned {len(payload)} result(s) for {len(sent)} finding(s) sent; "
+            "matched by position as far as they go"
+        )
+
+    results: list[dict[str, Any]] = []
+    responded = 0
+    asked = 0
+    for finding, item in zip(sent, payload, strict=False):
+        successful = int(item.get("successful_models") or 0)
+        total = int(item.get("total_models") or 0)
+        responded += successful
+        asked += total
+        results.append(
+            {
+                "target": finding.get("target", ""),
+                "title": finding.get("title", ""),
+                "severity": str(item.get("consensus_severity", "")).lower(),
+                "confidence": _number(item.get("confidence_percent")),
+                "exploitability": item.get("exploitability", ""),
+                "impact": item.get("impact", ""),
+                "false_positive_likelihood": item.get("false_positive_likelihood", ""),
+                "remediation": [str(r) for r in (item.get("aggregated_remediation") or [])[:5]],
+                "verification": [str(v) for v in (item.get("verification_steps") or [])[:5]],
+                "models_responded": successful,
+                "models_asked": total,
+            }
+        )
+
+    if results and responded == 0:
+        # The engine ran and every model failed — a key missing on every
+        # provider, or all of them down. That is not commentary, and it is
+        # reported as its own state rather than as a low-confidence "ok".
+        result.warnings.append("AI consensus ran but no model responded; commentary unavailable")
+        result.assessment.consensus = {"status": "no_models", "analysed": len(results)}
+        return result.assessment.consensus
+
+    confidences = [r["confidence"] for r in results if r["confidence"] is not None]
+    top = max(results, key=lambda r: _SEVERITY_RANK.get(r["severity"], -1), default=None)
+    severity = top["severity"] if top else ""
+    confidence = round(sum(confidences) / len(confidences), 1) if confidences else None
+    engine_version = str((payload[0] if payload else {}).get("engine_version", ""))
+
+    merged: dict[str, Any] = {
+        "status": "ok",
+        "engine_version": engine_version,
+        "analysed": len(results),
+        "sent": len(sent),
+        "severity": severity,
+        "confidence": confidence,
+        "models_responded": responded,
+        "models_asked": asked,
+        "summary": _consensus_summary(results, severity, confidence),
+        "results": results,
+    }
+    result.assessment.consensus = merged
     result.audit.record(
         actor="system:pipeline",
         action="assessment.consensus_merged",
         object_type="assessment",
         object_id=result.assessment.assessment_id,
-        metadata={"severity": payload.get("severity"), "confidence": payload.get("confidence")},
+        metadata={"severity": severity, "confidence": confidence, "analysed": len(results)},
     )
-    return payload
+    return merged
+
+
+def _number(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _consensus_summary(
+    results: list[dict[str, Any]], severity: str, confidence: float | None
+) -> str:
+    """One sentence for the report, from the numbers rather than from a model.
+
+    The models' free text is not quoted on the client's report: fifteen of
+    them produced it, none of them is named there, and a sentence generated
+    from the counts says what the analysis found without putting any model's
+    wording under Iron City's name.
+    """
+    if not results:
+        return ""
+    counts: dict[str, int] = {}
+    for item in results:
+        counts[item["severity"]] = counts.get(item["severity"], 0) + 1
+    parts = [
+        f"{n} rated {label}"
+        for label, n in sorted(counts.items(), key=lambda kv: -_SEVERITY_RANK.get(kv[0], -1))
+        if label
+    ]
+    conf = f" at {confidence:.0f}% mean confidence" if confidence is not None else ""
+    return (
+        f"Independent analysis of the {len(results)} most significant gap(s){conf}: "
+        + ", ".join(parts)
+        + "."
+    )

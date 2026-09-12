@@ -175,6 +175,33 @@ class TestStoredResultRoundTrip:
         restored = _StoredResult(document)
         assert render_html(restored, "Acme Corp")
 
+    def test_a_stored_result_carries_its_audit_trail(self, result, tmp_path: Path) -> None:
+        # The report job exports the auditor package from the stored JSON. The
+        # stand-in used to start with an empty log, so the package it produced
+        # had a header-only audit-trail.csv and certified the genesis hash as
+        # a verified chain head — for every assessment the pipeline issued.
+        from ironclad.report.export import export_audit_package
+
+        restored = _StoredResult(json.loads(export_json(result)))
+        assert len(restored.audit.events) == len(result.audit.events) >= 1
+        assert restored.audit.head == result.audit.head
+        assert restored.audit.is_valid()
+
+        export_audit_package(restored, restored.evidence, tmp_path)
+        manifest = json.loads((tmp_path / "package.json").read_text())
+        assert manifest["audit_chain_head"] == result.audit.head
+        assert manifest["audit_chain_verified"] is True
+        rows = (tmp_path / "audit-trail.csv").read_text().splitlines()
+        assert len(rows) == 1 + len(result.audit.events)
+
+    def test_a_tampered_stored_trail_does_not_verify(self, result) -> None:
+        # The stored digests are kept, not recomputed: editing an event on
+        # disk has to show, or the package's "verified" means nothing.
+        document = json.loads(export_json(result))
+        document["audit"]["events"][0]["actor"] = "someone-else"
+        restored = _StoredResult(document)
+        assert restored.audit.is_valid() is False
+
 
 class TestCli:
     def test_list_modules_emits_the_catalog(self, capsys) -> None:

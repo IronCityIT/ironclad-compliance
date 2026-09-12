@@ -131,3 +131,29 @@ class AuditLog:
             "verified": self.is_valid(),
             "events": [e.to_dict() for e in self.events],
         }
+
+    @classmethod
+    def from_dict(cls, document: dict[str, Any], tenant_id: str = "") -> AuditLog:
+        """Rebuild a stored trail, digests and all, so it can be verified and
+        appended to.
+
+        The stored hashes are kept rather than recomputed: a trail that has been
+        altered on disk must fail `verify()` here, not be quietly re-signed.
+        """
+        log = cls(tenant_id=str(document.get("tenant_id") or tenant_id))
+        for raw in document.get("events") or []:
+            log.events.append(
+                AuditEvent(
+                    event_id=str(raw.get("event_id", "")),
+                    tenant_id=str(raw.get("tenant_id", "")),
+                    actor=str(raw.get("actor", "")),
+                    action=str(raw.get("action", "")),
+                    object_type=str(raw.get("object_type", "")),
+                    object_id=str(raw.get("object_id", "")),
+                    at=datetime.fromisoformat(str(raw.get("at", "")).replace("Z", "+00:00")),
+                    metadata=dict(raw.get("metadata") or {}),
+                    prev_hash=str(raw.get("prev_hash", GENESIS_HASH)),
+                    hash=str(raw.get("hash", "")),
+                )
+            )
+        return log

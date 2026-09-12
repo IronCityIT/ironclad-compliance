@@ -8,7 +8,12 @@ import pytest
 
 from ironclad import registry
 from ironclad.base import AssessmentContext, AssessmentModule, Finding, ModuleResult
-from ironclad.engine import merge_consensus, run_assessment
+from ironclad.engine import (
+    CONSENSUS_MAX_FINDINGS,
+    consensus_findings,
+    merge_consensus,
+    run_assessment,
+)
 from ironclad.errors import SelectionError
 from ironclad.model.assessment import ControlStatus
 from ironclad.model.control import Framework
@@ -327,79 +332,191 @@ class TestExceptionsInARun:
         assert any("NOT-IN-FRAMEWORK" in w for w in result.warnings)
 
 
+def _engine_result(severity: str = "High", confidence: float = 82.5, successful: int = 12) -> dict:
+    """One ConsensusResult as `consensus-engine/src/consensus_engine.py` emits it.
+
+    The field names are the engine's dataclass, read from the source rather
+    than assumed: the first merge read `severity` and `confidence`, which the
+    engine has never produced.
+    """
+    return {
+        "consensus_severity": severity,
+        "confidence_percent": confidence,
+        "exploitability": "Medium",
+        "impact": "High",
+        "false_positive_likelihood": "Low",
+        "internet_exposed": False,
+        "compliance_impact": {"audit_risk": "High"},
+        "aggregated_remediation": ["Adopt a second evidence source", "Document the review"],
+        "verification_steps": ["Request the artefact"],
+        "total_models": 15,
+        "successful_models": successful,
+        "failed_models": 15 - successful,
+        "severity_distribution": {"High": successful},
+        "weighted_scores": {},
+        "model_responses": [],
+        "engine_version": "5.0",
+        "timestamp": "2026-09-12T22:00:00Z",
+    }
+
+
+def _b64(payload: object) -> str:
+    import base64
+    import json
+
+    return base64.b64encode(json.dumps(payload).encode()).decode()
+
+
 class TestConsensusPayload:
+    def _run(self, tiny_framework, evidence, group: str = "standard"):
+        return run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group=group,
+            as_of=NOW,
+        )
+
     def test_findings_are_base64_encoded_for_the_ai_engine(self, tiny_framework, evidence) -> None:
         # The consensus engine's findings_json input is base64. Raw JSON there
         # produces an analysis over nothing.
         import base64
         import json
 
-        result = run_assessment(
-            tenant_id="acme",
-            framework=tiny_framework,
-            evidence=evidence,
-            group="standard",
-            as_of=NOW,
-        )
+        result = self._run(tiny_framework, evidence)
         decoded = json.loads(base64.b64decode(result.consensus_payload()))
-        assert decoded == result.findings_payload()
+        assert decoded == consensus_findings(result.findings_payload())
+        assert decoded, "the sample evidence leaves gaps, so something is sent"
 
-    def test_a_valid_consensus_is_folded_in(self, tiny_framework, evidence) -> None:
-        import base64
+    def test_the_payload_is_one_item_per_control_and_never_info(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The control mapping and the remediation plan each raise a finding for
+        # the same gap; the engine queries fifteen models per item, so sending
+        # both analysed every gap twice. Coverage notes are `info` and have no
+        # severity to triage.
+        result = self._run(tiny_framework, evidence, group="deep")
+        everything = result.findings_payload()
+        sent = consensus_findings(everything)
+        targets = [f["target"] for f in sent]
+        assert len(targets) == len(set(targets))
+        assert all(f["severity"] != "info" for f in sent)
+        assert len(sent) < len(everything)
+        assert {f["target"] for f in sent} == {
+            f["target"] for f in everything if f["severity"] != "info"
+        }
+
+    def test_the_payload_is_most_severe_first_and_capped(self) -> None:
+        findings = [
+            {"module": "m", "target": f"C{i}", "severity": "medium", "title": f"C{i}"}
+            for i in range(40)
+        ] + [{"module": "m", "target": "HOT", "severity": "critical", "title": "HOT"}]
+        sent = consensus_findings(findings)
+        assert len(sent) == CONSENSUS_MAX_FINDINGS
+        assert sent[0]["target"] == "HOT"
+
+    def test_the_higher_severity_wins_when_a_control_has_two_findings(self) -> None:
+        findings = [
+            {"module": "a", "target": "C1", "severity": "medium", "title": "first"},
+            {"module": "b", "target": "C1", "severity": "high", "title": "second"},
+        ]
+        sent = consensus_findings(findings)
+        assert [f["title"] for f in sent] == ["second"]
+
+    def test_a_list_of_engine_results_is_folded_in_by_position(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The engine returns a JSON list, one ConsensusResult per finding, and
+        # nothing in a result names its finding. The first merge treated a
+        # list as an unexpected shape, so every real assessment — which sends
+        # more than one finding — discarded its analysis.
+        result = self._run(tiny_framework, evidence)
+        sent = consensus_findings(result.findings_payload())
+        assert len(sent) >= 2
+        answers = [_engine_result("High", 90.0)] + [
+            _engine_result("Medium", 70.0) for _ in sent[1:]
+        ]
+        merged = merge_consensus(result, _b64(answers))
+        assert merged["status"] == "ok"
+        assert merged["analysed"] == len(sent) == merged["sent"]
+        assert merged["severity"] == "high"
+        assert merged["results"][0]["target"] == sent[0]["target"]
+        assert merged["results"][0]["severity"] == "high"
+        assert merged["results"][0]["confidence"] == 90.0
+        assert merged["results"][0]["remediation"][0] == "Adopt a second evidence source"
+        assert merged["results"][1]["severity"] == "medium"
+        expected_mean = round((90.0 + 70.0 * (len(sent) - 1)) / len(sent), 1)
+        assert merged["confidence"] == expected_mean
+        assert merged["models_responded"] == 12 * len(sent)
+        assert "most significant gap" in merged["summary"]
+        assert result.assessment.consensus is merged
+        assert any(e.action == "assessment.consensus_merged" for e in result.audit.events)
+        assert not result.warnings
+
+    def test_a_single_object_is_one_result(self, tiny_framework, evidence) -> None:
+        # With exactly one finding the engine emits the object itself, not a
+        # one-element list.
+        result = self._run(tiny_framework, evidence)
+        merged = merge_consensus(result, _b64(_engine_result("Critical", 95.0)))
+        assert merged["status"] == "ok"
+        assert merged["analysed"] == 1
+        assert merged["severity"] == "critical"
+        sent = consensus_findings(result.findings_payload())
+        if len(sent) > 1:
+            assert any("matched by position" in w for w in result.warnings)
+
+    def test_a_count_mismatch_is_reported_not_hidden(self, tiny_framework, evidence) -> None:
+        result = self._run(tiny_framework, evidence)
+        sent = consensus_findings(result.findings_payload())
+        merged = merge_consensus(result, _b64([_engine_result()] * (len(sent) + 3)))
+        assert merged["analysed"] == len(sent)
+        assert any(
+            f"returned {len(sent) + 3} result(s) for {len(sent)}" in w for w in result.warnings
+        )
+
+    def test_no_model_responding_is_not_commentary(self, tiny_framework, evidence) -> None:
+        result = self._run(tiny_framework, evidence)
+        sent = consensus_findings(result.findings_payload())
+        answers = [_engine_result("Medium", 0.0, successful=0) for _ in sent]
+        merged = merge_consensus(result, _b64(answers))
+        assert merged["status"] == "no_models"
+        assert any("no model responded" in w for w in result.warnings)
+
+    def test_the_stored_result_merges_identically_to_the_live_one(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The report job rebuilds the result from assessment.json and merges
+        # there. Same findings, same subset, same alignment.
         import json
 
-        result = run_assessment(
-            tenant_id="acme",
-            framework=tiny_framework,
-            evidence=evidence,
-            group="quick",
-            as_of=NOW,
-        )
-        payload = base64.b64encode(
-            json.dumps({"severity": "HIGH", "confidence": 80}).encode()
-        ).decode()
-        merged = merge_consensus(result, payload)
-        assert merged["severity"] == "HIGH"
-        assert merged["status"] == "ok"
+        from ironclad.cli import _StoredResult
+
+        live = self._run(tiny_framework, evidence)
+        stored = _StoredResult(json.loads(json.dumps(live.to_dict())))
+        sent = consensus_findings(live.findings_payload())
+        answers = [_engine_result("High", 80.0) for _ in sent]
+        a = merge_consensus(live, _b64(answers))
+        b = merge_consensus(stored, _b64(answers))
+        assert a["results"] == b["results"]
+        assert a["severity"] == b["severity"] and a["confidence"] == b["confidence"]
 
     def test_an_empty_consensus_is_recorded_as_unavailable(self, tiny_framework, evidence) -> None:
         # The engine documents an empty output when analysis fails. The
         # assessment must still be storable and reportable.
-        result = run_assessment(
-            tenant_id="acme",
-            framework=tiny_framework,
-            evidence=evidence,
-            group="quick",
-            as_of=NOW,
-        )
+        result = self._run(tiny_framework, evidence, group="quick")
         assert merge_consensus(result, "")["status"] == "unavailable"
 
     def test_an_undecodable_consensus_does_not_lose_the_assessment(
         self, tiny_framework, evidence
     ) -> None:
-        result = run_assessment(
-            tenant_id="acme",
-            framework=tiny_framework,
-            evidence=evidence,
-            group="quick",
-            as_of=NOW,
-        )
+        result = self._run(tiny_framework, evidence, group="quick")
         assert merge_consensus(result, "!!not base64!!")["status"] == "undecodable"
         assert result.assessment.summary.total_controls == 3
 
     def test_an_unexpected_consensus_shape_is_rejected(self, tiny_framework, evidence) -> None:
-        import base64
-        import json
-
-        result = run_assessment(
-            tenant_id="acme",
-            framework=tiny_framework,
-            evidence=evidence,
-            group="quick",
-            as_of=NOW,
-        )
-        payload = base64.b64encode(json.dumps(["not", "an", "object"]).encode()).decode()
-        assert merge_consensus(result, payload)["status"] == "unexpected_shape"
+        result = self._run(tiny_framework, evidence, group="quick")
+        assert merge_consensus(result, _b64(["not", "objects"]))["status"] == "unexpected_shape"
+        assert merge_consensus(result, _b64("a string"))["status"] == "unexpected_shape"
 
 
 class TestModuleContext:

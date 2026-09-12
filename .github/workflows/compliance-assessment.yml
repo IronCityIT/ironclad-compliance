@@ -277,24 +277,49 @@ jobs:
           name: assessment
           path: out/
 
+      # The engine hands its result back two ways: the consensus_b64 job
+      # output, and an artifact named consensus-result-<run id> that it uploads
+      # even when the output step fails. The output has a 1 MB ceiling. The
+      # first dry run analysed 57 findings in 23 minutes, produced 1.7 MB, and
+      # the job failed at "Evaluate and set job outputs" with "Maximum object
+      # size exceeded" — after the analysis, losing it at the boundary. The
+      # artifact is read first; the output is the fallback.
+      - name: Fetch the AI consensus from the run's artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: consensus-result-${{ github.run_id }}
+          path: consensus/
+
       - name: Fold in the AI consensus
         env:
           CONSENSUS_B64: ${{ needs.ai-consensus.outputs.consensus_b64 }}
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, pathlib
+          import base64, json, os, pathlib
           from ironclad.cli import _StoredResult
           from ironclad.engine import merge_consensus
 
           path = pathlib.Path("out/assessment.json")
           document = json.loads(path.read_text())
           result = _StoredResult(document)
-          consensus = merge_consensus(result, os.environ.get("CONSENSUS_B64", ""))
+
+          artifact = pathlib.Path("consensus/result.json")
+          if artifact.is_file():
+              encoded = base64.b64encode(artifact.read_bytes()).decode("ascii")
+              print("consensus from the run artifact:", artifact.stat().st_size, "bytes")
+          else:
+              encoded = os.environ.get("CONSENSUS_B64", "")
+              print("consensus from the job output:", len(encoded), "bytes")
+          consensus = merge_consensus(result, encoded)
           document["consensus"] = consensus
-          document.setdefault("warnings", []).extend(result.warnings)
+          document["warnings"] = list(result.warnings)
+          # The merge is an audited event, chained onto the stored trail.
+          document["audit"] = result.audit.to_dict()
           path.write_text(json.dumps(document, indent=2) + "\n")
-          print("consensus status:", consensus.get("status"))
+          print("consensus status:", consensus.get("status"),
+                "analysed:", consensus.get("analysed", 0), "of", consensus.get("sent", 0))
           PY
 
       - name: Render the report and the auditor package
