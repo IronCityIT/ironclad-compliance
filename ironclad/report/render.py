@@ -327,14 +327,32 @@ def render_html(
 
     consensus = assessment.consensus or {}
     consensus_block = ""
-    if consensus and consensus.get("status") not in (None, "unavailable", "undecodable"):
-        severity = escape(str(consensus.get("severity", "—")))
-        confidence = escape(str(consensus.get("confidence", "—")))
+    if consensus and consensus.get("status") == "ok":
+        severity = escape(str(consensus.get("severity") or "—").capitalize())
+        raw_confidence = consensus.get("confidence")
+        confidence = (
+            f"{float(raw_confidence):.0f}%"
+            if isinstance(raw_confidence, int | float)
+            else escape(str(raw_confidence or "—"))
+        )
         summary_text = escape(str(consensus.get("summary", "")))[:1200]
+        # Which controls the analysis rated worst, by id only. The models'
+        # own wording is never quoted on a client's report: it is stored on
+        # the record for an analyst, and it is not written under Iron City's
+        # name.
+        flagged: dict[str, list[str]] = {}
+        for item in consensus.get("results") or []:
+            if item.get("severity") in ("critical", "high") and item.get("target"):
+                flagged.setdefault(str(item["severity"]), []).append(str(item["target"]))
+        flagged_text = " ".join(
+            f"Rated {label}: {escape(', '.join(sorted(flagged[label])))}."
+            for label in ("critical", "high")
+            if flagged.get(label)
+        )
         consensus_block = f"""
         <div class="callout">
           <strong>Analyst commentary</strong> — overall position {severity}
-          (confidence {confidence}). {summary_text}
+          (confidence {confidence}). {summary_text} {flagged_text}
           <div class="note">Commentary is advisory. The readiness figure above is computed
           from the control verdicts and does not move with it.</div>
         </div>"""

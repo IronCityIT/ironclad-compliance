@@ -88,6 +88,55 @@ class TestReportRendering:
         html = render_html(result, "Acme Corp")
         assert "Analyst commentary" not in html
 
+    def test_commentary_names_the_worst_rated_controls_and_no_model(self, result) -> None:
+        # The models' wording stays on the record, off the report: only ids
+        # and counts reach the client, and nothing that could name a tool or
+        # a vendor under Iron City's name.
+        import base64
+        import json
+
+        from ironclad.engine import consensus_findings, merge_consensus
+
+        sent = consensus_findings(result.findings_payload())
+        assert len(sent) >= 2
+        answers = [
+            {
+                "consensus_severity": "CRITICAL" if i == 0 else "MEDIUM",
+                "confidence_percent": 81.4,
+                "total_models": 15,
+                "successful_models": 12,
+                "aggregated_remediation": ["Deploy VendorScanner Pro on every host"],
+            }
+            for i, _ in enumerate(sent)
+        ]
+        merge_consensus(result, base64.b64encode(json.dumps(answers).encode()).decode())
+        html = render_html(result, "Acme Corp")
+        assert "Analyst commentary" in html
+        assert "overall position Critical" in html
+        assert "(confidence 81%)" in html
+        assert f"Rated critical: {sent[0]['target']}." in html
+        assert "VendorScanner" not in html
+
+    def test_no_model_responding_is_not_presented_as_commentary(self, result) -> None:
+        import base64
+        import json
+
+        from ironclad.engine import consensus_findings, merge_consensus
+
+        answers = [
+            {
+                "consensus_severity": "HIGH",
+                "confidence_percent": 0,
+                "total_models": 15,
+                "successful_models": 0,
+            }
+            for _ in consensus_findings(result.findings_payload())
+        ]
+        merge_consensus(result, base64.b64encode(json.dumps(answers).encode()).decode())
+        html = render_html(result, "Acme Corp")
+        assert "Analyst commentary" not in html
+        assert "no model responded" in html  # as a caveat, not as a verdict
+
     def test_a_capability_failure_is_disclosed_in_the_report(self, result) -> None:
         result.failed_modules["freshness_check"] = "RuntimeError: boom"
         html = render_html(result, "Acme Corp")
