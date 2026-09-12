@@ -549,6 +549,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     {"ok": False, "data": {}, "errors": [str(exc)]},
                 )
                 return
+            except Exception as exc:  # noqa: BLE001 — the last line of defence
+                # Anything else is a bug. The caller gets a 500 that says so
+                # and nothing about the internals; the server log gets the
+                # exception. Without this the handler thread dies and the
+                # client sees a dropped connection, which is how a corrupt
+                # policy file first surfaced.
+                self.log_error("unhandled %s: %s", type(exc).__name__, exc)
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"ok": False, "data": {}, "errors": ["internal error"]},
+                )
+                return
             self._send_json(response.status, response.body)
 
         # -- verbs

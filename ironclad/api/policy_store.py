@@ -61,7 +61,13 @@ class PolicyStore:
                 "exceptions": [],
                 "owners": {},
             }
-        document = json.loads(self.path.read_text(encoding="utf-8"))
+        try:
+            document = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            # The engine's own error, not the decoder's: a caller three frames
+            # up — the CLI, the HTTP surface — handles IroncladError and
+            # nothing else, and a hand-edited file is an ordinary fault.
+            raise IroncladError(f"{self.path} is not valid JSON: {exc}") from exc
         if not isinstance(document, dict):
             raise IroncladError(f"{self.path} is not a policy document")
         return document
@@ -135,8 +141,11 @@ class PolicyStore:
     def _audit_document(self, tenant_id: str) -> dict[str, Any]:
         if not self.audit_path.exists():
             return {"tenant_id": tenant_id, "event_count": 0, "head": "", "events": []}
-        document = json.loads(self.audit_path.read_text(encoding="utf-8"))
-        events = document.get("events")
+        try:
+            document = json.loads(self.audit_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise IroncladError(f"{self.audit_path} is not valid JSON: {exc}") from exc
+        events = document.get("events") if isinstance(document, dict) else None
         if not isinstance(document, dict) or not isinstance(events, list):
             raise IroncladError(f"{self.audit_path} is not an audit trail")
         return document

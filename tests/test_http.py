@@ -723,3 +723,59 @@ class TestServeCommand:
         finally:
             process.terminate()
             process.wait(timeout=10)
+
+
+# ------------------------------------------------------------ engine faults
+
+
+class TestEngineFaults:
+    def test_a_corrupt_policy_file_is_a_500_with_the_reason(self, as_, server) -> None:
+        # A hand-edited policy.json that is not JSON. The tenant's register
+        # must come back as an error naming the file, not as a dropped
+        # connection from a handler thread that raised.
+        _, _, policy_root = server
+        (policy_root / "acme").mkdir()
+        (policy_root / "acme" / "policy.json").write_text("{not json")
+        status, body, _ = as_("acme-manager").get("/api/v1/tenants/acme/exceptions")
+        assert status == 500
+        assert "policy.json" in body["errors"][0]
+
+    def test_a_policy_file_naming_another_tenant_is_refused_on_write(self, as_, server) -> None:
+        # The store refuses to write an acceptance into a file that belongs to
+        # a different tenant. That refusal is an engine error, and it reaches
+        # the caller as one rather than as a silent 200.
+        _, _, policy_root = server
+        (policy_root / "acme").mkdir()
+        (policy_root / "acme" / "policy.json").write_text(
+            json.dumps({"policy_version": "1.0", "tenant_id": "beta", "exceptions": []})
+        )
+        status, body, _ = as_("acme-manager").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": "CC1.1", "justification": "scheduled"},
+        )
+        assert status == 500
+        assert "belongs to tenant 'beta'" in body["errors"][0]
+
+    def test_the_limit_is_capped_not_refused(self, as_) -> None:
+        status, _, _ = as_("acme-viewer").get("/api/v1/tenants/acme/assessments?limit=999999")
+        assert status == 200
+
+    def test_head_on_anything_but_health_is_405(self, port: int) -> None:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("HEAD", "/api/v1/me")
+        assert conn.getresponse().status == 405
+
+    def test_a_directory_under_the_static_root_serves_its_index(self, as_, static_root) -> None:
+        (static_root / "sub").mkdir()
+        (static_root / "sub" / "index.html").write_text("<title>sub</title>")
+        status, body, _ = as_().get("/sub/")
+        assert status == 200
+        assert b"sub" in body["_raw"]
+
+    def test_a_bad_content_length_is_400(self, port: int, secrets_for) -> None:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.putrequest("POST", "/api/v1/tenants/acme/exceptions")
+        conn.putheader("Authorization", f"Bearer {secrets_for['acme-manager']}")
+        conn.putheader("Content-Length", "lots")
+        conn.endheaders()
+        assert conn.getresponse().status == 400
