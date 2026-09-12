@@ -1,0 +1,637 @@
+{
+  "framework": {
+    "id": "pci-dss",
+    "name": "PCI Data Security Standard",
+    "version": "4.0",
+    "source": "PCI Security Standards Council"
+  },
+  "controls": [
+    {
+      "id": "1.1",
+      "name": "Network Security Control Processes",
+      "description": "Processes and mechanisms for installing and maintaining network security controls are defined and understood.",
+      "domain": "Requirement 1 \u2014 Network Security Controls",
+      "points_of_focus": [
+        {
+          "id": "1.1.1",
+          "description": "Security policies and operational procedures are documented"
+        },
+        {
+          "id": "1.1.2",
+          "description": "Roles and responsibilities are assigned"
+        }
+      ],
+      "common_evidence": [
+        "Network security policy",
+        "Operational procedures",
+        "Roles and responsibilities matrix"
+      ]
+    },
+    {
+      "id": "1.2",
+      "name": "Network Security Control Configuration",
+      "description": "Network security controls are configured and maintained.",
+      "domain": "Requirement 1 \u2014 Network Security Controls",
+      "points_of_focus": [
+        {
+          "id": "1.2.1",
+          "description": "Configuration standards are defined"
+        },
+        {
+          "id": "1.2.2",
+          "description": "Changes are approved and tested"
+        },
+        {
+          "id": "1.2.3",
+          "description": "Rulesets are reviewed at least every six months"
+        }
+      ],
+      "common_evidence": [
+        "Firewall configuration standard",
+        "Firewall rule review",
+        "Change tickets",
+        "Network diagram"
+      ]
+    },
+    {
+      "id": "1.3",
+      "name": "Cardholder Data Environment Access",
+      "description": "Network access to and from the cardholder data environment is restricted.",
+      "domain": "Requirement 1 \u2014 Network Security Controls",
+      "points_of_focus": [
+        {
+          "id": "1.3.1",
+          "description": "Inbound traffic is restricted to what is necessary"
+        },
+        {
+          "id": "1.3.2",
+          "description": "Outbound traffic is restricted"
+        },
+        {
+          "id": "1.3.3",
+          "description": "The CDE is segmented"
+        }
+      ],
+      "common_evidence": [
+        "Segmentation test report",
+        "Firewall rulesets",
+        "Network diagram",
+        "Data flow diagram"
+      ]
+    },
+    {
+      "id": "2.2",
+      "name": "System Component Configuration",
+      "description": "System components are configured and managed securely.",
+      "domain": "Requirement 2 \u2014 Secure Configurations",
+      "points_of_focus": [
+        {
+          "id": "2.2.1",
+          "description": "Configuration standards cover all components"
+        },
+        {
+          "id": "2.2.2",
+          "description": "Vendor defaults are changed"
+        },
+        {
+          "id": "2.2.3",
+          "description": "Only necessary services are enabled"
+        }
+      ],
+      "common_evidence": [
+        "Hardening standards",
+        "Configuration baselines",
+        "Build checklists",
+        "Configuration scan reports"
+      ]
+    },
+    {
+      "id": "2.3",
+      "name": "Wireless Environment Security",
+      "description": "Wireless environments are configured and managed securely.",
+      "domain": "Requirement 2 \u2014 Secure Configurations",
+      "points_of_focus": [
+        {
+          "id": "2.3.1",
+          "description": "Wireless defaults are changed"
+        },
+        {
+          "id": "2.3.2",
+          "description": "Wireless encryption is strong"
+        }
+      ],
+      "common_evidence": [
+        "Wireless configuration export",
+        "Wireless scan results",
+        "Wireless policy"
+      ]
+    },
+    {
+      "id": "3.3",
+      "name": "Sensitive Authentication Data",
+      "description": "Sensitive authentication data is not stored after authorization.",
+      "domain": "Requirement 3 \u2014 Protect Stored Account Data",
+      "points_of_focus": [
+        {
+          "id": "3.3.1",
+          "description": "SAD is not retained after authorization"
+        },
+        {
+          "id": "3.3.2",
+          "description": "Any pre-authorization storage is protected"
+        }
+      ],
+      "common_evidence": [
+        "Data retention policy",
+        "Data discovery scan",
+        "Storage inventory"
+      ]
+    },
+    {
+      "id": "3.5",
+      "name": "Primary Account Number Protection",
+      "description": "Primary account number is secured wherever it is stored.",
+      "domain": "Requirement 3 \u2014 Protect Stored Account Data",
+      "points_of_focus": [
+        {
+          "id": "3.5.1",
+          "description": "PAN is rendered unreadable"
+        },
+        {
+          "id": "3.5.2",
+          "description": "Cryptographic keys are protected"
+        }
+      ],
+      "common_evidence": [
+        "Encryption standard",
+        "Key management procedures",
+        "Data discovery scan",
+        "Tokenization design"
+      ]
+    },
+    {
+      "id": "4.2",
+      "name": "Cardholder Data Transmission",
+      "description": "PAN is protected with strong cryptography during transmission over open, public networks.",
+      "domain": "Requirement 4 \u2014 Protect Data in Transit",
+      "points_of_focus": [
+        {
+          "id": "4.2.1",
+          "description": "Strong cryptography and protocols are used"
+        },
+        {
+          "id": "4.2.2",
+          "description": "Certificates are valid and inventoried"
+        }
+      ],
+      "common_evidence": [
+        "TLS configuration",
+        "Certificate inventory",
+        "Transmission security policy"
+      ]
+    },
+    {
+      "id": "5.2",
+      "name": "Malicious Software Prevention",
+      "description": "Malicious software is prevented, or detected and addressed.",
+      "domain": "Requirement 5 \u2014 Protect Against Malicious Software",
+      "points_of_focus": [
+        {
+          "id": "5.2.1",
+          "description": "Anti-malware is deployed on applicable components"
+        },
+        {
+          "id": "5.2.2",
+          "description": "Definitions are current"
+        },
+        {
+          "id": "5.2.3",
+          "description": "Scans are performed"
+        }
+      ],
+      "common_evidence": [
+        "Anti-malware deployment report",
+        "Definition update logs",
+        "Scan reports"
+      ]
+    },
+    {
+      "id": "6.2",
+      "name": "Bespoke Software Security",
+      "description": "Bespoke and custom software are developed securely.",
+      "domain": "Requirement 6 \u2014 Secure Systems and Software",
+      "points_of_focus": [
+        {
+          "id": "6.2.1",
+          "description": "Secure development practices are followed"
+        },
+        {
+          "id": "6.2.2",
+          "description": "Developers are trained"
+        },
+        {
+          "id": "6.2.3",
+          "description": "Code is reviewed before release"
+        }
+      ],
+      "common_evidence": [
+        "Secure SDLC policy",
+        "Code review records",
+        "Developer training records"
+      ]
+    },
+    {
+      "id": "6.3",
+      "name": "Vulnerability Identification and Management",
+      "description": "Security vulnerabilities are identified and addressed.",
+      "domain": "Requirement 6 \u2014 Secure Systems and Software",
+      "points_of_focus": [
+        {
+          "id": "6.3.1",
+          "description": "Vulnerability sources are monitored"
+        },
+        {
+          "id": "6.3.2",
+          "description": "Vulnerabilities are ranked"
+        },
+        {
+          "id": "6.3.3",
+          "description": "Patches are applied within defined windows"
+        }
+      ],
+      "common_evidence": [
+        "Vulnerability scan reports",
+        "Patch compliance report",
+        "Risk ranking methodology"
+      ]
+    },
+    {
+      "id": "6.4",
+      "name": "Public-Facing Web Application Protection",
+      "description": "Public-facing web applications are protected against attacks.",
+      "domain": "Requirement 6 \u2014 Secure Systems and Software",
+      "points_of_focus": [
+        {
+          "id": "6.4.1",
+          "description": "Applications are assessed or protected by an automated solution"
+        },
+        {
+          "id": "6.4.2",
+          "description": "Payment page scripts are managed"
+        }
+      ],
+      "common_evidence": [
+        "Application security assessment",
+        "Web application firewall configuration",
+        "Script inventory"
+      ]
+    },
+    {
+      "id": "7.2",
+      "name": "Access Assignment",
+      "description": "Access to system components and data is appropriately defined and assigned.",
+      "domain": "Requirement 7 \u2014 Restrict Access by Business Need to Know",
+      "points_of_focus": [
+        {
+          "id": "7.2.1",
+          "description": "Access is assigned by role and need to know"
+        },
+        {
+          "id": "7.2.2",
+          "description": "Least privilege is applied"
+        },
+        {
+          "id": "7.2.3",
+          "description": "Assignments are approved"
+        }
+      ],
+      "common_evidence": [
+        "Role definitions",
+        "Access request approvals",
+        "Access control policy"
+      ]
+    },
+    {
+      "id": "7.3",
+      "name": "Access Control Systems",
+      "description": "Access to system components and data is managed via an access control system.",
+      "domain": "Requirement 7 \u2014 Restrict Access by Business Need to Know",
+      "points_of_focus": [
+        {
+          "id": "7.3.1",
+          "description": "An access control system enforces the policy"
+        },
+        {
+          "id": "7.3.2",
+          "description": "Default is deny all"
+        }
+      ],
+      "common_evidence": [
+        "Access control system configuration",
+        "Permission export",
+        "Deny-by-default evidence"
+      ]
+    },
+    {
+      "id": "8.2",
+      "name": "User Identification",
+      "description": "User identification and related accounts for users and administrators are strictly managed.",
+      "domain": "Requirement 8 \u2014 Identify Users and Authenticate Access",
+      "points_of_focus": [
+        {
+          "id": "8.2.1",
+          "description": "Every user has a unique ID"
+        },
+        {
+          "id": "8.2.2",
+          "description": "Shared accounts are controlled"
+        },
+        {
+          "id": "8.2.3",
+          "description": "Accounts are removed on termination"
+        }
+      ],
+      "common_evidence": [
+        "User account listing",
+        "Joiner mover leaver records",
+        "Termination checklist"
+      ]
+    },
+    {
+      "id": "8.3",
+      "name": "Strong Authentication",
+      "description": "Strong authentication for users and administrators is established and managed.",
+      "domain": "Requirement 8 \u2014 Identify Users and Authenticate Access",
+      "points_of_focus": [
+        {
+          "id": "8.3.1",
+          "description": "Authentication factors meet policy"
+        },
+        {
+          "id": "8.3.2",
+          "description": "Passwords meet complexity and rotation rules"
+        }
+      ],
+      "common_evidence": [
+        "Password policy",
+        "Authentication configuration",
+        "Policy enforcement evidence"
+      ]
+    },
+    {
+      "id": "8.4",
+      "name": "Multi-Factor Authentication",
+      "description": "Multi-factor authentication is implemented to secure access into the cardholder data environment.",
+      "domain": "Requirement 8 \u2014 Identify Users and Authenticate Access",
+      "points_of_focus": [
+        {
+          "id": "8.4.1",
+          "description": "MFA is required for all remote access"
+        },
+        {
+          "id": "8.4.2",
+          "description": "MFA is required for all CDE access"
+        }
+      ],
+      "common_evidence": [
+        "MFA configuration export",
+        "Remote access policy",
+        "VPN configuration"
+      ]
+    },
+    {
+      "id": "9.4",
+      "name": "Media Protection",
+      "description": "Media with cardholder data is securely stored, accessed, distributed, and destroyed.",
+      "domain": "Requirement 9 \u2014 Restrict Physical Access",
+      "points_of_focus": [
+        {
+          "id": "9.4.1",
+          "description": "Media is inventoried and classified"
+        },
+        {
+          "id": "9.4.2",
+          "description": "Destruction is documented"
+        }
+      ],
+      "common_evidence": [
+        "Media inventory",
+        "Destruction certificates",
+        "Media handling procedure"
+      ]
+    },
+    {
+      "id": "10.2",
+      "name": "Audit Log Implementation",
+      "description": "Audit logs are implemented to support the detection of anomalies and suspicious activity, and the forensic analysis of events.",
+      "domain": "Requirement 10 \u2014 Log and Monitor",
+      "points_of_focus": [
+        {
+          "id": "10.2.1",
+          "description": "Logs capture the required event types"
+        },
+        {
+          "id": "10.2.2",
+          "description": "Logs record the required data elements"
+        }
+      ],
+      "common_evidence": [
+        "Logging standard",
+        "Sample log extracts",
+        "SIEM ingestion report"
+      ]
+    },
+    {
+      "id": "10.3",
+      "name": "Audit Log Protection",
+      "description": "Audit logs are protected from destruction and unauthorized modifications.",
+      "domain": "Requirement 10 \u2014 Log and Monitor",
+      "points_of_focus": [
+        {
+          "id": "10.3.1",
+          "description": "Log access is restricted"
+        },
+        {
+          "id": "10.3.2",
+          "description": "Logs are protected against alteration"
+        },
+        {
+          "id": "10.3.3",
+          "description": "Logs are backed up"
+        }
+      ],
+      "common_evidence": [
+        "Log access control list",
+        "File integrity monitoring",
+        "Log retention configuration"
+      ]
+    },
+    {
+      "id": "10.4",
+      "name": "Audit Log Review",
+      "description": "Audit logs are reviewed to identify anomalies or suspicious activity.",
+      "domain": "Requirement 10 \u2014 Log and Monitor",
+      "points_of_focus": [
+        {
+          "id": "10.4.1",
+          "description": "Critical logs are reviewed at least daily"
+        },
+        {
+          "id": "10.4.2",
+          "description": "Exceptions are followed up"
+        }
+      ],
+      "common_evidence": [
+        "Log review records",
+        "Alert disposition log",
+        "Review procedure"
+      ]
+    },
+    {
+      "id": "11.3",
+      "name": "Vulnerability Scanning",
+      "description": "External and internal vulnerabilities are regularly identified, prioritized, and addressed.",
+      "domain": "Requirement 11 \u2014 Test Security Regularly",
+      "points_of_focus": [
+        {
+          "id": "11.3.1",
+          "description": "Internal scans run at least quarterly"
+        },
+        {
+          "id": "11.3.2",
+          "description": "External ASV scans run at least quarterly"
+        },
+        {
+          "id": "11.3.3",
+          "description": "Findings are remediated and rescanned"
+        }
+      ],
+      "common_evidence": [
+        "Vulnerability scan reports",
+        "ASV attestation",
+        "Remediation tracker"
+      ]
+    },
+    {
+      "id": "11.4",
+      "name": "Penetration Testing",
+      "description": "External and internal penetration testing is regularly performed, and exploitable vulnerabilities and security weaknesses are corrected.",
+      "domain": "Requirement 11 \u2014 Test Security Regularly",
+      "points_of_focus": [
+        {
+          "id": "11.4.1",
+          "description": "A methodology is defined"
+        },
+        {
+          "id": "11.4.2",
+          "description": "Testing is performed at least annually"
+        },
+        {
+          "id": "11.4.3",
+          "description": "Findings are corrected and retested"
+        }
+      ],
+      "common_evidence": [
+        "Penetration test report",
+        "Test methodology",
+        "Retest evidence"
+      ]
+    },
+    {
+      "id": "12.1",
+      "name": "Information Security Policy",
+      "description": "A comprehensive information security policy that governs and provides direction for protection of the entity's information assets is known and current.",
+      "domain": "Requirement 12 \u2014 Support Information Security with Policies",
+      "points_of_focus": [
+        {
+          "id": "12.1.1",
+          "description": "Policy is established and published"
+        },
+        {
+          "id": "12.1.2",
+          "description": "Policy is reviewed at least annually"
+        },
+        {
+          "id": "12.1.3",
+          "description": "Personnel acknowledge the policy"
+        }
+      ],
+      "common_evidence": [
+        "Information security policy",
+        "Policy review records",
+        "Acknowledgement records"
+      ]
+    },
+    {
+      "id": "12.6",
+      "name": "Security Awareness Education",
+      "description": "Security awareness education is an ongoing activity.",
+      "domain": "Requirement 12 \u2014 Support Information Security with Policies",
+      "points_of_focus": [
+        {
+          "id": "12.6.1",
+          "description": "Training is delivered on hire and at least annually"
+        },
+        {
+          "id": "12.6.2",
+          "description": "Content covers current threats"
+        }
+      ],
+      "common_evidence": [
+        "Security awareness training records",
+        "Training content",
+        "Completion report"
+      ]
+    },
+    {
+      "id": "12.8",
+      "name": "Third-Party Service Provider Management",
+      "description": "Risk to information assets associated with third-party service provider relationships is managed.",
+      "domain": "Requirement 12 \u2014 Support Information Security with Policies",
+      "points_of_focus": [
+        {
+          "id": "12.8.1",
+          "description": "Providers are inventoried"
+        },
+        {
+          "id": "12.8.2",
+          "description": "Written agreements acknowledge responsibility"
+        },
+        {
+          "id": "12.8.3",
+          "description": "Provider compliance is monitored"
+        }
+      ],
+      "common_evidence": [
+        "Vendor inventory",
+        "Service provider agreements",
+        "Vendor compliance attestations"
+      ]
+    },
+    {
+      "id": "12.10",
+      "name": "Incident Response Readiness",
+      "description": "Suspected and confirmed security incidents that could impact the cardholder data environment are responded to immediately.",
+      "domain": "Requirement 12 \u2014 Support Information Security with Policies",
+      "points_of_focus": [
+        {
+          "id": "12.10.1",
+          "description": "An incident response plan exists"
+        },
+        {
+          "id": "12.10.2",
+          "description": "The plan is tested at least annually"
+        },
+        {
+          "id": "12.10.3",
+          "description": "Personnel are trained on it"
+        }
+      ],
+      "common_evidence": [
+        "Incident response plan",
+        "Tabletop exercise records",
+        "Incident tickets"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,743 @@
+# Ironclad Compliance — developer handoff
+
+**Written:** 2026-09-07 · **Branch:** `productize/ironclad-compliance` ·
+**Open PR:** [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) ·
+**Head at writing:** `e381e94`
+
+This document is meant to be portable: someone with this file, the repository and
+no other context should be able to pick the product up. It is written for a
+successor, not for a reviewer.
+
+## How to read the labels
+
+Every claim carries one:
+
+| Label | Means |
+|---|---|
+| **VERIFIED** | Observed in this repository or executed and its output seen. The evidence is named. |
+| **TARGET** | The architecture we are moving to. Not built, not deployed. |
+| **UNKNOWN** | Not established. Written down as unknown rather than guessed. |
+
+Nothing here is inferred from a document written by someone else and repeated as
+fact. Where the only source is another document, it says so.
+
+---
+
+## 1. Purpose
+
+**VERIFIED.** Ironclad Compliance assesses a client's evidence against a
+compliance framework and produces the deliverables a compliance programme runs
+on: a scored readiness position, a control-by-control register, a prioritised
+remediation plan with target dates, and an auditor evidence package.
+
+It is an *evidence engine*, not a scanner. It reads documents the client already
+has — policies, access reviews, scan output, meeting minutes — decides which
+controls they support, and says what is missing. Four frameworks ship, with
+crosswalks between them so a client evidences a control once.
+
+What it deliberately does not do: invent controls, move a score with AI
+commentary, or accept a risk on a client's behalf.
+
+---
+
+## 2. Current implementation — VERIFIED
+
+Everything in this section was executed on the build container, or is present in
+the repository and covered by a test that runs in CI.
+
+### 2.1 Shape
+
+```
+ironclad/          the engine. Python 3.10+, standard library only at its core
+  model/           controls, evidence, assessment, remediation, exceptions, audit, tenancy
+  modules/         seven capabilities, one per file, discovered by a registry
+  frameworks/      loader, crosswalks, quarterly update checker
+  ingest/          the versioned evidence contract, collectors, extractors
+  report/          HTML render, exports, auditor package, per-type views
+  api/             request/response schemas, ComplianceService, PolicyStore
+  store/           the persistence seam: rows, schema.sql, MariaDB, volume, artifacts
+  compare.py       what changed between two assessments
+  evidence_root.py a tenant's evidence prefix on a volume
+  method.py        which bars are the framework's and which are Iron City's
+  cli.py           every surface drives the engine through here
+frameworks/        four framework definitions + crosswalks, as JSON
+functions/         Cloud Functions — SEE SECTION 4, these are being retired
+dashboard/         static dashboard — SEE SECTION 4, its backend is being retired
+tests/             645 Python tests
+scripts/, tools/   pipeline wrappers, generators, the gate runner, the E2E check
+```
+
+Line counts: engine ~3,200; total Python under test 2,563 statements at 91%
+coverage.
+
+### 2.2 Capabilities
+
+Seven, selected individually (`--modules a,b,c`) or by group (`--group deep`).
+The registry is the single catalog behind the CLI and the dashboard, so a
+selection maps 1:1 on both.
+
+| capability | quick | standard | deep |
+|---|:-:|:-:|:-:|
+| `evidence_inventory` | ● | ● | ● |
+| `control_mapping` | ● | ● | ● |
+| `exception_review` | | ● | ● |
+| `freshness_check` | | ● | ● |
+| `remediation_plan` | | ● | ● |
+| `scope_review` | | ● | ● |
+| `crosswalk_coverage` | | | ● |
+
+### 2.3 Frameworks
+
+| alias | framework | controls |
+|---|---|---|
+| `soc2` | SOC 2 Trust Service Criteria 2017 | 33 |
+| `nist-csf` | NIST Cybersecurity Framework 2.0 | 43 |
+| `pci-dss` | PCI Data Security Standard 4.0 | 27 |
+| `hipaa` | HIPAA Security Rule 45 CFR 164 Subpart C | 23 |
+
+94 crosswalk edges. Every edge is checked by a test to point at a control that
+exists in both frameworks.
+
+### 2.4 What has been executed, and the evidence
+
+| Claim | Evidence |
+|---|---|
+| End-to-end assessment: ingest a directory → 7 capabilities → scored assessment → remediation plan → HTML report → auditor package | Run repeatedly on the build container against real evidence files; last run `acme-corp-soc2-tsc-20260907004327` |
+| Assessment type shapes the deliverable without changing the assessment | Three runs, same evidence: identical 24.0% readiness and identical stored controls; 33 / 28 / 0 controls listed in full / gap-only / readiness |
+| Risk-acceptance workflow end to end | request → self-approval refused → viewer refused → approved → next assessment moved CC1.2 from `gap` to `accepted_risk`, readiness 24.0% → 25.3%, 28 → 27 remediation items |
+| `firestore.rules` enforces tenant isolation | 53 cases against the Firestore emulator, and a mutation check: replacing `ownsTenant` with `return true` fails 17 of them |
+| Cloud Function decisions | 44 node tests over `functions/core.js` |
+| A result stores and reads back from a NAS-shaped volume and from MariaDB, tenant-scoped, idempotent, chain intact | 70 store tests; the MariaDB half in CI against a real 10.5.29 server, schema applied in 7 statements |
+| **The framework update checker reads all four sources and detects a real change** | It could not before: `meta` and `link` are void elements and were in the extractor's skip set, so the skip counter never unwound and three of four sources fingerprinted as the empty string. Fixed 2026-09-08; all four now yield 5,368–9,139 characters, and the first working run detected **PCI DSS 4.0.1 against the 4.0 we ship** — a true positive, stable across two runs |
+| **The whole path agrees with itself**: ingest → assess → deliverables → publish → read back, against both stores | `scripts/end_to_end.py`, run in CI against MariaDB and against a volume. Checks the readiness a client reads is the readiness stored, the chain head matches, the queue is the tenant's own, and re-publishing leaves one record |
+| Dashboard escaping | 38 node tests, field by field over every render path |
+| Tenant slug identical in Python and JavaScript | 21-case table run through both implementations |
+| **Evidence extraction reports a failure as a failure** | Never an empty document, never a raised exception, never a placeholder — a document that fails to extract silently is a met control read as a gap. Corrupt, empty, truncated-zip, missing-dependency, unsupported-suffix and no-suffix cases each assert a named error with empty text. `extractors.py` 52% → 92% |
+| **A policy that validates also loads** | Every status a policy may claim — draft, pending, approved, rejected, revoked, expired — validates and loads into that state. A rejection used to pass `validate --policy` and raise at assessment time. `policy.py` 86% → 97% |
+| **A withdrawn decision does not hide a failing control** | End to end: with a rejected, revoked, expired, draft or pending acceptance the control does not read as `accepted_risk`; with a live approval it does |
+| **Both assessment entry points agree** | `scripts/assess_controls.py` had no `--policy` and silently dropped scope exclusions and risk acceptances. Identical verdicts and readiness against the same evidence and policy are now asserted |
+| **The ingestion contract matches the engine** | Every documented rule checked against the validator; the freshness table is checked against `VALIDITY_DAYS` by a test, verified by breaking it on purpose |
+| **Ageing evidence is flagged, never downgraded** | `freshness_check` 85% → 100%. Evidence inside its window supports the control; expired evidence is not reported as ageing |
+| **The trend reaches the client** | `ironclad report --compare-to` renders it, with the scope-change and not-comparable rules intact on the page |
+| All 126 shipped control ids are usable as document ids | Test over all four frameworks |
+
+### 2.5 Gates, and their last results
+
+Run on the build container 2026-09-07 at `26d0867`, and in CI on every push.
+
+| Gate | Command | Result |
+|---|---|---|
+| Format | `ruff format --check .` | PASS — 90 files |
+| Lint | `ruff check .` | PASS |
+| Typecheck | `mypy` | PASS — 81 source files |
+| Test | `pytest` | PASS — 668 passed, 19 skipped in CI; 93% coverage |
+| Persistence | `pytest tests/test_store.py` (CI) | PASS — 70 passed against MariaDB 10.5.29 |
+| Cloud Functions | `npm --prefix functions test` | PASS — 44 passed |
+| Dashboard | `npm --prefix dashboard test` | PASS — 38 passed |
+| Firestore rules | `npm --prefix tests/rules test` | PASS — 53 passed against the emulator |
+| Artifacts | `python scripts/validate_artifacts.py` | PASS — 13/13 |
+| Catalog | `python tools/build_catalog.py --check` | PASS |
+| Build | `python -m build` | PASS in CI |
+| Security | `pip-audit`, `bandit`, secret-literal scan, white-label scan | PASS in CI |
+
+CI run [34207153569](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34207153569)
+at `3fe0a48`: Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions
+and dashboard ✅ · Persistence and end-to-end ✅ · Firestore rules ✅ ·
+Security gate ✅
+
+Locally the same suite is 639 passed and 25 skipped: the six extra skips are the
+binary-extraction tests, which need optional dependencies PEP 668 will not let
+this machine install. `scripts/gates.sh` says so rather than reporting a pass
+that checked less than CI did.
+
+---
+
+## 3. Target architecture — TARGET
+
+Directed 2026-09-07: **Firebase, Firestore, Firebase Hosting and GCP product
+storage are retired from the target architecture.** They are not to be preserved
+or extended.
+
+```
+GitHub Actions                     execution and orchestration
+  └─ consensus-engine (workflow_call)          AI analysis, unchanged
+  └─ publish step
+       └─ ICIT NAS-backed service
+            ├─ MariaDB          relational state: assessments, controls,
+            │                   remediation, exceptions, audit, tenants
+            └─ NAS volume       object/artifact files: reports, evidence
+                                references, auditor packages
+```
+
+Properties that must survive the migration, each of which exists today and is
+tested:
+
+- **Tenant isolation.** Every row carries a tenant id; no query path crosses it.
+- **RBAC.** Five roles, permissions in one matrix, separation of duties on risk
+  acceptance.
+- **Auditability.** Hash-chained trail; altering an event breaks every digest
+  after it.
+- **Secrets hygiene.** Referenced by name, never by value, never committed.
+- **Fail-closed.** A missing key refuses writes; a missing tenant refuses reads.
+- **Backups and recovery.** See §13.
+
+### 3.1 What is known about the target substrate
+
+| Fact | Label | Evidence |
+|---|---|---|
+| `qnap-nas-01` is at 192.168.1.177, on-premises QNAP | VERIFIED (from `ICIT-Infrastructure/hosts/qnap-nas-01/README.md`) | that document |
+| **MariaDB 10.5.8 is listening on 192.168.1.177:3306** and reachable from this build container | **VERIFIED 2026-09-07** | TCP connect succeeded; the server handshake banner reads `5.5.5-10.5.8-MariaDB-log` |
+| Credentials for that MariaDB | **UNKNOWN** | none available; nothing was attempted beyond reading the unauthenticated handshake |
+| Whether a database/schema for this product exists there | **UNKNOWN** | cannot be determined without a credential |
+| SSH to `qnap-nas-01` | **BLOCKED** | `ICIT-Infrastructure` records `Permission denied (publickey,password,keyboard-interactive)` for both `admin` and `root`, host NOT CAPTURED. Not retried here. |
+| The NAS runs Container Station, Passbolt, restic→Backblaze backups | Reported by `ICIT-Infrastructure`, **not independently verified** | that document |
+| How `api.ironcityit.com` reaches an RFC1918 host | **UNKNOWN** | `ICIT-Infrastructure` records this as unresolved |
+| MariaDB 10.5 series is past upstream EOL (June 2025) | VERIFIED from the banner version; upgrade path **UNKNOWN** | banner reads 10.5.8 |
+
+### 3.2 The reachability problem — the central open question
+
+**GitHub-hosted runners cannot reach 192.168.1.177.** It is RFC1918. This
+repository has **no self-hosted runner registered** — VERIFIED:
+`gh api repos/IronCityIT/ironclad-compliance/actions/runners` returns
+`{"total_count":0,"runners":[]}`, and the org-level endpoint returns 404 for
+this token.
+
+So a GitHub Actions job cannot write to NAS MariaDB today. One of these has to
+be true before the target architecture works, and **which one is a decision, not
+a fact I can establish**:
+
+1. **A self-hosted runner on the LAN.** The publish job runs `runs-on:
+   self-hosted`, reaches MariaDB directly, and no database port is exposed
+   publicly. Most secure; needs a runner host and its maintenance.
+2. **A published HTTP ingest in front of MariaDB.** GitHub-hosted runners POST
+   to a tunnelled endpoint, as they do today for the Cloud Function. Keeps the
+   current job shape; requires the endpoint be authenticated and fail-closed,
+   and puts a service on the public internet.
+3. **Artifacts only, with a NAS-side poller.** The workflow uploads the
+   assessment as a run artifact; something on the NAS pulls and loads it.
+   Nothing inbound; adds a moving part and a delay.
+
+Option 1 is the one that preserves the properties in §3 with the least new
+attack surface. **It is not chosen — that is Bill's call**, and §16 records it as
+the top blocker.
+
+---
+
+## 4. Firebase and GCP references — full classification
+
+Every reference in the repository, and what should happen to it. **No file in
+this section has been deleted or migrated yet** — this release is the inventory,
+not the removal.
+
+### 4.1 Target-state components to be replaced
+
+| Path | What it is | Disposition |
+|---|---|---|
+| `functions/index.js` | `storeAssessmentResults` — the ingest that writes Firestore | **REPLACE** with a MariaDB writer behind the chosen transport (§3.2). Its *decisions* (`functions/core.js`) are storage-agnostic and should be carried over. |
+| `functions/exchange.js` | Auth0 → Firebase custom token bridge, mints `client_id` and `roles` claims | **REPLACE.** Whatever replaces Firestore needs its own session/claim mechanism. Auth0 itself is not retired; the *Firebase* half is. |
+| `functions/trigger.js` | Dashboard → GitHub `workflow_dispatch` | **KEEP THE BEHAVIOUR, MOVE THE HOST.** Dispatching a workflow is target-state; being a Cloud Function is not. Its tenant checks (`checkEvidencePath`) are storage-agnostic. |
+| `firestore.rules` | Multi-tenant read rules | **REPLACE** with tenant-scoped SQL access: a per-tenant credential or a query layer that cannot emit a cross-tenant query. The 53 emulator cases are the specification of what the replacement must enforce. |
+| `firebase.json`, `.firebaserc` | Firebase project and hosting config | **REMOVE** when hosting moves. Still referenced by the rules test harness today. |
+| `dashboard/public/config.js` | Injects Firebase web config at deploy time | **REPLACE** the `firebase` block; the `auth0` block stays. |
+| `dashboard/public/auth.js` | Firebase Auth + Firestore live queries | **REPLACE** the data layer. `app.js` — all rendering — is already backend-agnostic and needs no change. |
+| `.github/workflows/compliance-assessment.yml` | Fetches evidence with `gcloud storage cp`; publishes to the Cloud Function | **MIGRATE** both ends: evidence from a NAS volume, results to MariaDB. |
+| `scripts/store_results.py` | POSTs the result to the ingest endpoint | **MIGRATE.** Transport-agnostic in shape; the endpoint changes. |
+
+### 4.2 Storage-agnostic — keep, and correct the comments
+
+These carry the *word* Firestore in a comment or docstring but no Firebase
+dependency. They work unchanged against MariaDB.
+
+| Path | Why it is fine |
+|---|---|
+| `ironclad/ids.py` | Slug and document-id rules. The constraints (path-safe, no `/`, length-bounded) are good identifier hygiene for any store. Comments name Firestore and should be reworded. |
+| `ironclad/model/tenant.py` | RBAC and `Principal.from_claims`. Claim *names* are Auth0's, which is not retired. Docstring names Firebase. |
+| `ironclad/engine.py`, `ironclad/api/service.py`, `ironclad/api/schemas.py` | Docstrings reference the Cloud Function as the sink. The code has no cloud dependency: `Store` is a Protocol, and `PolicyStore` already implements it against the filesystem. |
+| `functions/core.js` | Deliberately dependency-free: slugs, id checks, ingest authorization, evidence-path checks. **This is the piece to carry into whatever replaces the function.** |
+| `ironclad/ingest/contract.py`, `collectors.py` | `gs://` appears only as an example URI. The contract already accepts any URI scheme and stores references, not bytes. |
+
+### 4.3 Test and documentation references
+
+`tests/rules/`, `functions/test/`, `dashboard/test/`, `README.md`,
+`STATUS.md`, `PRODUCTIZE_NOTES.md`, `docs/ingestion-contract.md` describe or
+exercise the current implementation. They stay accurate until the thing they
+describe is migrated, and they move with it.
+
+### 4.4 A conflict worth surfacing
+
+`ICIT-Infrastructure/ARCHITECTURE.md` (read 2026-09-07) still documents the
+Firebase/Firestore pattern as **the** ICIT standard product pattern, with
+"Firestore is the store of record" stated as a rule holding across every
+product. That repository is HANDS OFF under `CLAUDE.md` and was not modified.
+
+**This is a live contradiction between the estate's architecture document and the
+direction given for this product.** Until it is resolved, a reader of that
+document will build the retired pattern. Flagged, not resolved — resolving it
+means editing a HANDS OFF repository.
+
+---
+
+## 5. Data model — VERIFIED
+
+The engine's model is already relational in shape, which is what makes the
+MariaDB target a re-hosting rather than a redesign.
+
+| Entity | Key | Notes |
+|---|---|---|
+| **Tenant** | `tenant_id` (slug) | Slug rules identical in Python and JS |
+| **Framework** | `framework.id` + `version` | Ships as JSON, not client data |
+| **Control** | `framework_id` + `control_id` | Points of focus, common evidence, family weight |
+| **EvidenceArtifact** | `artifact_id` = `ev-<hash>` | Reference + SHA-256; **never the bytes** |
+| **EvidenceLink** | artifact ↔ control | Method, relevance, who linked it |
+| **Assessment** | `assessment_id` = `<tenant>-<framework>-<UTC stamp>` | Deterministic: a re-run addresses the same record |
+| **ControlAssessment** | assessment + control | Status, rationale, points covered, confidence, weight |
+| **RemediationItem** | `item_id` | Severity, priority, owner, due date, evidence gap |
+| **RiskException** | `exception_id` = `ex-<hash>` | State machine; separation of duties |
+| **ScopeExclusion** | tenant + control | Justification, approver, review date |
+| **AuditEvent** | `event_id`, `prev_hash`, `hash` | Hash-chained per tenant |
+
+Control statuses: `compliant`, `partial`, `gap`, `accepted_risk`,
+`not_applicable`, `pending`.
+
+**Migration note.** The audit chain is the one entity where a naive table hurts:
+its integrity depends on insertion order and on `prev_hash` matching the previous
+row's `hash`. In MariaDB it wants an append-only table with a per-tenant sequence
+and no UPDATE grant, and `verify()` must be run over it, not trusted.
+
+**Evidence bytes never enter the database.** Today the engine stores a URI and a
+SHA-256. That must stay true: artifacts belong on the NAS volume, and the
+database holds the index that proves which artifact supported which control when.
+
+---
+
+## 6. Execution flow — VERIFIED
+
+```
+ironclad assess
+  ingest        collect_from_directory → EvidenceSet (manifest or derived, checksummed)
+  policy        load policy.json → scope exclusions, risk acceptances, owners
+  registry      resolve --modules/--group into an ordered capability list
+  run           each capability in order; one that raises is recorded as failed
+                and named in the report, and the run continues
+  score         weighted readiness from the verdicts alone
+  emit          out/assessment.json, out/findings.b64, out/report.html
+```
+
+Exit codes: `0` success, `2` bad input or selection, `3` a capability failed
+mid-run.
+
+In the workflow, `findings.b64` goes to `consensus-engine` via `workflow_call`
+(its input is base64 and it returns exactly one output, `consensus_b64`), the
+result is folded back in, and the report and auditor package are rendered. The
+AI commentary never moves the score.
+
+---
+
+## 7. Configuration
+
+### 7.1 Secrets — BY NAME ONLY
+
+No value for any of these appears in the repository, and CI fails on a
+credential-shaped literal.
+
+| Name | Used by | State |
+|---|---|---|
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY` | passed through to `consensus-engine` | on the approved ICIT list |
+| `GCP_SA_KEY` | evidence fetch from GCS | **retired** — the fallback path only, used when no evidence volume is configured |
+| `GCS_BUCKET` | report storage | **retired with the GCP path** |
+| `STORE_RESULTS_URL` | ingest endpoint | **repoints at the new sink** |
+| `INGEST_API_KEY` | ingest authentication | **required** — an unset key now refuses every write |
+| `GITHUB_DISPATCH_TOKEN` | dashboard-initiated assessments | **NOT PROVISIONED**, not on the approved list |
+| `IRONCLAD_ARTIFACTS` | the artifact volume: reports and auditor packages | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** Optional: a volume record store keeps deliverables on its own root, so this is only needed when the record store is MariaDB. |
+| `IRONCLAD_EVIDENCE_ROOT` | the evidence volume, one prefix per tenant | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** Same standing as `IRONCLAD_STORE` below — referenced by name, the workflow falls back to the retired GCS path when it is unset, and refuses outright when neither is configured. |
+| `IRONCLAD_STORE` | the target sink — one target string naming a NAS volume or a MariaDB DSN | **DOES NOT EXIST, AND IS NOT ON THE APPROVED ICIT SECRET LIST.** The workflow references it by name and skips publishing when it is unset; nothing invents a value. It must be added to the approved list and provisioned before the pipeline can publish to the target store. |
+
+### 7.2 Policy that is Iron City's, not the standard's
+
+Both are disclosed in every report and stored record (`ironclad/method.py`):
+
+- **Corroboration: 2 independent evidence items** before a control reads as met.
+  No framework requires this.
+- **Freshness windows:** 30 days (scan, log, backup, monitoring), 90 (review,
+  access review, ticket), 180 (meeting minutes), 365 (policy, charter, training,
+  penetration test, risk assessment), 365 default.
+- **Family weighting** and **status credit** (accepted risk earns 0.5).
+
+These live in `ironclad/model/evidence.py::VALIDITY_DAYS`,
+`ironclad/model/control.py::FAMILY_WEIGHT`,
+`ironclad/model/assessment.py::STATUS_CREDIT`,
+`ironclad/modules/control_mapping.py::CORROBORATION_MIN`.
+
+---
+
+## 8. Access, authentication and RBAC — VERIFIED
+
+Five roles. The matrix is in `ironclad/model/tenant.py` and is the only place
+permissions are defined.
+
+| Role | Reads position | Reads evidence index / audit | Requests acceptance | Approves | Runs assessment |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `owner` | ● | ● | ● | ● | ● |
+| `compliance_manager` | ● | ● | ● | ● | ● |
+| `contributor` | ● | | ● | | |
+| `auditor` | ● | ● | | | |
+| `viewer` | ● | | | | |
+
+Rules that hold in the model, so every surface inherits them:
+
+- **A requester cannot approve their own risk acceptance.** VERIFIED at the CLI:
+  exit 2, "alice requested this exception and may not approve it".
+- **The pipeline cannot approve anything.** `SystemPrincipal` lacks
+  `exception:approve`.
+- **An unrecognised role is dropped, never guessed** — a typo in Auth0 must not
+  become a grant.
+- **A policy file cannot smuggle in an approval the workflow would refuse:** the
+  loader replays the state machine rather than assigning the end state.
+
+---
+
+## 9. Security boundaries — VERIFIED
+
+| Boundary | How it is enforced | Proof |
+|---|---|---|
+| Tenant isolation at the store | `firestore.rules` today; SQL tenant scoping in target | 53 emulator cases + a mutation check |
+| Ingest authentication | Fail-closed: an unset key refuses every write (503) | `functions/test`, 44 cases |
+| Evidence path belongs to the caller | Structural: client id must be the first path segment, no traversal | `functions/test` |
+| Payload ids cannot steer a storage path | Checked, not sanitized, for the record identity | `functions/test` + `ironclad/ids.py` |
+| Client-facing HTML escaping | Every record field escaped before rendering | `dashboard/test`, 38 cases |
+| No secret literal in the repo | CI grep, hard failure | Security gate |
+| No underlying tool named on a client surface | CI grep over report, dashboard, catalog | Security gate |
+| Publish transport | `http.client` only — `file://` is structurally impossible | `tests/test_publish.py` |
+
+Three of these were defects found and fixed on this branch, not properties that
+were always true: the fail-open ingest, the traversable evidence path, and two
+unescaped dashboard fields. See `PRODUCTIZE_NOTES.md` §8 and §9.
+
+---
+
+## 10. Network and deployment
+
+**VERIFIED:** nothing from this repository is deployed anywhere. No Cloud
+Function has ever run, no dashboard has ever been served, no database has ever
+been written.
+
+**VERIFIED:** the repository references `.github/workflows/deploy-functions.yml`
+in `functions/package.json`, and **that workflow does not exist**. There is no
+deploy automation in this repository at all.
+
+**Posture:** REVIEW ONLY. `ironclad-compliance` appears in no tier in
+`CLAUDE.md`; the fallback is HANDS OFF and ask. Asked, and directed to branch,
+gate, open a PR and stop. Nothing is merged, nothing is deployed, and no
+`workflow_dispatch` has been fired against a real client.
+
+---
+
+## 11. GitHub Actions — VERIFIED
+
+| Workflow | Trigger | State |
+|---|---|---|
+| `ci.yml` | push, PR | **Green.** Five jobs: quality gates ×2 Python versions, Cloud Functions and dashboard, Firestore rules, security gate. |
+| `compliance-assessment.yml` | `workflow_dispatch` | **Never executed.** YAML parses; framework choices are checked against the loader by a test. |
+| `framework-updates.yml` | schedule + dispatch | Last run 2026-08-29 on `main`, success — **and its output was wrong**, see below. |
+
+**PR #3 is a live false positive, still open.** The quarterly checker on `main`
+decided a framework had changed by searching the source page for any of
+`["new version", "updated", "revision", "latest"]`. Its own diff records the
+result: `"details": "Found 'latest' - manual review recommended"` for SOC 2,
+NIST CSF and PCI DSS alike. "latest" appears permanently on a standards body's
+page, so the check could not return false and would have reported an update
+every quarter forever. The PR also adds `updates.json`, which is in `.gitignore`
+— a transient run output, not repository state.
+
+Fixed on this branch: the checker now compares a version token against the one
+this repository tracks and a content fingerprint against what was actually seen
+last run, and the workflow commits only `frameworks/framework-check-state.json`.
+PR #3 needs closing rather than merging; the evidence is recorded as a comment
+on it, and closing somebody else's PR is not this session's call.
+
+The Jenkins pipeline runs the same gates. It had drifted — CI gained the
+persistence, rules and end-to-end gates and `Jenkinsfile` did not know they
+existed — which matters because the two exist to check a change whichever route
+it takes. All three are in both now. On an agent without node, a JVM or a
+MariaDB the two that need them report UNAVAILABLE and mark the build unstable
+rather than passing; the end-to-end gate needs no service at all, because a
+directory in the workspace is a volume, so it runs everywhere.
+
+`compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
+`workflow_call`. Its real contract — read from that repository, not assumed — is
+`findings_json` as **base64** and exactly one output, `consensus_b64`. This
+repository previously passed raw JSON and read two outputs that do not exist, so
+every assessment it ever produced analysed nothing. Fixed on this branch; the
+fix has still **never run for real**, because the workflow needs evidence
+storage and secrets.
+
+---
+
+## 12. Storage and NAS — TARGET
+
+| Concern | Target | State |
+|---|---|---|
+| Relational state | MariaDB on `qnap-nas-01`, one schema, every row tenant-scoped | schema and store **built**, tested in CI against a real 10.5 |
+| Artifacts (reports, auditor packages) | NAS-backed volume, tenant-prefixed paths, checksummed | `ArtifactStore` **built** and tested; `ironclad store verify` re-checksums against the manifest |
+| Evidence | NAS-backed volume, `<root>/<tenant>/`; the database holds references and SHA-256 only | `ironclad evidence stage` **built** and tested; the workflow uses it when a root is configured |
+| Backups | restic → Backblaze already exists on the NAS per `ICIT-Infrastructure` (**not independently verified**); the new schema and volume must be added to it |
+
+**Built and tested (stages 1–3):** `ironclad/store/` — the `ResultStore` port,
+the row projection, `schema.sql`, `MariaDBResultStore`, `FileResultStore` for
+the volume, and `ironclad store health|init|publish|list`. The MariaDB half runs
+in CI against a MariaDB 10.5 service container, matching the NAS server version.
+
+Two defects the MariaDB job found on its first real run, both of which a mock
+would have hidden:
+
+- **MariaDB truncates silently** unless a strict `sql_mode` is set. A control id
+  past `VARCHAR(128)` was shortened and stored as though nothing had happened.
+  The store now sets `STRICT_ALL_TABLES` on every connection.
+- **Remediation item ids are deterministic on (tenant, control)**, so the same
+  control yields the same id in every assessment of that client. Keyed globally,
+  a client's *second* assessment collided with their first and could not be
+  stored. The key is `(assessment_id, item_id)` now, and `list_remediation`
+  returns the latest assessment's queue rather than every item ever raised —
+  one control outstanding in two runs is one piece of work.
+
+**Still open:** the transport (§3.2). The artifact layout is settled —
+`<root>/<tenant>/assessments/<id>/artifacts/`, beside the record when one volume
+holds both, with a checksum manifest per assessment. The transport decision does not change any of
+the above: a self-hosted runner, an ingest service and a NAS-side loader all
+call `put_assessment` with the same rows.
+
+---
+
+## 13. Migration away from Firebase — TARGET, staged
+
+No stage is destructive. Each is independently reviewable, and stages 1–3 need
+no credential and no deployment.
+
+| Stage | What | Needs | Safe now? |
+|---|---|---|---|
+| 0 | **This document.** Classify every reference; change no behaviour. | — | ✅ done |
+| 1 | Persistence port: `ResultStore`, and `rows.py` projecting a result document onto tenant-scoped records. | — | ✅ **done** |
+| 2 | `schema.sql` + `MariaDBResultStore`, tested in CI against a real MariaDB 10.5 service container. | — | ✅ **done** |
+| 3 | The loader: `ironclad store publish`, idempotent on `assessment_id`, plus `FileResultStore` for the NAS volume. | — | ✅ **done** |
+| 4 | Choose the transport (§3.2) and wire the workflow's publish step to it. | **decision + credential** | ⛔ blocked |
+| 5 | Replace the dashboard's data layer; retire `functions/`, `firestore.rules`, `firebase.json`. | stage 4 | ⛔ blocked — the backend it needs (`ironclad serve`) now exists; the data-layer rewrite waits on the transport |
+| 6 | Delete the Firebase surface and its tests once nothing reads them. | stage 5 | ⛔ blocked |
+
+**Nothing is migrated destructively.** Firestore holds no data — nothing was
+ever deployed — so there is no data migration, only a code migration. That is
+the one piece of luck in this changeover and it should be used: the retirement
+costs no client data.
+
+---
+
+## 14. Tests and gates
+
+See §2.5 for results. To run everything on a fresh checkout:
+
+```sh
+pip install -r requirements-dev.txt
+sh scripts/gates.sh --all
+npm --prefix tests/rules ci && npm --prefix tests/rules test   # needs a JVM
+```
+
+`scripts/gates.sh` is the whole set CI runs, in one command, so a local pass
+means the same thing. It exists because running them by hand went wrong once —
+a local run that checked formatting and forgot `ruff check`.
+
+`bandit` will not install on this build container under PEP 668; it runs in CI,
+where its first run found a real defect (`file://` reachable through the publish
+endpoint). Do not conclude the security gate is green from a local run.
+
+---
+
+## 15. Enhancements and backlog
+
+Ordered by value, non-blocked first.
+
+1. ~~Persistence port + MariaDB implementation~~ — **done** (§13 stages 1–3),
+   with the artifact store and the end-to-end round trip alongside it.
+2. ~~Trend comparison between assessments~~ — **done**, `ironclad compare`.
+3. ~~Evidence collection from a NAS volume~~ — **done**, `ironclad evidence stage`.
+   The workflow uses it when `IRONCLAD_EVIDENCE_ROOT` is set and falls back to
+   the retired GCS path otherwise. Neither configured is a hard failure, not a
+   silent empty assessment.
+4. ~~`ComplianceService` HTTP surface~~ — **done**, `ironclad serve`
+   (`ironclad/api/http.py`, `docs/http-api.md`). Standard library only; token
+   file authentication with digests, fail-closed without one; the dashboard's
+   static files served from the same process. What remains for stage 5 is
+   pointing `dashboard/public/app.js` at it instead of Firestore, and an Auth0
+   JWT authenticator, which needs RSA verification and therefore a dependency
+   decision.
+5. **Close PR #3.** A false positive from the checker defect above, proposing to
+   commit a gitignored file. Evidence recorded as a comment on it.
+6. **Coverage.** 93% overall, and no module of consequence is now materially
+   uncovered. `api/service.py` was the last gap of any size at 84% and is 100%;
+   the others closed this session were:
+   `extractors.py` 52 → 92%, `frameworks/updates.py` (blind on three of four
+   sources), `policy.py` 86 → 97%, `freshness_check` 85 → 100%, and the legacy
+   wrappers, which had none. Four of the five turned up a real defect;
+   `freshness_check` did not, and saying so matters — a coverage gap is not
+   evidence of a bug. `store/mariadb.py` reads as 40% locally and is covered in
+   CI against a real server; that number is an artefact of the skip, not a gap.
+7. ~~Retire the legacy `scripts/*.py` wrappers~~ — **decided: kept and tested.**
+   Nothing inside this repository calls them — `assess_controls.py` and
+   `generate_report.py` are referenced only by documentation, and the workflow
+   calls `python -m ironclad.cli` directly. They are kept rather than deleted
+   because `STATUS.md` promises external callers still work and that cannot be
+   verified from here; they are tested against the engine now, so keeping them
+   costs a drift check rather than a latent defect.
+
+---
+
+## 16. Known defects and blockers
+
+### Blockers — each recorded once, with evidence
+
+| # | Blocker | Evidence | Effect |
+|---|---|---|---|
+| B1 | **The transport to NAS MariaDB is undecided.** GitHub-hosted runners cannot reach RFC1918; no self-hosted runner is registered. | `gh api .../actions/runners` → `{"total_count":0,"runners":[]}` (2026-09-07) | Migration stages 4–6 cannot start. Stages 1–3 can. |
+| B2 | **No MariaDB credential.** 3306 answers; nothing can authenticate. | Handshake banner read; no credential attempted | Stage 2 needs a test database; stage 4 needs a real one. Name not invented. |
+| B3 | **`qnap-nas-01` has no SSH credential.** Host NOT CAPTURED. | `ICIT-Infrastructure/hosts/qnap-nas-01/README.md`: `Permission denied (publickey,password,keyboard-interactive)` | Nothing can be provisioned or inspected on the NAS. |
+| B3a | **`IRONCLAD_STORE` is not on the approved ICIT secret list.** `CLAUDE.md` names the approved secrets and says to halt and report anything else. | `CLAUDE.md` secret list; the workflow references the name only | The pipeline runs and uploads artifacts but does not publish. Recorded, not worked around. |
+| B4 | **`GITHUB_DISPATCH_TOKEN` is not provisioned** and is not on the approved ICIT secret list. | `CLAUDE.md` secret list; `functions/trigger.js` references it by name | Dashboard-initiated assessments cannot work, wherever the trigger is hosted. |
+| B5 | **REVIEW ONLY posture.** | `CLAUDE.md` tiering; `STATUS.md` | No merge, no deploy, from this session. |
+| B6 | **`ICIT-Infrastructure/ARCHITECTURE.md` still documents Firebase as the ICIT standard**, contradicting the direction for this product. That repo is HANDS OFF. | Read 2026-09-07 | A reader of the estate architecture will build the retired pattern. |
+
+### Defects found and fixed on this branch
+
+Recorded in full in `PRODUCTIZE_NOTES.md`. Summary: the consensus contract was
+wrong in both directions; a failed evidence fetch produced a catastrophic client
+report; the update checker could not return false; the ingest failed open; the
+evidence-path check was traversable; payload ids could steer a storage path; two
+dashboard fields were unescaped; the assessment type was ignored; the
+risk-acceptance workflow was unreachable.
+
+Since, and each found by measuring rather than reading:
+
+| Defect | How it showed |
+|---|---|
+| **The update checker was blind on three of four sources.** `meta` and `link` are void elements and were in the extractor's skip set, so the skip counter never unwound and every text node after the first `<meta>` was discarded | Fetching the real pages: SOC 2, PCI DSS and HIPAA yielded 0 characters, NIST 5,368 — and NIST only because it self-closes its meta tags |
+| An empty or blocked response was fingerprinted as a content change, and recorded as the new baseline | Two false pull requests from one WAF interstitial |
+| **A policy that passed `validate --policy` failed to load.** A rejection was replayed without being submitted first | Asking what each status a policy may claim actually does |
+| An expired acceptance was silently demoted to a draft | The same |
+| **`scripts/assess_controls.py` ignored the tenant policy.** No `--policy` flag, no discovery beside the evidence | Running both entry points over the same evidence and comparing |
+| MariaDB truncated silently without a strict `sql_mode`; the row projection truncated before the database saw it at all | The first CI run against a real MariaDB |
+| A client's second assessment collided on a deterministic remediation id | The same run |
+| The `scan` evidence class was undocumented in the ingestion contract | Checking the document against `VALIDITY_DAYS` |
+
+The pattern is worth naming for whoever picks this up: every one of these was
+found by executing something against reality — a live page, a real database, two
+entry points side by side — and none by reading the code.
+
+### Open product task, found by the checker
+
+**`frameworks/pci-dss-4.0.json` is a revision behind.** The source advertises
+PCI DSS 4.0.1; this repository ships 27 controls against 4.0. Updating it means
+reading the published document and revising the control text, the points of
+focus, `current_version` in `framework-versions.json` and the affected
+crosswalks. Not done here: the checker deliberately never transcribes a
+regulator's wording automatically, and neither does this session.
+
+### Open questions that are decisions, not defects
+
+1. **Corroboration at two items** will make early client reports look worse than
+   the tools they replace. Deliberate; commercial call.
+2. **The freshness windows are ours**, and are the numbers most likely to need
+   defending with a real auditor.
+3. **Merge and deploy?** Moving this repo to IN SCOPE in `CLAUDE.md` is the
+   decision that unblocks it.
+
+---
+
+## 17. Operational runbooks
+
+**Nothing is deployed, so no production runbook can be written honestly yet.**
+What follows is what exists.
+
+### Validate a store before publishing anything real to it
+
+```sh
+python scripts/end_to_end.py --store /srv/ironclad
+python scripts/end_to_end.py --store "$IRONCLAD_STORE"
+```
+
+Runs the whole product against that store — the sample evidence in
+`examples/evidence/`, a real assessment, the deliverables, a publish and a read
+back — and exits non-zero naming the step that disagreed. This is the check to
+run against a NAS volume or a database on the day it is provisioned, before a
+client's result goes anywhere near it.
+
+### Run an assessment locally
+
+```sh
+python -m ironclad.cli assess --client "Acme Corp" --framework soc2 \
+  --evidence-dir evidence/ --group deep --policy policy.json --out out/
+python -m ironclad.cli export --input out/assessment.json --format package --out out/package/
+```
+
+### Record a risk acceptance
+
+```sh
+ironclad exception request --policy policy.json --actor alice --role contributor \
+  --control CC1.2 --justification "…" --expires-in-days 90
+ironclad exception approve --policy policy.json --actor bob \
+  --role compliance_manager --id ex-…
+```
+A second person must approve. The trail is `policy.json.audit.json`, hash-chained.
+
+### Verify an auditor package
+
+`package.json` records the chain head. Re-verify by checking each event's
+`prev_hash` against the previous event's `hash`; any edit breaks every digest
+after it. Evidence bytes are not in the package — verify an artifact by its
+SHA-256 against `evidence-index.csv`.
+
+### When a capability fails mid-run
+
+Exit code 3. The assessment still completes, the failure is named in the report's
+caveats and in `failed_modules`. That is deliberate: a partial assessment with a
+named failure is worth more than nothing, and hiding it would be worse than
+either.
+
+---
+
+## 18. Rollback and disaster recovery
+
+**Code:** every change is a PR onto `main`; rollback is `git revert`. Nothing is
+force-pushed. VERIFIED — 16 commits on the branch, no force pushes.
+
+**Data:** there is none. Nothing is deployed and nothing is stored. **This is the
+cheapest moment in the product's life to change its storage architecture**, and
+it will not come again.
+
+**TARGET, once MariaDB is live:**
+
+- The schema must be in the NAS restic → Backblaze set before the first real
+  write, not after.
+- Restore must be tested by restoring, not by believing the backup ran.
+- The audit chain gives a free integrity check on any restore: `verify()` over
+  the restored trail either passes end to end or names the first broken event.
+- Retention: `ICIT-Infrastructure/RETENTION.md` exists and was **not read in
+  detail** for this document. Read it before designing retention here.
+
+---
+
+## 19. Provenance
+
+Everything in §2 was executed on this build container or read from this
+repository at `3fe0a48`. CI evidence is linked by run id. §3.1 facts about the
+NAS come from two sources, separated: a live TCP probe from this container
+(MariaDB banner), and `ICIT-Infrastructure` documents, which are cited as
+documents rather than restated as verified fact.
+
+The build container: Ubuntu 24.04 on kernel 5.10.60-qnap, hostname
+`dd2032e4524d` — a Container Station container on the QNAP, with LAN access to
+192.168.1.177. No `docker`, `mysql` or `psql` client is installed, and PEP 668
+blocks installing into its Python, which is why `bandit` and the evidence
+extraction extras run in CI rather than here. `scripts/gates.sh` reports that
+gap rather than passing over it.
+
+**What this document does not know**, restated so it is not mistaken for
+completeness: MariaDB credentials, whether a schema exists, how
+`api.ironcityit.com` reaches the NAS, the QNAP's filesystem layout, and whether
+any other ICIT product has already migrated off Firebase.

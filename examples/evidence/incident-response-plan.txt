@@ -1,0 +1,24 @@
+Incident Response Plan
+Revision 3.0 — effective 2026-02-15 — owner: Head of Security
+
+Phases: detection, triage, containment, eradication, recovery, and a
+post-incident review held within ten working days of closure.
+
+Detection sources: security monitoring alerts, log review, client report, and
+staff report. Every source routes to the same intake queue so nothing depends
+on which door an incident arrives through.
+
+Escalation: a documented severity matrix maps impact and scope onto a severity,
+and severity onto who is woken. The on-call rota is published a month ahead and
+tested by the monthly out-of-hours call exercise.
+
+Communication: a notification plan covers affected clients, the regulator where
+notification is required, and staff. Client notification templates are held
+with the plan and are reviewed by counsel annually.
+
+Testing: an annual tabletop exercise was completed 2026-04-22, covering a
+ransomware scenario and a third-party breach scenario. Findings were tracked to
+closure; two remain open with target dates.
+
+Recovery: restoration is from backup, and a restore is tested quarterly rather
+than assumed from a successful backup job.

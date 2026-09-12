@@ -1,0 +1,21 @@
+User Access Review — Q3 2026
+Completed 2026-07-14 — reviewer: Compliance Manager — approver: Head of Security
+
+Scope: every application holding client or regulated data, plus the identity
+provider itself and all infrastructure administration consoles.
+
+Method: entitlement export per application, reconciled against the authorised
+user register and the current org chart. Each line was reviewed by the asset
+owner, who recorded a sign-off decision of retain, reduce or remove.
+
+Findings and disposition:
+- 4 accounts belonging to leavers were still enabled in a reporting tool.
+  Removed the same day; the leavers process was amended to include that tool.
+- 11 users held entitlements broader than their role required. Reduced to
+  least privilege.
+- Multi-factor authentication enforcement was verified for every administrative
+  account in scope. No exceptions found.
+- Shared credentials: none found.
+
+Reviewer sign-off recorded for every application in scope. Evidence retained:
+entitlement exports, sign-off records, and the change tickets raised.

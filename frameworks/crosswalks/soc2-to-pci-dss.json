@@ -1,0 +1,242 @@
+{
+  "crosswalk": {
+    "id": "soc2-to-pci-dss",
+    "description": "SOC 2 Trust Service Criteria (2017) to PCI DSS 4.0",
+    "maintained_by": "Iron City IT Advisors",
+    "method": "Control-text comparison. relationship records direction: 'equivalent' carries a verdict in full, 'subset' means the source is narrower and can only support a partial, 'related' is informational and never carries a verdict."
+  },
+  "mappings": [
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.5",
+      "target_framework": "pci-dss",
+      "target_control": "12.1",
+      "relationship": "subset",
+      "note": "Accountability is asserted through the security policy."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC2.2",
+      "target_framework": "pci-dss",
+      "target_control": "12.6",
+      "relationship": "subset",
+      "note": "Communicating security responsibilities via awareness education."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "pci-dss",
+      "target_control": "6.3",
+      "relationship": "subset",
+      "note": "Risk analysis includes vulnerability ranking."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "pci-dss",
+      "target_control": "11.3",
+      "relationship": "subset",
+      "note": "Vulnerability scanning supports risk identification."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC4.1",
+      "target_framework": "pci-dss",
+      "target_control": "11.4",
+      "relationship": "subset",
+      "note": "Penetration testing is one form of separate evaluation."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC5.3",
+      "target_framework": "pci-dss",
+      "target_control": "12.1",
+      "relationship": "equivalent",
+      "note": "Policies and procedures deploying control activities."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "pci-dss",
+      "target_control": "7.2",
+      "relationship": "equivalent",
+      "note": "Access defined and assigned by need to know."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "pci-dss",
+      "target_control": "7.3",
+      "relationship": "equivalent",
+      "note": "Access enforced by an access control system."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "pci-dss",
+      "target_control": "3.5",
+      "relationship": "subset",
+      "note": "Rendering stored account data unreadable."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "pci-dss",
+      "target_control": "8.2",
+      "relationship": "equivalent",
+      "note": "Unique user identification and account management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "pci-dss",
+      "target_control": "8.3",
+      "relationship": "subset",
+      "note": "Strong authentication supports registration and authorization."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "pci-dss",
+      "target_control": "8.4",
+      "relationship": "subset",
+      "note": "Multi-factor authentication for CDE and remote access."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.3",
+      "target_framework": "pci-dss",
+      "target_control": "8.2",
+      "relationship": "subset",
+      "note": "Account removal on termination."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.4",
+      "target_framework": "pci-dss",
+      "target_control": "9.4",
+      "relationship": "related",
+      "note": "Physical access and media protection."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.5",
+      "target_framework": "pci-dss",
+      "target_control": "9.4",
+      "relationship": "equivalent",
+      "note": "Secure disposal of media holding account data."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.6",
+      "target_framework": "pci-dss",
+      "target_control": "1.2",
+      "relationship": "equivalent",
+      "note": "Network security control configuration."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.6",
+      "target_framework": "pci-dss",
+      "target_control": "1.3",
+      "relationship": "equivalent",
+      "note": "Restricting access to and from the cardholder data environment."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.7",
+      "target_framework": "pci-dss",
+      "target_control": "4.2",
+      "relationship": "equivalent",
+      "note": "Protecting account data in transit."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.8",
+      "target_framework": "pci-dss",
+      "target_control": "5.2",
+      "relationship": "equivalent",
+      "note": "Preventing and detecting malicious software."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.8",
+      "target_framework": "pci-dss",
+      "target_control": "2.2",
+      "relationship": "subset",
+      "note": "Only necessary services and secure configuration."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.1",
+      "target_framework": "pci-dss",
+      "target_control": "11.3",
+      "relationship": "equivalent",
+      "note": "Regular identification of vulnerabilities."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.1",
+      "target_framework": "pci-dss",
+      "target_control": "2.2",
+      "relationship": "subset",
+      "note": "Configuration standards detect deviation."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "pci-dss",
+      "target_control": "10.2",
+      "relationship": "equivalent",
+      "note": "Audit logs supporting anomaly detection."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "pci-dss",
+      "target_control": "10.4",
+      "relationship": "equivalent",
+      "note": "Reviewing logs to identify suspicious activity."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.3",
+      "target_framework": "pci-dss",
+      "target_control": "10.4",
+      "relationship": "subset",
+      "note": "Log review evaluates events for incident status."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.4",
+      "target_framework": "pci-dss",
+      "target_control": "12.10",
+      "relationship": "equivalent",
+      "note": "Incident response readiness and execution."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC8.1",
+      "target_framework": "pci-dss",
+      "target_control": "6.2",
+      "relationship": "subset",
+      "note": "Secure development is part of change management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC8.1",
+      "target_framework": "pci-dss",
+      "target_control": "6.3",
+      "relationship": "subset",
+      "note": "Patching is part of change management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.2",
+      "target_framework": "pci-dss",
+      "target_control": "12.8",
+      "relationship": "equivalent",
+      "note": "Third-party service provider risk management."
+    }
+  ]
+}

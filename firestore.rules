@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// Ironclad Compliance — multi-tenant Firestore rules.
+//
+// Data is partitioned as clients/{client_id}/... . A signed-in user may read
+// only their own client's data. The client_id and roles are asserted on the
+// Auth0 -> Firebase custom token by functions/exchange.js; nothing else mints
+// them, so there is no path to another tenant's documents.
+//
+// Writes come exclusively from storeAssessmentResults and triggerAssessment via
+// the Admin SDK, which bypasses these rules entirely. Client apps have NO write
+// access anywhere in the tree.
+//
+// Roles mirror ironclad.model.tenant.Role. The two role checks below are the
+// ones that matter at the data layer:
+//   * evidence and the audit trail are not visible to a plain viewer
+//   * nothing is writable by any client, whatever their role
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function callerClientId() {
+      return request.auth != null ? request.auth.token.client_id : null;
+    }
+
+    function callerRoles() {
+      return request.auth != null && request.auth.token.roles is list
+        ? request.auth.token.roles
+        : [];
+    }
+
+    function ownsTenant(clientId) {
+      return callerClientId() == clientId;
+    }
+
+    // Evidence references and the audit trail are privileged reads within the
+    // tenant. A viewer sees the readiness position; they do not see the
+    // underlying evidence index or who accepted which risk.
+    function canReadPrivileged() {
+      return callerRoles().hasAny(['owner', 'compliance_manager', 'auditor']);
+    }
+
+    match /clients/{clientId} {
+      allow read: if ownsTenant(clientId);
+      allow write: if false;
+
+      match /assessments/{assessmentId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+
+        // Per-control detail, stored separately for large frameworks.
+        match /controls/{controlId} {
+          allow read: if ownsTenant(clientId);
+          allow write: if false;
+        }
+      }
+
+      match /remediation/{itemId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      match /exceptions/{exceptionId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      match /evidence/{artifactId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+
+      match /audit/{eventId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+    }
+
+    // Anything not matched above is closed. Stated explicitly rather than left
+    // to the default, so a new collection cannot be readable by accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
