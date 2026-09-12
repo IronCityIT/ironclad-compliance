@@ -87,6 +87,8 @@ ironclad evidence stage --client acme-corp --out evidence/
 
 ironclad store publish --input out/assessment.json --artifacts out/
 ironclad store verify --client acme-corp --assessment-id acme-corp-soc2-…
+
+ironclad serve --policy-root policies/ --tokens tokens.json --static dashboard/public
 ```
 
 `assess` writes three files:
@@ -492,6 +494,18 @@ that disagreed. Run it against a volume or a database on the day it is
 provisioned, before a client's result goes near it. CI runs it against both on
 every push.
 
+## Serving it
+
+`ironclad serve` is the HTTP surface over the same service the CLI drives —
+stored assessments and remediation from the result store, the risk-acceptance
+workflow against `<policy-root>/<tenant>/policy.json`, and the dashboard's
+static files from the same process. Standard library only, so it runs on the
+NAS with nothing installed. It authenticates with a file of hashed tokens
+(`ironclad hash-token` produces the digest) and answers every request with 503
+until it has one; it binds to loopback and expects a reverse proxy in front.
+Routes, status codes and the tenant rules are in
+[`docs/http-api.md`](docs/http-api.md).
+
 ## Where the rest is written down
 
 | Document | What it carries |
@@ -501,6 +515,7 @@ every push.
 | [`PRODUCTIZE_NOTES.md`](PRODUCTIZE_NOTES.md) | The code review, the decisions, and every defect found |
 | [`docs/ingestion-contract.md`](docs/ingestion-contract.md) | The evidence contract, versioned |
 | [`docs/control-mapping.md`](docs/control-mapping.md) | The crosswalk, generated from the mapping files |
+| [`docs/http-api.md`](docs/http-api.md) | The HTTP surface: routes, authentication, status codes, tenant rules |
 
 ## Licence
 
