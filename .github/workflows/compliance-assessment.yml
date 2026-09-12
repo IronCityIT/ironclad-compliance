@@ -47,6 +47,15 @@ on:
           - standard
           - quick
         default: deep
+      dry_run:
+        description: >-
+          Assess the bundled sample evidence in examples/evidence/ and publish
+          nothing. Every stage runs — the engine, the AI consensus, the report —
+          so the pipeline is proven on a real runner without a client's
+          documents or a store. The assessment id is suffixed -dry-run.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -90,10 +99,15 @@ jobs:
         env:
           CLIENT_ID: ${{ inputs.client_id }}
           FRAMEWORK: ${{ inputs.framework }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           slug=$(printf '%s' "$CLIENT_ID" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//')
-          echo "assessment_id=${slug}-${FRAMEWORK}-$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+          suffix=""
+          # A dry run's record must never be mistaken for a client's: the id
+          # says what it is, wherever it ends up.
+          if [ "$DRY_RUN" = "true" ]; then suffix="-dry-run"; fi
+          echo "assessment_id=${slug}-${FRAMEWORK}-$(date -u +%Y%m%d%H%M%S)${suffix}" >> "$GITHUB_OUTPUT"
 
   assess:
     name: Assess controls
@@ -126,6 +140,16 @@ jobs:
         # documents a client uploads. The extractor accepts either.
         run: pip install --quiet pypdf python-docx openpyxl
 
+      # A dry run assesses the sample documents shipped with the product. They
+      # are synthetic — no client's evidence is ever in this repository — and
+      # they leave gaps on purpose, so the report has something to say.
+      - name: Use the bundled sample evidence
+        if: inputs.dry_run
+        run: |
+          set -euo pipefail
+          cp -r examples/evidence evidence
+          echo "dry run: $(find evidence -type f | wc -l) sample evidence file(s)"
+
       # Evidence comes from a NAS-backed volume, one prefix per tenant. The
       # tenant-prefix rule is in `ironclad evidence stage` rather than in shell:
       # a containment check written here is a --recursive away from reading
@@ -134,7 +158,7 @@ jobs:
       # because a fetch that silently produced nothing used to make the
       # assessment report every control as a gap.
       - name: Stage the client evidence
-        if: env.IRONCLAD_EVIDENCE_ROOT != ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT != '' }}
         env:
           CLIENT_ID: ${{ inputs.client_id }}
         run: |
@@ -145,16 +169,16 @@ jobs:
       # from the runner. It goes with the rest of the GCP surface once the
       # transport in HANDOFF.md §3.2 is decided.
       - id: auth
-        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != '' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
+      - if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != '' }}
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Fetch the client evidence from storage
-        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY != '' }}
         env:
           EVIDENCE_PATH: ${{ inputs.evidence_path }}
         run: |
@@ -172,7 +196,7 @@ jobs:
           fi
 
       - name: Refuse to assess with no evidence source
-        if: env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY == ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT == '' && env.GCP_SA_KEY == '' }}
         run: |
           echo "::error::no evidence source is configured — set IRONCLAD_EVIDENCE_ROOT \
           to a mounted volume. See HANDOFF.md §3.2."
@@ -304,7 +328,7 @@ jobs:
       # the transport to the NAS is not decided yet (see HANDOFF.md §3.2) and an
       # assessment that ran is still worth its uploaded artifacts.
       - name: Publish to the store
-        if: env.IRONCLAD_STORE != ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE != '' }}
         run: |
           set -euo pipefail
           python -m ironclad.cli store health
@@ -316,7 +340,7 @@ jobs:
             --artifacts out/
 
       - name: Note that no store is configured
-        if: env.IRONCLAD_STORE == ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE == '' }}
         run: |
           echo "::warning::IRONCLAD_STORE is not configured — the result is in \
           this run's artifacts only. See HANDOFF.md §3.2."
@@ -325,7 +349,7 @@ jobs:
       # while a store is not yet configured, and only when its secret is set;
       # it goes with functions/ once the transport above is decided.
       - name: Publish to the legacy ingest
-        if: env.IRONCLAD_STORE == '' && env.STORE_RESULTS_URL != ''
+        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE == '' && env.STORE_RESULTS_URL != '' }}
         env:
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
           CLIENT_ID: ${{ inputs.client_id }}
@@ -337,15 +361,25 @@ jobs:
             --results-dir out/ \
             --report-dir out/
 
+      - name: Dry run — nothing is published
+        if: inputs.dry_run
+        run: |
+          echo "::notice::dry run — the sample evidence was assessed and the \
+          deliverables are in this run's artifacts; nothing was published anywhere."
+
       - name: Summary
         env:
           CLIENT_ID: ${{ inputs.client_id }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           {
             echo "## Compliance assessment complete"
             echo
             echo "| | |"
             echo "|---|---|"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "| Mode | **dry run** — sample evidence, nothing published |"
+            fi
             echo "| Client | $CLIENT_ID |"
             echo "| Framework | ${{ inputs.framework }} |"
             echo "| Assessment | \`${{ needs.prepare.outputs.assessment_id }}\` |"

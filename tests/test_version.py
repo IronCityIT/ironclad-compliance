@@ -80,3 +80,39 @@ def test_the_control_mapping_doc_matches_the_crosswalk_data() -> None:
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_a_dry_run_of_the_assessment_workflow_can_publish_nothing() -> None:
+    # `dry_run` exists so the pipeline can be proven on a real runner with the
+    # sample evidence. Its whole value is that it cannot touch a client's data
+    # or a store, so every step that publishes or reads client evidence must be
+    # gated on it — checked here, because nothing tests a workflow file but a
+    # dispatch, and a dispatch that publishes is the failure being prevented.
+    import yaml
+
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
+    )
+    assert workflow[True]["workflow_dispatch"]["inputs"]["dry_run"]["default"] is False
+
+    def steps(job: str) -> dict[str, dict]:
+        return {
+            s.get("name") or s.get("id") or s["uses"]: s for s in workflow["jobs"][job]["steps"]
+        }
+
+    gated = [
+        ("assess", "Stage the client evidence"),
+        ("assess", "Fetch the client evidence from storage"),
+        ("assess", "Refuse to assess with no evidence source"),
+        ("report", "Publish to the store"),
+        ("report", "Publish to the legacy ingest"),
+    ]
+    for job, name in gated:
+        condition = str(steps(job)[name].get("if", ""))
+        assert "!inputs.dry_run" in condition, (
+            f"{job}/{name} is not gated on dry_run: {condition!r}"
+        )
+
+    sample = steps("assess")["Use the bundled sample evidence"]
+    assert sample["if"] == "inputs.dry_run"
+    assert "examples/evidence" in sample["run"]
