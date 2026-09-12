@@ -1,0 +1,26 @@
+Access Control Policy
+Revision 4.2 — effective 2026-06-01 — owner: Head of Security
+
+1. Purpose
+The organisation restricts logical access to protected information assets to
+authorised users, and restricts the assets those users may reach to what their
+role requires.
+
+2. Registration and authorisation
+Authorised users are registered in the identity provider before any access is
+granted. Access requests are approved by the asset owner, recorded in the
+service desk, and issued on a least-privilege basis. Role definitions and their
+entitlements are documented and reviewed quarterly.
+
+3. Authentication
+Multi-factor authentication is required for all remote access, for all
+administrative accounts, and for any access to systems holding regulated data.
+Shared credentials are prohibited. Passwords are stored only as salted hashes.
+
+4. Removal
+Access is removed within one business day of a role change or departure.
+Removal is verified against the leavers report, not assumed from the ticket.
+
+5. Physical access
+Access to facilities holding infrastructure is badge-controlled and logged.
+Visitors are escorted throughout.

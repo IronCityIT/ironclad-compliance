@@ -1,0 +1,944 @@
+{
+  "framework": {
+    "id": "nist-csf",
+    "name": "NIST Cybersecurity Framework",
+    "version": "2.0",
+    "source": "NIST"
+  },
+  "controls": [
+    {
+      "id": "GV.OC-01",
+      "name": "Organizational Mission Understood",
+      "description": "The organizational mission is understood and informs cybersecurity risk management.",
+      "domain": "Govern / Organizational Context",
+      "points_of_focus": [
+        {
+          "id": "GV.OC-01.1",
+          "description": "Mission and objectives are documented"
+        },
+        {
+          "id": "GV.OC-01.2",
+          "description": "Cybersecurity is tied to mission outcomes"
+        }
+      ],
+      "common_evidence": [
+        "Mission statement",
+        "Business objectives",
+        "Security programme charter"
+      ]
+    },
+    {
+      "id": "GV.OC-02",
+      "name": "Stakeholder Expectations",
+      "description": "Internal and external stakeholders are understood, and their needs and expectations regarding cybersecurity risk management are understood and considered.",
+      "domain": "Govern / Organizational Context",
+      "points_of_focus": [
+        {
+          "id": "GV.OC-02.1",
+          "description": "Stakeholders are identified"
+        },
+        {
+          "id": "GV.OC-02.2",
+          "description": "Expectations are recorded and reviewed"
+        }
+      ],
+      "common_evidence": [
+        "Stakeholder register",
+        "Customer security requirements",
+        "Contractual obligations"
+      ]
+    },
+    {
+      "id": "GV.OC-03",
+      "name": "Legal and Regulatory Requirements",
+      "description": "Legal, regulatory, and contractual requirements regarding cybersecurity, including privacy and civil liberties obligations, are understood and managed.",
+      "domain": "Govern / Organizational Context",
+      "points_of_focus": [
+        {
+          "id": "GV.OC-03.1",
+          "description": "Applicable obligations are inventoried"
+        },
+        {
+          "id": "GV.OC-03.2",
+          "description": "Obligations are mapped to controls"
+        },
+        {
+          "id": "GV.OC-03.3",
+          "description": "Changes are tracked"
+        }
+      ],
+      "common_evidence": [
+        "Regulatory register",
+        "Legal obligations matrix",
+        "Contract review records"
+      ]
+    },
+    {
+      "id": "GV.RM-01",
+      "name": "Risk Management Objectives",
+      "description": "Risk management objectives are established and agreed to by organizational stakeholders.",
+      "domain": "Govern / Risk Management Strategy",
+      "points_of_focus": [
+        {
+          "id": "GV.RM-01.1",
+          "description": "Objectives are documented"
+        },
+        {
+          "id": "GV.RM-01.2",
+          "description": "Objectives are approved by leadership"
+        }
+      ],
+      "common_evidence": [
+        "Risk management policy",
+        "Risk appetite statement",
+        "Leadership approval records"
+      ]
+    },
+    {
+      "id": "GV.RM-02",
+      "name": "Risk Appetite and Tolerance",
+      "description": "Risk appetite and risk tolerance statements are established, communicated, and maintained.",
+      "domain": "Govern / Risk Management Strategy",
+      "points_of_focus": [
+        {
+          "id": "GV.RM-02.1",
+          "description": "Appetite is expressed in measurable terms"
+        },
+        {
+          "id": "GV.RM-02.2",
+          "description": "Tolerance thresholds are communicated"
+        }
+      ],
+      "common_evidence": [
+        "Risk appetite statement",
+        "Risk tolerance thresholds",
+        "Board minutes"
+      ]
+    },
+    {
+      "id": "GV.RR-01",
+      "name": "Leadership Accountability",
+      "description": "Organizational leadership is responsible and accountable for cybersecurity risk and fosters a culture that is risk-aware, ethical, and continually improving.",
+      "domain": "Govern / Roles and Responsibilities",
+      "points_of_focus": [
+        {
+          "id": "GV.RR-01.1",
+          "description": "Accountability is assigned at executive level"
+        },
+        {
+          "id": "GV.RR-01.2",
+          "description": "Culture and ethics expectations are set"
+        }
+      ],
+      "common_evidence": [
+        "Org chart",
+        "Executive charter",
+        "Code of conduct",
+        "Board minutes"
+      ]
+    },
+    {
+      "id": "GV.RR-02",
+      "name": "Roles and Responsibilities",
+      "description": "Roles, responsibilities, and authorities related to cybersecurity risk management are established, communicated, understood, and enforced.",
+      "domain": "Govern / Roles and Responsibilities",
+      "points_of_focus": [
+        {
+          "id": "GV.RR-02.1",
+          "description": "Roles are documented"
+        },
+        {
+          "id": "GV.RR-02.2",
+          "description": "Authorities are delegated in writing"
+        },
+        {
+          "id": "GV.RR-02.3",
+          "description": "Enforcement is evidenced"
+        }
+      ],
+      "common_evidence": [
+        "RACI matrix",
+        "Job descriptions",
+        "Delegation of authority"
+      ]
+    },
+    {
+      "id": "GV.PO-01",
+      "name": "Cybersecurity Policy",
+      "description": "Policy for managing cybersecurity risks is established based on organizational context, cybersecurity strategy, and priorities and is communicated and enforced.",
+      "domain": "Govern / Policy",
+      "points_of_focus": [
+        {
+          "id": "GV.PO-01.1",
+          "description": "Policy is approved"
+        },
+        {
+          "id": "GV.PO-01.2",
+          "description": "Policy is communicated"
+        },
+        {
+          "id": "GV.PO-01.3",
+          "description": "Policy is enforced"
+        }
+      ],
+      "common_evidence": [
+        "Information security policy",
+        "Policy approval records",
+        "Acknowledgement records"
+      ]
+    },
+    {
+      "id": "GV.PO-02",
+      "name": "Policy Review",
+      "description": "Policy for managing cybersecurity risks is reviewed, updated, communicated, and enforced to reflect changes in requirements, threats, technology, and organizational mission.",
+      "domain": "Govern / Policy",
+      "points_of_focus": [
+        {
+          "id": "GV.PO-02.1",
+          "description": "Review cadence is defined"
+        },
+        {
+          "id": "GV.PO-02.2",
+          "description": "Reviews are performed and recorded"
+        }
+      ],
+      "common_evidence": [
+        "Policy review records",
+        "Version history",
+        "Change log"
+      ]
+    },
+    {
+      "id": "GV.SC-01",
+      "name": "Supply Chain Risk Programme",
+      "description": "A cybersecurity supply chain risk management program, strategy, objectives, policies, and processes are established and agreed to by organizational stakeholders.",
+      "domain": "Govern / Supply Chain",
+      "points_of_focus": [
+        {
+          "id": "GV.SC-01.1",
+          "description": "Programme is documented"
+        },
+        {
+          "id": "GV.SC-01.2",
+          "description": "Stakeholders have agreed to it"
+        }
+      ],
+      "common_evidence": [
+        "Vendor risk management policy",
+        "Third-party risk programme",
+        "Supplier register"
+      ]
+    },
+    {
+      "id": "GV.SC-04",
+      "name": "Supplier Prioritization",
+      "description": "Suppliers are known and prioritized by criticality.",
+      "domain": "Govern / Supply Chain",
+      "points_of_focus": [
+        {
+          "id": "GV.SC-04.1",
+          "description": "Suppliers are inventoried"
+        },
+        {
+          "id": "GV.SC-04.2",
+          "description": "Criticality tiers are assigned"
+        }
+      ],
+      "common_evidence": [
+        "Vendor inventory",
+        "Criticality tiering",
+        "Vendor risk assessments"
+      ]
+    },
+    {
+      "id": "ID.AM-01",
+      "name": "Hardware Inventory",
+      "description": "Inventories of hardware managed by the organization are maintained.",
+      "domain": "Identify / Asset Management",
+      "points_of_focus": [
+        {
+          "id": "ID.AM-01.1",
+          "description": "Hardware is inventoried"
+        },
+        {
+          "id": "ID.AM-01.2",
+          "description": "Inventory is kept current"
+        },
+        {
+          "id": "ID.AM-01.3",
+          "description": "Ownership is recorded"
+        }
+      ],
+      "common_evidence": [
+        "Asset inventory",
+        "CMDB export",
+        "Endpoint management report"
+      ]
+    },
+    {
+      "id": "ID.AM-02",
+      "name": "Software Inventory",
+      "description": "Inventories of software, services, and systems managed by the organization are maintained.",
+      "domain": "Identify / Asset Management",
+      "points_of_focus": [
+        {
+          "id": "ID.AM-02.1",
+          "description": "Software is inventoried"
+        },
+        {
+          "id": "ID.AM-02.2",
+          "description": "Unauthorized software is detected"
+        }
+      ],
+      "common_evidence": [
+        "Software inventory",
+        "SBOM",
+        "Application register"
+      ]
+    },
+    {
+      "id": "ID.AM-05",
+      "name": "Asset Prioritization",
+      "description": "Assets are prioritized based on classification, criticality, resources, and impact on the mission.",
+      "domain": "Identify / Asset Management",
+      "points_of_focus": [
+        {
+          "id": "ID.AM-05.1",
+          "description": "Classification scheme exists"
+        },
+        {
+          "id": "ID.AM-05.2",
+          "description": "Assets are classified and prioritized"
+        }
+      ],
+      "common_evidence": [
+        "Data classification policy",
+        "Asset criticality register",
+        "Business impact analysis"
+      ]
+    },
+    {
+      "id": "ID.RA-01",
+      "name": "Vulnerability Identification",
+      "description": "Vulnerabilities in assets are identified, validated, and recorded.",
+      "domain": "Identify / Risk Assessment",
+      "points_of_focus": [
+        {
+          "id": "ID.RA-01.1",
+          "description": "Assets are assessed for vulnerabilities"
+        },
+        {
+          "id": "ID.RA-01.2",
+          "description": "Findings are validated and tracked"
+        }
+      ],
+      "common_evidence": [
+        "Vulnerability scan reports",
+        "Penetration test report",
+        "Remediation tracker"
+      ]
+    },
+    {
+      "id": "ID.RA-03",
+      "name": "Threat Identification",
+      "description": "Internal and external threats to the organization are identified and recorded.",
+      "domain": "Identify / Risk Assessment",
+      "points_of_focus": [
+        {
+          "id": "ID.RA-03.1",
+          "description": "Threat sources are identified"
+        },
+        {
+          "id": "ID.RA-03.2",
+          "description": "Threat intelligence is consumed"
+        }
+      ],
+      "common_evidence": [
+        "Threat model",
+        "Threat intelligence reports",
+        "Risk register"
+      ]
+    },
+    {
+      "id": "ID.RA-05",
+      "name": "Risk Prioritization",
+      "description": "Threats, vulnerabilities, likelihoods, and impacts are used to understand inherent risk and inform risk response prioritization.",
+      "domain": "Identify / Risk Assessment",
+      "points_of_focus": [
+        {
+          "id": "ID.RA-05.1",
+          "description": "Risk is scored consistently"
+        },
+        {
+          "id": "ID.RA-05.2",
+          "description": "Prioritization drives response"
+        }
+      ],
+      "common_evidence": [
+        "Risk assessment",
+        "Risk register",
+        "Risk scoring methodology"
+      ]
+    },
+    {
+      "id": "ID.IM-01",
+      "name": "Improvement from Evaluations",
+      "description": "Improvements are identified from evaluations.",
+      "domain": "Identify / Improvement",
+      "points_of_focus": [
+        {
+          "id": "ID.IM-01.1",
+          "description": "Evaluations are performed"
+        },
+        {
+          "id": "ID.IM-01.2",
+          "description": "Findings drive improvement actions"
+        }
+      ],
+      "common_evidence": [
+        "Internal audit reports",
+        "Control testing results",
+        "Corrective action plans"
+      ]
+    },
+    {
+      "id": "PR.AA-01",
+      "name": "Identity Management",
+      "description": "Identities and credentials for authorized users, services, and hardware are managed by the organization.",
+      "domain": "Protect / Identity Management and Access Control",
+      "points_of_focus": [
+        {
+          "id": "PR.AA-01.1",
+          "description": "Identities are provisioned through an approved process"
+        },
+        {
+          "id": "PR.AA-01.2",
+          "description": "Credentials are managed and rotated"
+        },
+        {
+          "id": "PR.AA-01.3",
+          "description": "Deprovisioning is timely"
+        }
+      ],
+      "common_evidence": [
+        "Identity management policy",
+        "Joiner mover leaver records",
+        "Account provisioning tickets"
+      ]
+    },
+    {
+      "id": "PR.AA-03",
+      "name": "Authentication",
+      "description": "Users, services, and hardware are authenticated.",
+      "domain": "Protect / Identity Management and Access Control",
+      "points_of_focus": [
+        {
+          "id": "PR.AA-03.1",
+          "description": "Authentication is enforced everywhere"
+        },
+        {
+          "id": "PR.AA-03.2",
+          "description": "Multi-factor authentication is required for privileged and remote access"
+        }
+      ],
+      "common_evidence": [
+        "MFA configuration export",
+        "Authentication policy",
+        "SSO configuration"
+      ]
+    },
+    {
+      "id": "PR.AA-05",
+      "name": "Access Permissions",
+      "description": "Access permissions, entitlements, and authorizations are defined in a policy, managed, enforced, and reviewed, and incorporate the principles of least privilege and separation of duties.",
+      "domain": "Protect / Identity Management and Access Control",
+      "points_of_focus": [
+        {
+          "id": "PR.AA-05.1",
+          "description": "Least privilege is applied"
+        },
+        {
+          "id": "PR.AA-05.2",
+          "description": "Separation of duties is enforced"
+        },
+        {
+          "id": "PR.AA-05.3",
+          "description": "Access is reviewed periodically"
+        }
+      ],
+      "common_evidence": [
+        "Access control policy",
+        "User access review",
+        "Role definitions",
+        "Privileged access register"
+      ]
+    },
+    {
+      "id": "PR.AA-06",
+      "name": "Physical Access",
+      "description": "Physical access to assets is managed, monitored, and enforced commensurate with risk.",
+      "domain": "Protect / Identity Management and Access Control",
+      "points_of_focus": [
+        {
+          "id": "PR.AA-06.1",
+          "description": "Physical access is authorized"
+        },
+        {
+          "id": "PR.AA-06.2",
+          "description": "Access is logged and monitored"
+        }
+      ],
+      "common_evidence": [
+        "Badge access logs",
+        "Visitor logs",
+        "Facility access policy",
+        "Data centre attestation"
+      ]
+    },
+    {
+      "id": "PR.AT-01",
+      "name": "Personnel Awareness",
+      "description": "Personnel are provided with awareness and training so that they possess the knowledge and skills to perform general tasks with cybersecurity risks in mind.",
+      "domain": "Protect / Awareness and Training",
+      "points_of_focus": [
+        {
+          "id": "PR.AT-01.1",
+          "description": "Training is assigned to all personnel"
+        },
+        {
+          "id": "PR.AT-01.2",
+          "description": "Completion is tracked"
+        }
+      ],
+      "common_evidence": [
+        "Security awareness training records",
+        "Training completion report",
+        "Phishing simulation results"
+      ]
+    },
+    {
+      "id": "PR.DS-01",
+      "name": "Data-at-Rest Protection",
+      "description": "The confidentiality, integrity, and availability of data-at-rest are protected.",
+      "domain": "Protect / Data Security",
+      "points_of_focus": [
+        {
+          "id": "PR.DS-01.1",
+          "description": "Encryption at rest is applied to sensitive data"
+        },
+        {
+          "id": "PR.DS-01.2",
+          "description": "Key management is controlled"
+        }
+      ],
+      "common_evidence": [
+        "Encryption standard",
+        "Storage encryption configuration",
+        "Key management procedures"
+      ]
+    },
+    {
+      "id": "PR.DS-02",
+      "name": "Data-in-Transit Protection",
+      "description": "The confidentiality, integrity, and availability of data-in-transit are protected.",
+      "domain": "Protect / Data Security",
+      "points_of_focus": [
+        {
+          "id": "PR.DS-02.1",
+          "description": "Transport encryption is enforced"
+        },
+        {
+          "id": "PR.DS-02.2",
+          "description": "Weak protocols are disabled"
+        }
+      ],
+      "common_evidence": [
+        "TLS configuration",
+        "Transmission security policy",
+        "Network encryption evidence"
+      ]
+    },
+    {
+      "id": "PR.DS-11",
+      "name": "Data Backup",
+      "description": "Backups of data are created, protected, maintained, and tested.",
+      "domain": "Protect / Data Security",
+      "points_of_focus": [
+        {
+          "id": "PR.DS-11.1",
+          "description": "Backups run on schedule"
+        },
+        {
+          "id": "PR.DS-11.2",
+          "description": "Backups are protected"
+        },
+        {
+          "id": "PR.DS-11.3",
+          "description": "Restores are tested"
+        }
+      ],
+      "common_evidence": [
+        "Backup policy",
+        "Backup job reports",
+        "Restore test records"
+      ]
+    },
+    {
+      "id": "PR.PS-01",
+      "name": "Configuration Management",
+      "description": "Configuration management practices are established and applied.",
+      "domain": "Protect / Platform Security",
+      "points_of_focus": [
+        {
+          "id": "PR.PS-01.1",
+          "description": "Baselines are defined"
+        },
+        {
+          "id": "PR.PS-01.2",
+          "description": "Drift is detected and corrected"
+        }
+      ],
+      "common_evidence": [
+        "Configuration baselines",
+        "Hardening standards",
+        "Configuration scan reports"
+      ]
+    },
+    {
+      "id": "PR.PS-02",
+      "name": "Software Maintenance",
+      "description": "Software is maintained, replaced, and removed commensurate with risk.",
+      "domain": "Protect / Platform Security",
+      "points_of_focus": [
+        {
+          "id": "PR.PS-02.1",
+          "description": "Patching is scheduled and tracked"
+        },
+        {
+          "id": "PR.PS-02.2",
+          "description": "End-of-life software is removed"
+        }
+      ],
+      "common_evidence": [
+        "Patch management policy",
+        "Patch compliance report",
+        "End-of-life register"
+      ]
+    },
+    {
+      "id": "PR.PS-04",
+      "name": "Log Generation",
+      "description": "Log records are generated and made available for continuous monitoring.",
+      "domain": "Protect / Platform Security",
+      "points_of_focus": [
+        {
+          "id": "PR.PS-04.1",
+          "description": "Logging is enabled on relevant systems"
+        },
+        {
+          "id": "PR.PS-04.2",
+          "description": "Logs are retained and protected"
+        }
+      ],
+      "common_evidence": [
+        "Logging standard",
+        "Log retention configuration",
+        "SIEM ingestion report"
+      ]
+    },
+    {
+      "id": "PR.IR-01",
+      "name": "Network Protection",
+      "description": "Networks and environments are protected from unauthorized logical access and usage.",
+      "domain": "Protect / Technology Infrastructure Resilience",
+      "points_of_focus": [
+        {
+          "id": "PR.IR-01.1",
+          "description": "Network segmentation is applied"
+        },
+        {
+          "id": "PR.IR-01.2",
+          "description": "Perimeter controls are enforced"
+        }
+      ],
+      "common_evidence": [
+        "Network diagram",
+        "Firewall rule review",
+        "Segmentation evidence"
+      ]
+    },
+    {
+      "id": "DE.CM-01",
+      "name": "Network Monitoring",
+      "description": "Networks and network services are monitored to find potentially adverse events.",
+      "domain": "Detect / Continuous Monitoring",
+      "points_of_focus": [
+        {
+          "id": "DE.CM-01.1",
+          "description": "Monitoring coverage is defined"
+        },
+        {
+          "id": "DE.CM-01.2",
+          "description": "Alerts are generated and triaged"
+        }
+      ],
+      "common_evidence": [
+        "Monitoring configuration",
+        "Alert reports",
+        "SIEM dashboards"
+      ]
+    },
+    {
+      "id": "DE.CM-03",
+      "name": "Personnel Activity Monitoring",
+      "description": "Personnel activity and technology usage are monitored to find potentially adverse events.",
+      "domain": "Detect / Continuous Monitoring",
+      "points_of_focus": [
+        {
+          "id": "DE.CM-03.1",
+          "description": "Privileged activity is monitored"
+        },
+        {
+          "id": "DE.CM-03.2",
+          "description": "Anomalous usage is investigated"
+        }
+      ],
+      "common_evidence": [
+        "Privileged session logs",
+        "User behaviour analytics",
+        "Investigation records"
+      ]
+    },
+    {
+      "id": "DE.CM-09",
+      "name": "Computing Hardware and Software Monitoring",
+      "description": "Computing hardware and software, runtime environments, and their data are monitored to find potentially adverse events.",
+      "domain": "Detect / Continuous Monitoring",
+      "points_of_focus": [
+        {
+          "id": "DE.CM-09.1",
+          "description": "Endpoints are monitored"
+        },
+        {
+          "id": "DE.CM-09.2",
+          "description": "Vulnerability and integrity checks run continuously"
+        }
+      ],
+      "common_evidence": [
+        "Endpoint detection reports",
+        "File integrity monitoring",
+        "Vulnerability scan schedule"
+      ]
+    },
+    {
+      "id": "DE.AE-02",
+      "name": "Adverse Event Analysis",
+      "description": "Potentially adverse events are analyzed to better understand associated activities.",
+      "domain": "Detect / Adverse Event Analysis",
+      "points_of_focus": [
+        {
+          "id": "DE.AE-02.1",
+          "description": "Events are triaged against criteria"
+        },
+        {
+          "id": "DE.AE-02.2",
+          "description": "Analysis is recorded"
+        }
+      ],
+      "common_evidence": [
+        "Triage procedures",
+        "Incident analysis records",
+        "Alert disposition log"
+      ]
+    },
+    {
+      "id": "DE.AE-06",
+      "name": "Incident Escalation",
+      "description": "Information on adverse events is provided to authorized staff and tools.",
+      "domain": "Detect / Adverse Event Analysis",
+      "points_of_focus": [
+        {
+          "id": "DE.AE-06.1",
+          "description": "Escalation paths are defined"
+        },
+        {
+          "id": "DE.AE-06.2",
+          "description": "Notifications reach the right staff"
+        }
+      ],
+      "common_evidence": [
+        "Escalation matrix",
+        "On-call rota",
+        "Notification records"
+      ]
+    },
+    {
+      "id": "RS.MA-01",
+      "name": "Incident Response Execution",
+      "description": "The incident response plan is executed in coordination with relevant third parties once an incident is declared.",
+      "domain": "Respond / Incident Management",
+      "points_of_focus": [
+        {
+          "id": "RS.MA-01.1",
+          "description": "A plan exists and is followed"
+        },
+        {
+          "id": "RS.MA-01.2",
+          "description": "Third parties are coordinated with"
+        }
+      ],
+      "common_evidence": [
+        "Incident response plan",
+        "Incident tickets",
+        "Post-incident reports"
+      ]
+    },
+    {
+      "id": "RS.MA-02",
+      "name": "Incident Triage",
+      "description": "Incident reports are triaged and validated.",
+      "domain": "Respond / Incident Management",
+      "points_of_focus": [
+        {
+          "id": "RS.MA-02.1",
+          "description": "Reports are triaged against severity criteria"
+        },
+        {
+          "id": "RS.MA-02.2",
+          "description": "Validation is recorded"
+        }
+      ],
+      "common_evidence": [
+        "Triage criteria",
+        "Incident register",
+        "Severity definitions"
+      ]
+    },
+    {
+      "id": "RS.AN-03",
+      "name": "Incident Analysis",
+      "description": "Analysis is performed to establish what has taken place during an incident and the root cause of the incident.",
+      "domain": "Respond / Incident Analysis",
+      "points_of_focus": [
+        {
+          "id": "RS.AN-03.1",
+          "description": "Root cause analysis is performed"
+        },
+        {
+          "id": "RS.AN-03.2",
+          "description": "Findings feed improvement"
+        }
+      ],
+      "common_evidence": [
+        "Root cause analysis records",
+        "Post-incident review",
+        "Lessons learned"
+      ]
+    },
+    {
+      "id": "RS.CO-02",
+      "name": "Incident Notification",
+      "description": "Internal and external stakeholders are notified of incidents.",
+      "domain": "Respond / Incident Response Reporting and Communication",
+      "points_of_focus": [
+        {
+          "id": "RS.CO-02.1",
+          "description": "Notification obligations are known"
+        },
+        {
+          "id": "RS.CO-02.2",
+          "description": "Notifications are timely and recorded"
+        }
+      ],
+      "common_evidence": [
+        "Communication plan",
+        "Breach notification procedure",
+        "Notification records"
+      ]
+    },
+    {
+      "id": "RS.MI-01",
+      "name": "Incident Containment",
+      "description": "Incidents are contained.",
+      "domain": "Respond / Incident Mitigation",
+      "points_of_focus": [
+        {
+          "id": "RS.MI-01.1",
+          "description": "Containment actions are defined"
+        },
+        {
+          "id": "RS.MI-01.2",
+          "description": "Containment is evidenced per incident"
+        }
+      ],
+      "common_evidence": [
+        "Containment playbooks",
+        "Incident timeline",
+        "Containment evidence"
+      ]
+    },
+    {
+      "id": "RC.RP-01",
+      "name": "Recovery Plan Execution",
+      "description": "The recovery portion of the incident response plan is executed once initiated from the incident response process.",
+      "domain": "Recover / Incident Recovery Plan Execution",
+      "points_of_focus": [
+        {
+          "id": "RC.RP-01.1",
+          "description": "Recovery plan exists"
+        },
+        {
+          "id": "RC.RP-01.2",
+          "description": "Recovery is executed and recorded"
+        }
+      ],
+      "common_evidence": [
+        "Disaster recovery plan",
+        "Business continuity plan",
+        "Recovery execution records"
+      ]
+    },
+    {
+      "id": "RC.RP-05",
+      "name": "Recovery Verification",
+      "description": "The integrity of restored assets is verified, systems and services are restored, and normal operating status is confirmed.",
+      "domain": "Recover / Incident Recovery Plan Execution",
+      "points_of_focus": [
+        {
+          "id": "RC.RP-05.1",
+          "description": "Integrity of restored data is verified"
+        },
+        {
+          "id": "RC.RP-05.2",
+          "description": "Return to normal is confirmed"
+        }
+      ],
+      "common_evidence": [
+        "Restore test records",
+        "Integrity verification evidence",
+        "Service restoration sign-off"
+      ]
+    },
+    {
+      "id": "RC.CO-03",
+      "name": "Recovery Communication",
+      "description": "Recovery activities and progress in restoring operational capabilities are communicated to designated internal and external stakeholders.",
+      "domain": "Recover / Incident Recovery Communication",
+      "points_of_focus": [
+        {
+          "id": "RC.CO-03.1",
+          "description": "Stakeholders are identified"
+        },
+        {
+          "id": "RC.CO-03.2",
+          "description": "Status updates are issued"
+        }
+      ],
+      "common_evidence": [
+        "Communication plan",
+        "Status update records",
+        "Customer notifications"
+      ]
+    }
+  ]
+}

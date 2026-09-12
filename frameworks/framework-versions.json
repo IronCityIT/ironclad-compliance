@@ -3,6 +3,7 @@
     {
       "id": "soc2-tsc",
       "name": "SOC 2 Trust Service Criteria",
+      "alias": "soc2",
       "current_version": "2017",
       "source": "AICPA",
       "local_file": "soc2-2017.json",
@@ -11,23 +12,43 @@
     {
       "id": "nist-csf",
       "name": "NIST Cybersecurity Framework",
+      "alias": "nist-csf",
       "current_version": "2.0",
+      "source": "NIST",
       "local_file": "nist-csf-2.0.json",
-      "status": "planned"
+      "status": "active"
     },
     {
       "id": "pci-dss",
-      "name": "PCI Data Security Standard", 
+      "name": "PCI Data Security Standard",
+      "alias": "pci-dss",
       "current_version": "4.0",
+      "source": "PCI Security Standards Council",
       "local_file": "pci-dss-4.0.json",
-      "status": "planned"
+      "status": "active"
     },
     {
       "id": "hipaa",
       "name": "HIPAA Security Rule",
-      "current_version": "current",
-      "local_file": "hipaa.json",
-      "status": "planned"
+      "alias": "hipaa",
+      "current_version": "45 CFR Part 164 Subpart C",
+      "source": "HHS",
+      "local_file": "hipaa-security-rule.json",
+      "status": "active"
+    }
+  ],
+  "crosswalks": [
+    {
+      "id": "soc2-to-nist-csf",
+      "local_file": "crosswalks/soc2-to-nist-csf.json"
+    },
+    {
+      "id": "soc2-to-hipaa",
+      "local_file": "crosswalks/soc2-to-hipaa.json"
+    },
+    {
+      "id": "soc2-to-pci-dss",
+      "local_file": "crosswalks/soc2-to-pci-dss.json"
     }
   ]
 }
