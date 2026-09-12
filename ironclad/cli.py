@@ -274,6 +274,40 @@ def build_parser() -> argparse.ArgumentParser:
     ex_revoke.add_argument("--id", dest="exception_id", required=True)
     ex_revoke.add_argument("--reason", required=True, help="why it is being revoked")
 
+    serve = sub.add_parser(
+        "serve",
+        help="serve the dashboard API over HTTP",
+        description=(
+            "The HTTP surface over the same service the CLI drives: stored "
+            "assessments and remediation from the result store, and the "
+            "risk-acceptance workflow against each tenant's policy file under "
+            "--policy-root/<tenant>/policy.json. Refuses every request until a "
+            "token file is given; binds to loopback unless told otherwise, and "
+            "expects a reverse proxy to terminate TLS."
+        ),
+    )
+    serve.add_argument("--to", default="", help=f"result store; defaults to ${STORE_ENV}")
+    serve.add_argument(
+        "--policy-root",
+        required=True,
+        help="directory holding <tenant>/policy.json for each tenant",
+    )
+    serve.add_argument(
+        "--tokens",
+        default="",
+        help="JSON file of hashed service tokens; without it the server serves nothing",
+    )
+    serve.add_argument("--static", default="", help="directory to serve as the dashboard")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8787)
+    serve.add_argument("--quiet", action="store_true", help="no per-request log lines")
+
+    hash_cmd = sub.add_parser(
+        "hash-token",
+        help="print the digest a token file stores for a token read from stdin",
+    )
+    hash_cmd.set_defaults(command="hash-token")
+
     return parser
 
 
@@ -681,6 +715,83 @@ def cmd_exception(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """Serve the API. Returns only when the server is stopped."""
+    from ironclad.api.http import App, TokenFileAuthenticator, serve  # noqa: PLC0415
+
+    target = args.to or os.environ.get(STORE_ENV, "")
+    if not target:
+        print(
+            f"no store target: pass --to or set {STORE_ENV} "
+            "(a path or file:// for a volume, mysql:// for MariaDB)",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+
+    policy_root = Path(args.policy_root)
+    if not policy_root.is_dir():
+        print(f"policy root is not a directory: {policy_root}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    authenticator = None
+    if args.tokens:
+        tokens = Path(args.tokens)
+        if not tokens.is_file():
+            print(f"token file not found: {tokens}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        authenticator = TokenFileAuthenticator(tokens)
+    else:
+        print(
+            "no --tokens given: the server will answer every request with 503 "
+            "until it is restarted with one",
+            file=sys.stderr,
+        )
+
+    static = Path(args.static) if args.static else None
+    if static is not None and not static.is_dir():
+        print(f"static root is not a directory: {static}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    store = store_from_target(target)
+    health = store.health()
+    if not health.get("writable"):
+        print(f"store is not writable: {health.get('detail', '')}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    app = App(
+        results=store,
+        policy_root=policy_root,
+        authenticator=authenticator,
+        static_root=static,
+        quiet=args.quiet,
+    )
+    server = serve(app, host=args.host, port=args.port)
+    host, port = str(server.server_address[0]), int(server.server_address[1])
+    print(
+        f"ironclad {__version__} serving {target_summary(target)} on http://{host}:{port}/",
+        file=sys.stderr,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return EXIT_OK
+
+
+def cmd_hash_token() -> int:
+    """Digest one token from stdin, so a token never appears in a command line."""
+    from ironclad.api.http import hash_token  # noqa: PLC0415
+
+    token = sys.stdin.readline().rstrip("\r\n")
+    if not token:
+        print("read no token on stdin", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    print(hash_token(token))
+    return EXIT_OK
+
+
 def cmd_crosswalk(args: argparse.Namespace) -> int:
     crosswalk = load_crosswalks()
     source = load_framework(args.source)
@@ -875,6 +986,8 @@ def main(argv: list[str] | None = None) -> int:
         "compare": lambda: cmd_compare(args),
         "store": lambda: cmd_store(args),
         "exception": lambda: cmd_exception(args),
+        "serve": lambda: cmd_serve(args),
+        "hash-token": lambda: cmd_hash_token(),
     }
 
     try:

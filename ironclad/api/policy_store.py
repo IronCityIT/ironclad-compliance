@@ -78,6 +78,7 @@ class PolicyStore:
             raise IroncladError(
                 "refusing to write a policy that would not load: " + "; ".join(errors)
             )
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
     # ------------------------------------------------------------- exceptions
@@ -124,6 +125,7 @@ class PolicyStore:
         stored["events"].extend(events)
         stored["event_count"] = len(stored["events"])
         stored["head"] = stored["events"][-1]["hash"] if stored["events"] else ""
+        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
         self.audit_path.write_text(json.dumps(stored, indent=2) + "\n", encoding="utf-8")
 
     def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:

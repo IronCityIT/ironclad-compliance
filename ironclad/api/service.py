@@ -173,7 +173,7 @@ class ComplianceService:
     ) -> ServiceResponse:
         """Run an assessment and store the result."""
         if self.results is None:
-            return ServiceResponse.failure(NO_RESULT_STORE)
+            return ServiceResponse.failure(NO_RESULT_STORE, kind="unavailable")
 
         errors = validate_assessment_request(request)
         if errors:
@@ -182,7 +182,7 @@ class ComplianceService:
         try:
             authorize(principal, "assessment:run", request.tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         # Exceptions in force are part of the input to an assessment, not
         # something applied to the report afterwards.
@@ -235,25 +235,37 @@ class ComplianceService:
 
     def get_assessment(self, principal: Any, tenant_id: str, assessment_id: str) -> ServiceResponse:
         if self.results is None:
-            return ServiceResponse.failure(NO_RESULT_STORE)
+            return ServiceResponse.failure(NO_RESULT_STORE, kind="unavailable")
         try:
             authorize(principal, "assessment:read", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         record = self.results.get_assessment(tenant_id, assessment_id)
         if record is None:
-            return ServiceResponse.failure(f"no assessment {assessment_id!r} for this tenant")
+            return ServiceResponse.failure(
+                f"no assessment {assessment_id!r} for this tenant", kind="not_found"
+            )
         return ServiceResponse.success(assessment=record)
 
     def list_assessments(self, principal: Any, tenant_id: str, limit: int = 25) -> ServiceResponse:
         if self.results is None:
-            return ServiceResponse.failure(NO_RESULT_STORE)
+            return ServiceResponse.failure(NO_RESULT_STORE, kind="unavailable")
         try:
             authorize(principal, "assessment:read", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
         return ServiceResponse.success(assessments=self.results.list_assessments(tenant_id, limit))
+
+    def list_remediation(self, principal: Any, tenant_id: str, limit: int = 200) -> ServiceResponse:
+        """The tenant's outstanding remediation, from the most recent assessment."""
+        if self.results is None:
+            return ServiceResponse.failure(NO_RESULT_STORE, kind="unavailable")
+        try:
+            authorize(principal, "remediation:read", tenant_id)
+        except AuthorizationError as exc:
+            return ServiceResponse.failure(str(exc), kind="authorization")
+        return ServiceResponse.success(items=self.results.list_remediation(tenant_id, limit))
 
     # ----------------------------------------------------------------- exceptions
 
@@ -266,7 +278,7 @@ class ComplianceService:
         try:
             authorize(principal, "exception:request", request.tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         now = utc_now()
         try:
@@ -306,11 +318,13 @@ class ComplianceService:
         try:
             authorize(principal, "exception:approve", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         exception = self._find_exception(tenant_id, exception_id)
         if exception is None:
-            return ServiceResponse.failure(f"no risk acceptance {exception_id!r} for this tenant")
+            return ServiceResponse.failure(
+                f"no risk acceptance {exception_id!r} for this tenant", kind="not_found"
+            )
 
         approver = getattr(principal, "user_id", "")
         try:
@@ -337,11 +351,13 @@ class ComplianceService:
         try:
             authorize(principal, "exception:approve", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         exception = self._find_exception(tenant_id, exception_id)
         if exception is None:
-            return ServiceResponse.failure(f"no risk acceptance {exception_id!r} for this tenant")
+            return ServiceResponse.failure(
+                f"no risk acceptance {exception_id!r} for this tenant", kind="not_found"
+            )
 
         actor = getattr(principal, "user_id", "")
         try:
@@ -363,7 +379,7 @@ class ComplianceService:
         try:
             authorize(principal, "exception:read", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
 
         items = self.store.list_exceptions(tenant_id)
         if status:
@@ -389,7 +405,7 @@ class ComplianceService:
         try:
             authorize(principal, "audit:read", tenant_id)
         except AuthorizationError as exc:
-            return ServiceResponse.failure(str(exc))
+            return ServiceResponse.failure(str(exc), kind="authorization")
         return ServiceResponse.success(events=self.store.list_audit(tenant_id, limit))
 
     def _audit(

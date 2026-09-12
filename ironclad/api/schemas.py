@@ -132,6 +132,13 @@ def validate_exception_request(request: ExceptionRequest) -> list[str]:
     return errors
 
 
+# Why a call was refused, in one word. The service reports errors as text a
+# person can read; a transport needs to know which *kind* of refusal it is
+# without parsing that text, because "lacks 'exception:read'" and "no assessment
+# 'x' for this tenant" are the same string type and different HTTP statuses.
+REFUSAL_KINDS = ("validation", "authorization", "not_found", "unavailable")
+
+
 @dataclass
 class ServiceResponse:
     """What every service call returns. Uniform so callers handle one shape."""
@@ -139,10 +146,14 @@ class ServiceResponse:
     ok: bool
     data: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    #: One of REFUSAL_KINDS when ok is False; empty on success.
+    kind: str = ""
 
     @classmethod
-    def failure(cls, *errors: str) -> ServiceResponse:
-        return cls(ok=False, errors=list(errors))
+    def failure(cls, *errors: str, kind: str = "validation") -> ServiceResponse:
+        if kind not in REFUSAL_KINDS:
+            raise ValueError(f"unknown refusal kind {kind!r}")
+        return cls(ok=False, errors=list(errors), kind=kind)
 
     @classmethod
     def success(cls, **data: Any) -> ServiceResponse:
