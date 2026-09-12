@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-12
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `83c4abc`; two commits since, pushed, awaiting CI.**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `cd5cedd`, all six jobs.**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `e381e94`, run
-[the latest on the branch](https://github.com/IronCityIT/ironclad-compliance/actions):
+Green on `productize/ironclad-compliance` at `cd5cedd`, run
+[34687237036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34687237036):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
