@@ -520,7 +520,7 @@ no credential and no deployment.
 | 2 | `schema.sql` + `MariaDBResultStore`, tested in CI against a real MariaDB 10.5 service container. | — | ✅ **done** |
 | 3 | The loader: `ironclad store publish`, idempotent on `assessment_id`, plus `FileResultStore` for the NAS volume. | — | ✅ **done** |
 | 4 | Choose the transport (§3.2) and wire the workflow's publish step to it. | **decision + credential** | ⛔ blocked |
-| 5 | Replace the dashboard's data layer; retire `functions/`, `firestore.rules`, `firebase.json`. | stage 4 | ⛔ blocked |
+| 5 | Replace the dashboard's data layer; retire `functions/`, `firestore.rules`, `firebase.json`. | stage 4 | ⛔ blocked — the backend it needs (`ironclad serve`) now exists; the data-layer rewrite waits on the transport |
 | 6 | Delete the Firebase surface and its tests once nothing reads them. | stage 5 | ⛔ blocked |
 
 **Nothing is migrated destructively.** Firestore holds no data — nothing was
@@ -561,10 +561,13 @@ Ordered by value, non-blocked first.
    The workflow uses it when `IRONCLAD_EVIDENCE_ROOT` is set and falls back to
    the retired GCS path otherwise. Neither configured is a hard failure, not a
    silent empty assessment.
-4. **`ComplianceService` HTTP surface** — the service now takes a policy store
-   and a result store as two collaborators and writes to a real volume or
-   database, which is what an HTTP surface needs. Adding one would give the
-   dashboard a backend that is not Firebase (migration stage 5).
+4. ~~`ComplianceService` HTTP surface~~ — **done**, `ironclad serve`
+   (`ironclad/api/http.py`, `docs/http-api.md`). Standard library only; token
+   file authentication with digests, fail-closed without one; the dashboard's
+   static files served from the same process. What remains for stage 5 is
+   pointing `dashboard/public/app.js` at it instead of Firestore, and an Auth0
+   JWT authenticator, which needs RSA verification and therefore a dependency
+   decision.
 5. **Close PR #3.** A false positive from the checker defect above, proposing to
    commit a gitignored file. Evidence recorded as a comment on it.
 6. **Coverage.** 93% overall, and no module of consequence is now materially

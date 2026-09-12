@@ -641,3 +641,113 @@ removed the risk structurally rather than checking for it — and surfaced a sec
 bug while it was open: the old code inferred success from "no exception raised",
 so a 204 or a 302 from a misconfigured ingest would have been recorded as a
 stored result.
+
+---
+
+## 13. The HTTP surface, and what its first run found
+
+Session of 2026-09-12. `HANDOFF.md` §15 listed a `ComplianceService` HTTP
+surface as the highest-value item that needed no decision and no credential:
+migration stage 5 — replacing the dashboard's Firestore reads — cannot start
+without a backend to read from. It exists now as `ironclad serve`
+(`ironclad/api/http.py`, `docs/http-api.md`), standard library only, tested
+against a real socket by `tests/test_http.py`.
+
+Four defects, all found by the tests on their first run, none by reading:
+
+### 13.1 Every write route was unreachable
+
+The router walked the route table and answered 405 on the first regex that
+matched the path if the verb differed. `GET /exceptions` is registered before
+`POST /exceptions`, so every POST to a path that also had a GET was refused
+before its own registration was reached. The first test that raised an
+acceptance found it.
+
+### 13.2 A refused write created the victim's directory
+
+`service_for(tenant, writing=True)` made `<policy-root>/<tenant>/` before the
+service had authorized anything, so a stranger's 403 left a directory named for
+the tenant they were probing. The policy store now creates the directory on its
+own first write, which is after authorization by construction. Asserted: the
+stranger's refused POST leaves the policy root untouched.
+
+### 13.3 The body could name the requester
+
+`ComplianceService.request_exception` takes `requested_by` from the request
+because the CLI passes the actor as a flag. Over HTTP that meant a compliance
+manager could write a colleague's name into the body, raise the acceptance
+"for" them, and approve it themselves — the model's second-person rule compares
+approver to `requested_by`, and `requested_by` was whatever the caller said.
+The transport now sets it to the token's user, whatever the body says. The
+service is unchanged: the CLI's contract is right for the CLI, where the actor
+is already the operator's own claim.
+
+### 13.4 An unread body became the next request
+
+A body over the limit is refused without being read. On a kept-alive HTTP/1.1
+connection the server then read the 64 KiB of unread body as the next request
+line, answered `414 URI Too Long` to a client that had already gone, and logged
+a broken pipe from its own thread — visible only because the test run printed a
+traceback that no assertion had asked for. The refusal now closes the
+connection.
+
+### 13.5 The white-label gate read four files
+
+Not the HTTP surface, but found the same day and the same way. The gate
+enforcing "no tool named on a client surface" checked an enumerated list of
+four files. A fifth file dropped into `dashboard/public/` — served to every
+visitor — was not read. It is now one script scanning the surfaces as
+directories, shared by CI, `gates.sh` and the Jenkinsfile (which had no
+white-label check at all), and the dashboard test scans every served file.
+Verified both ways: green on the committed tree, red on the working tree — see
+§14.
+
+---
+
+## 14. Uncommitted work in the tree, reviewed and left alone
+
+At the start of this session the working tree carried changes not made by any
+recorded session and not committed: a rebranded `dashboard/public/index.html`,
+`dashboard/public/demo.js`, `dashboard/public/sage-demo.json`,
+`dashboard/public/ironclad-mark.svg`, a `tenants/sage-spine-pain-and-nerve-center/`
+baseline and `automation/sage/`. File times are 2026-09-10 20:04–20:16, after
+the last commit that day. They were not committed, deleted or edited here —
+they are someone else's work in progress — but they were read and checked
+against the engine, and this is what that found. Each item is a blocker for
+committing them as they stand.
+
+1. **A tool name on a client surface.** `sage-demo.json` lists "Wazuh SIEM" as
+   an asset and is served from `dashboard/public/`. `CLAUDE.md`'s white-label
+   rule forbids it; the hardened gate (§13.5) now fails on it, by name. The
+   tenant baseline under `tenants/` names the same product, which is internal
+   and allowed, but the dashboard copy is not.
+2. **The demo renders for every tenant, unauthenticated.** `index.html` loads
+   `demo.js` unconditionally, before sign-in, and it fills six sections with a
+   named healthcare provider's posture, risk register, vendors and assets. Any
+   visitor, and every other client who signs in, sees Sage's name and its
+   (demo) risk data. The multi-tenant rule is no cross-tenant leakage; a client
+   name is client data. A demo needs to be gated — a `?demo` flag, a demo
+   tenant, or a separate page — and `sage-demo.json` should not sit in the
+   publicly served directory at all.
+3. **A framework id the engine does not know.** `tenant.json` lists
+   `"nist-csf-2.0"`; the loader's aliases are `soc2`, `nist-csf`, `pci-dss`,
+   `hipaa`. A request naming `nist-csf-2.0` is refused with "not one of".
+4. **The tenant files have no consumer.** Nothing in the engine reads
+   `tenants/<slug>/tenant.json`, `scope.json`, `integrations.json`,
+   `risk-register.json` or `automation.json`. The slug is right —
+   `slugify("Sage Spine Pain and Nerve Center")` produces exactly that
+   directory name — but the files describe a schema (assets, vendors, BAAs,
+   risk register) the product does not have. `automation/sage/README.md`
+   describes an "upstream native GRC engine" with a REST API, MCP and Kafka;
+   that is not this product either. Whether this is a design brief for a
+   different system or a spec for extending this one is a question for whoever
+   wrote it.
+5. **Escaping is right.** `demo.js` escapes every field before `innerHTML`, so
+   the demo data cannot inject script. Worth saying, since two count fields in
+   the real dashboard could once (§9).
+6. **The rest of the dashboard tests still pass** with the modified
+   `index.html`, and every JSON file validates.
+
+None of this is a judgement on the demo's purpose. It is that the tree cannot
+be committed in this state without breaking a gate and a rule, and the gate
+that would have let it through has been fixed first.

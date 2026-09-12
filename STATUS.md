@@ -7,9 +7,18 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-10
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green.**
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-12
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `83c4abc`; two commits since, pushed, awaiting CI.**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
+
+> **The working tree carries uncommitted work that is not this branch's.**
+> A rebranded dashboard with a named healthcare client's demo data, a
+> `tenants/` baseline and `automation/`, dated 2026-09-10 evening. Reviewed,
+> not committed, not touched: it names a SIEM product on a served surface,
+> renders one client's name to every visitor, and uses a framework id the
+> engine refuses. `PRODUCTIZE_NOTES.md` §14 has the item-by-item review.
+> `sh scripts/gates.sh` is **red on white-label** while those files sit in
+> `dashboard/public/`; it is green on the committed tree.
 
 `ironclad-compliance` is not listed in any tier in `CLAUDE.md`, and the fallback
 rule is "treat as HANDS OFF and ask Bill". Asked, and directed to take the
@@ -33,6 +42,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Assessment types actually shaping the deliverable | **DONE, tested** | `ironclad/report/views.py` |
 | Standards-vs-ICIT-policy disclosure | **DONE, tested** | `ironclad/method.py` |
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
+| HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
 | GitHub workflows | **DONE; `ci.yml` green on this branch, the other two not executed** | `.github/workflows/` |
 | Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
 | Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
@@ -52,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 668 passed, 19 skipped in CI, 93% coverage |
+| Test | `pytest` | **PASS** — 727 passed, 25 skipped locally (2026-09-12), 93% coverage |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -63,7 +73,7 @@ Run on this branch, this machine, 2026-09-06.
 | Build | `python -m build` | **PASS** — sdist + wheel |
 | Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
 | Security — secret literals | CI shell check | **PASS** — no credential-shaped literals |
-| Security — white-label | CI shell check | **PASS** — no tool names on a client surface |
+| Security — white-label | `sh scripts/check_white_label.sh` | **PASS on the committed tree; FAIL on the working tree** — see the note at the top |
 | Security — static analysis | `bandit` | **PASS in CI** — see below |
 
 `ci.yml` had no security gate at all when this branch started, despite
@@ -196,6 +206,22 @@ decides which tenant a write lands in.
   `functions/core.js::toClientId` over a shared table of 21 cases, including
   traversal and reserved-name inputs. A disagreement there writes a client's
   results to a document their dashboard does not read.
+
+- **The HTTP surface, refusal by refusal, on a real socket.** `ironclad serve`
+  gives the dashboard a backend that is not Firebase: 59 tests speak HTTP to a
+  `ThreadingHTTPServer` on a loopback port, including the command run as a
+  subprocess. Fail-closed without a token file (503, not open); a stranger's
+  read and write are 403 and leave nothing on the policy volume; the body
+  cannot redirect a write to another tenant or name a different requester;
+  request → approve → revoke lands in `policy.json` with a chained trail. Four
+  defects on the first run, recorded in `PRODUCTIZE_NOTES.md` §13 — the one
+  that matters most: over HTTP, `requested_by` from the body would have let a
+  manager approve their own acceptance.
+- **The white-label gate now reads the surface, not a list.** It enumerated
+  four files; a fifth in `dashboard/public/` was served and unread. One script
+  scans the directories, in CI, `gates.sh` and Jenkins (which had no such
+  check), and it is red on the working tree for exactly the reason it should
+  be.
 
 **Not proven — needs a GitHub runner:**
 
