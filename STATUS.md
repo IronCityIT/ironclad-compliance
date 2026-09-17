@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `3572b55`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `a9599c3`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 834 passed, 28 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 836 passed, 28 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `3572b55`, run
-[35180556868](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35180556868):
+Green on `productize/ironclad-compliance` at `a9599c3`, run
+[35181257013](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35181257013):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,15 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **MariaDB, from this machine (2026-09-17).** Two more store defects the
+  CI suite could not see: a record read back as the number 46.5 from the
+  volume and the string "46.50" from MariaDB through the API's JSON; and
+  two clients handing in the same `scan_id` — a standard dispatch input now
+  — was an IntegrityError for the second on MariaDB and two records on the
+  volume. Rows are normalised, the key is `(tenant_id, assessment_id)` with
+  composite child keys, and contract tests on both stores hold them alike.
+  Nothing initialised from the old schema exists outside CI and the scratch
+  server. §16.32–16.33.
 - **The trend reaches the report (2026-09-17).** The comparison existed and
   nothing in either pipeline fetched the previous assessment; now both do,
   from the store, and the auditor package carries the report as issued
