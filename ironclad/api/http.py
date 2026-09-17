@@ -61,6 +61,14 @@ POLICY_FILENAME = "policy.json"
 #: acceptance with a 4,000-character justification; anything near this is not
 #: one of those.
 MAX_BODY_BYTES = 64 * 1024
+# How long a connection may sit without sending anything — the rest of a
+# request line, the rest of a declared body, or the next request on a kept-alive
+# connection — before it is closed. Without it, forty half-sent POSTs held forty
+# threads and forty sockets for as long as the clients cared to stay connected;
+# measured, not imagined (PRODUCTIZE_NOTES §16.10). A dashboard that goes quiet
+# reconnects; a client that never finishes its request does not get to keep a
+# thread.
+READ_TIMEOUT_SECONDS = 30.0
 
 STATUS_FOR_KIND = {
     "validation": HTTPStatus.BAD_REQUEST,
@@ -465,6 +473,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
         server_version = f"IronCityIT-Ironclad/{__version__}"
         sys_version = ""  # the Python version is nobody's business
         protocol_version = "HTTP/1.1"
+        timeout = READ_TIMEOUT_SECONDS  # applied to the socket by StreamRequestHandler.setup
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
             # Method, path and status only. A query string can carry a filter
@@ -531,6 +540,11 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     body=body,
                 )
                 response = app.handle(request)
+            except TimeoutError:
+                # The client stopped mid-request. There is nobody to answer and
+                # nothing to log at error level; the connection is simply over.
+                self.close_connection = True
+                return
             except HttpError as exc:
                 if not body_consumed:
                     # The body was refused unread. On a kept-alive connection

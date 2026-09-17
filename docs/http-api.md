@@ -39,6 +39,11 @@ IRONCLAD_STORE=/srv/ironclad/results \
   never falls open.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
+- A connection that sends nothing for 30 seconds — the rest of a request, the
+  rest of a declared body, or the next request on a kept-alive connection — is
+  closed. A browser reconnects; a client that never finishes its request does
+  not keep a thread. (`READ_TIMEOUT_SECONDS`; the proxy in front should have
+  its own, shorter, client limits.)
 
 ## Authentication
 

@@ -1037,7 +1037,28 @@ dubious files; a non-JSON file is now the first finding it reports.
 Naive timestamps are read as UTC and the acceptance in that file, expiring
 2026-09-01, correctly counted for nothing on 2026-09-17.
 
-### 16.10 Looked at and left
+### 16.10 A stalled connection kept its thread forever
+
+2026-09-17. `ironclad serve` had no read timeout. Forty connections that sent
+a request line, headers and `Content-Length: 500` and then nothing, plus
+twenty that connected and sent nothing at all: sixty handler threads and
+sixty sockets, still there ten seconds later, gone only when the clients hung
+up — read from `/proc/<pid>/status`. The server kept answering others, so it
+is a resource leak rather than an outage, but a dashboard poller behind a
+flaky network is exactly the client that does this, and threads and file
+descriptors are finite.
+
+`READ_TIMEOUT_SECONDS = 30` on the handler now, applied to the socket; a
+timeout mid-request closes the connection without a 500 attempt or a
+traceback. The test shortens it to a second and asserts each stalled socket
+reads EOF and the thread count returns to where it started. Writing the test
+cost more than the fix: the first version asserted a thread *peak*, and the
+sampling loop did not start until the connects had finished — on this
+machine ten local connects took a second, by which time the handler threads
+were already timing out. The peak was the wrong thing to measure; the EOF is
+the fact.
+
+### 16.11 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

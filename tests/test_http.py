@@ -647,6 +647,47 @@ class TestTransport:
         # that the server did not choke on the leftover and still answers.
         assert Client(port).get("/api/v1/health")[0] == 200
 
+    def test_a_connection_that_stops_mid_request_is_closed(self, server, port, secrets_for) -> None:
+        # Forty half-sent POSTs held forty threads and forty sockets for as long
+        # as the clients stayed connected; nothing on the server side ever gave
+        # up on them. Measured with /proc/<pid>/status before the read timeout
+        # existed. Here the timeout is shortened so the test does not wait 30 s.
+        # Without the timeout each recv below blocks until the client's own
+        # 5 s limit and the assertion raises instead of reading EOF.
+        import socket
+        import threading
+        import time
+
+        httpd = server[0]
+        handler = httpd.RequestHandlerClass
+        original = handler.timeout
+        handler.timeout = 1.0
+        try:
+            before = threading.active_count()
+            half_sent = []
+            for _ in range(5):
+                sock = socket.create_connection(("127.0.0.1", port))
+                sock.sendall(
+                    b"POST /api/v1/tenants/acme/exceptions HTTP/1.1\r\nHost: x\r\n"
+                    + f"Authorization: Bearer {secrets_for['acme-manager']}\r\n".encode()
+                    + b"Content-Length: 500\r\n\r\n{"
+                )
+                half_sent.append(sock)
+            silent = [socket.create_connection(("127.0.0.1", port)) for _ in range(5)]
+
+            for sock in half_sent + silent:
+                sock.settimeout(5)
+                assert sock.recv(64) == b"", "the server did not close a stalled connection"
+                sock.close()
+            deadline = time.monotonic() + 5
+            while threading.active_count() > before and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert threading.active_count() == before, "a handler thread outlived its connection"
+            # and it is still a server
+            assert Client(port).get("/api/v1/health")[0] == 200
+        finally:
+            handler.timeout = original
+
     def test_a_non_json_body_is_400(self, as_) -> None:
         status, body, _ = as_("acme-manager").post(
             "/api/v1/tenants/acme/exceptions", raw=b"control_id=CC1.1"
