@@ -393,7 +393,7 @@ gh pr view 4 -R IronCityIT/ironclad-compliance --web
 #    REVIEW ONLY posture does not cover.
 gh workflow run "Compliance Assessment" \
   -R IronCityIT/ironclad-compliance \
-  -f client_id="icit-internal" \
+  -f client_name="icit-internal" \
   -f framework=soc2 \
   -f evidence_path=gs://ironclad-evidence/icit-internal/
 

@@ -11,10 +11,28 @@ name: Compliance Assessment
 on:
   workflow_dispatch:
     inputs:
-      client_id:
-        description: 'Client identifier'
-        required: true
+      # The ICIT standard input names (`client_name`, `scan_id`) are what the
+      # portal and every sibling product's dispatcher send. This workflow
+      # predates the standard and took `client_id`; it still does, as an alias,
+      # so nothing that dispatches it today breaks. One of the two is required,
+      # and the prepare job says so if neither arrives. `target` is not
+      # declared: a compliance assessment has no network target
+      # (PRODUCTIZE_NOTES §4).
+      client_name:
+        description: 'Client identifier (ICIT standard name)'
+        required: false
         type: string
+        default: ''
+      client_id:
+        description: 'Client identifier — alias for client_name, kept for existing dispatchers'
+        required: false
+        type: string
+        default: ''
+      scan_id:
+        description: 'Unique scan identifier; becomes the assessment id. Generated when empty.'
+        required: false
+        type: string
+        default: ''
       framework:
         description: 'Compliance framework to assess'
         required: true
@@ -63,7 +81,7 @@ permissions:
 concurrency:
   # One assessment per client and framework at a time. Two concurrent runs would
   # race on the same Firestore document and one would overwrite the other.
-  group: assessment-${{ inputs.client_id }}-${{ inputs.framework }}
+  group: assessment-${{ inputs.client_name || inputs.client_id }}-${{ inputs.framework }}
   cancel-in-progress: false
 
 jobs:
@@ -72,6 +90,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       assessment_id: ${{ steps.plan.outputs.assessment_id }}
+      # Resolved once here from client_name or its alias; every later job reads
+      # this rather than re-deciding which input carried the client.
+      client_id: ${{ steps.client.outputs.client_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -80,16 +101,36 @@ jobs:
           python-version: '3.11'
 
       - name: Validate the client identifier
+        id: client
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_NAME: ${{ inputs.client_name }}
+          CLIENT_ID_ALIAS: ${{ inputs.client_id }}
+          SCAN_ID: ${{ inputs.scan_id }}
         run: |
           set -euo pipefail
           # Via env, never interpolated into the script body: a client id with
           # shell metacharacters must not be able to execute here.
-          if ! printf '%s' "$CLIENT_ID" | grep -Eq '^[A-Za-z0-9 _-]{1,64}$'; then
-            echo "::error::client_id must be 1-64 characters of letters, digits, space, hyphen or underscore"
+          CLIENT_ID="${CLIENT_NAME:-$CLIENT_ID_ALIAS}"
+          if [ -z "$CLIENT_ID" ]; then
+            echo "::error::client_name is required (client_id is accepted as an alias)"
             exit 1
           fi
+          if [ -n "$CLIENT_NAME" ] && [ -n "$CLIENT_ID_ALIAS" ] && [ "$CLIENT_NAME" != "$CLIENT_ID_ALIAS" ]; then
+            echo "::error::client_name and client_id were both given and disagree; send one"
+            exit 1
+          fi
+          if ! printf '%s' "$CLIENT_ID" | grep -Eq '^[A-Za-z0-9 _-]{1,64}$'; then
+            echo "::error::client_name must be 1-64 characters of letters, digits, space, hyphen or underscore"
+            exit 1
+          fi
+          # A scan id becomes the assessment id, which becomes a directory name
+          # on the artifact volume and a document id in the store; the same
+          # character rule the engine applies, checked before anything runs.
+          if [ -n "$SCAN_ID" ] && ! printf '%s' "$SCAN_ID" | grep -Eq '^[A-Za-z0-9._-]{1,128}$'; then
+            echo "::error::scan_id must be 1-128 characters of letters, digits, dot, hyphen or underscore"
+            exit 1
+          fi
+          echo "client_id=$CLIENT_ID" >> "$GITHUB_OUTPUT"
 
       - name: Validate the framework definition
         run: python -m ironclad.cli validate --framework "${{ inputs.framework }}"
@@ -97,7 +138,8 @@ jobs:
       - name: Plan the run
         id: plan
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ steps.client.outputs.client_id }}
+          SCAN_ID: ${{ inputs.scan_id }}
           FRAMEWORK: ${{ inputs.framework }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
@@ -105,9 +147,13 @@ jobs:
           slug=$(printf '%s' "$CLIENT_ID" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//')
           suffix=""
           # A dry run's record must never be mistaken for a client's: the id
-          # says what it is, wherever it ends up.
+          # says what it is, wherever it ends up — including a dispatcher's own.
           if [ "$DRY_RUN" = "true" ]; then suffix="-dry-run"; fi
-          echo "assessment_id=${slug}-${FRAMEWORK}-$(date -u +%Y%m%d%H%M%S)${suffix}" >> "$GITHUB_OUTPUT"
+          if [ -n "$SCAN_ID" ]; then
+            echo "assessment_id=${SCAN_ID}${suffix}" >> "$GITHUB_OUTPUT"
+          else
+            echo "assessment_id=${slug}-${FRAMEWORK}-$(date -u +%Y%m%d%H%M%S)${suffix}" >> "$GITHUB_OUTPUT"
+          fi
 
   assess:
     name: Assess controls
@@ -160,7 +206,7 @@ jobs:
       - name: Stage the client evidence
         if: ${{ !inputs.dry_run && env.IRONCLAD_EVIDENCE_ROOT != '' }}
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
           python -m ironclad.cli evidence stage --client "$CLIENT_ID" --out evidence/
@@ -205,7 +251,7 @@ jobs:
       - name: Run the assessment
         id: assess
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
           python -m ironclad.cli assess \
@@ -234,12 +280,12 @@ jobs:
   # ---------------------------------------------------------------------------
   ai-consensus:
     name: AI consensus analysis
-    needs: assess
+    needs: [prepare, assess]
     uses: IronCityIT/consensus-engine/.github/workflows/analyze.yml@main
     with:
       findings_json: ${{ needs.assess.outputs.findings_b64 }}
       product: ironclad-compliance
-      client_id: ${{ inputs.client_id }}
+      client_id: ${{ needs.prepare.outputs.client_id }}
       # Regulated evidence: the result is stored through our own Firestore path,
       # never posted to the legacy QNAP ingest API.
       post_to_api: false
@@ -328,7 +374,7 @@ jobs:
 
       - name: Render the report and the auditor package
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
           python -m ironclad.cli report \
@@ -381,7 +427,7 @@ jobs:
         if: ${{ !inputs.dry_run && env.IRONCLAD_STORE == '' && env.STORE_RESULTS_URL != '' }}
         env:
           GCS_BUCKET: ${{ secrets.GCS_BUCKET }}
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
           python scripts/store_results.py \
@@ -398,7 +444,7 @@ jobs:
 
       - name: Summary
         env:
-          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           {

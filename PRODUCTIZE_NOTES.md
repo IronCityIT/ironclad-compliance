@@ -1102,7 +1102,28 @@ nothing. Every shipped framework's control ids satisfy the document-id rule
 Refused now, in a request and in a hand-edited policy file, for acceptances
 and scope exclusions alike.
 
-### 16.14 Looked at and left
+### 16.14 The workflow did not speak the standard input names
+
+`CLAUDE.md` fixes the dispatch inputs every product declares — `target`,
+`client_name`, `scan_id` — and every sibling's scan workflow declares them;
+the portal's dispatcher falls back to `{target, scan_id, client_id}`. This
+workflow predates the standard and declared `client_id` only. A dispatch
+carrying `scan_id` would have been rejected by GitHub as an unexpected input
+before a job ran, and `client_name` likewise; the deviation was not recorded
+anywhere. §4 recorded why `target` is not declared (no network target) and
+said nothing about the other two.
+
+`client_name` and `scan_id` are declared now. `client_id` stays as an alias,
+so `functions/trigger.js` and anything else that dispatches today keeps
+working; the prepare job resolves the client once — refusing neither-given
+and both-given-and-disagreeing — and every later job reads the resolved
+value. A `scan_id` becomes the assessment id after the same character rule
+the engine applies, and a dry run still suffixes it. The prepare job's shell
+is extracted from the workflow as committed and run by a test, because
+nothing else tests shell. Not dispatched: a live dispatch is Bill's call
+under REVIEW ONLY, and the two dry runs on record stand.
+
+### 16.15 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

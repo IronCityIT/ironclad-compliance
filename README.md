@@ -319,10 +319,17 @@ reports every problem rather than one at a time.
 ```sh
 gh workflow run "Compliance Assessment" \
   -R IronCityIT/ironclad-compliance \
-  -f client_id="Acme Corp" \
+  -f client_name="Acme Corp" \
   -f framework=soc2 \
-  -f evidence_path=gs://ironclad-evidence/acme-corp/
+  -f scan_id=acme-corp-2026q3          # optional; becomes the assessment id
 ```
+
+`client_name` and `scan_id` are the ICIT standard dispatch inputs, so the portal
+and the sibling products' dispatchers address this workflow the same way they
+address every other. `client_id` is still accepted as an alias for
+`client_name`; a `scan_id` is validated like any other assessment id and a dry
+run still suffixes it `-dry-run`. There is no `target`: a compliance assessment
+has no network target.
 
 ## Development
 
