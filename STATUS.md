@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `d3a372d`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `3964acf`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 825 passed, 26 skipped locally (2026-09-17; 832 passed, 19 skipped with the extraction extras in a venv); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 827 passed, 26 skipped locally (2026-09-17; 834 passed, 19 skipped with the extraction extras in a venv); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -72,7 +72,7 @@ Run on this branch, this machine, 2026-09-06.
 | Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
 | Build | `python -m build` | **PASS** — sdist + wheel |
 | Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
-| Security — secret literals | CI shell check | **PASS** — no credential-shaped literals |
+| Security — secret literals | `sh scripts/check_secret_literals.sh` | **PASS** — no credential-shaped literals; one script for CI, `gates.sh` and Jenkins since 2026-09-17 |
 | Security — white-label | `sh scripts/check_white_label.sh` | **PASS on the committed tree; FAIL on the working tree** — see the note at the top |
 | Security — static analysis | `bandit` | **PASS in CI** — see below |
 
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `d3a372d`, run
-[35174801144](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35174801144):
+Green on `productize/ironclad-compliance` at `3964acf`, run
+[35175575745](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35175575745):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,12 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **Three pipelines, one set of gates (2026-09-17).** A parity test written
+  to hold `ci.yml`, `gates.sh` and the Jenkinsfile together failed first
+  against CI: the catalog check that keeps the dashboard's `catalog.json`
+  equal to the registry ran everywhere but CI. It runs there now; the
+  secrets check is a shared script rather than inline shell in one place;
+  the Jenkins security gate matches CI's. §16.25.
 - **What a file costs to open (2026-09-17).** With the extraction extras in
   a venv for the first time on this machine: a 0.57 MB `.docx` expanding to
   143 MB took 19 s and 545 MB to yield 20,000 characters — four of them and
