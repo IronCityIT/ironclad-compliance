@@ -1467,7 +1467,23 @@ against it; the Jenkins assessment stage does the same behind the
 test: a first assessment gets no section and no error; a second gets the
 section naming the first.
 
-### 16.31 Looked at and left
+### 16.31 Two reports: the one issued, and the one in the package
+
+Build 11 on the throwaway controller, the first pipeline run anywhere to
+carry a trend: `out/report.html` had "Since the last assessment" against
+build 9's stored assessment; `out/package/report.html` — the file the
+package's README calls "the deliverable as issued" — did not. The package
+re-rendered the report from the stored result, and the result does not know
+about the previous assessment; the two were identical until the trend gave
+the issued one something the re-render could not reproduce. Two versions of
+a client's deliverable in circulation is the thing the artifact store's own
+comment says must never happen. `export --format package --report
+out/report.html` now carries the issued file byte for byte, so the package's
+`SHA256SUMS` line is the issued report's digest; both pipelines pass it.
+Without the flag the package still renders one, for a stored result that
+has no issued report beside it.
+
+### 16.32 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

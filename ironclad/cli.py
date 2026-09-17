@@ -140,6 +140,16 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--input", required=True)
     export.add_argument("--format", default="json", choices=("json", "csv", "package"))
     export.add_argument("--out", required=True)
+    export.add_argument(
+        "--report",
+        default="",
+        help=(
+            "the report as issued (package format only): carried into the package byte "
+            "for byte instead of re-rendered, so the package holds the deliverable the "
+            "client received — including a trend section rendered against a previous "
+            "assessment, which a re-render from the stored result cannot reproduce"
+        ),
+    )
 
     crosswalk = sub.add_parser("crosswalk", help="show the mapping between two frameworks")
     crosswalk.add_argument("--from", dest="source", required=True)
@@ -563,7 +573,10 @@ def cmd_export(args: argparse.Namespace) -> int:
             export_remediation_csv(result), encoding="utf-8"
         )
     else:
-        export_audit_package(result, result.evidence, output)
+        issued = Path(args.report) if args.report else None
+        if issued is not None and not issued.is_file():
+            raise ValidationError(f"issued report not found: {issued}")
+        export_audit_package(result, result.evidence, output, issued_report=issued)
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
     return EXIT_OK

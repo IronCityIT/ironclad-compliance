@@ -334,7 +334,8 @@ pipeline {
           sh '''
             set -eu
             python -m ironclad.cli export \
-              --input out/assessment.json --format package --out out/package/
+              --input out/assessment.json --format package \
+              --report out/report.html --out out/package/
             python scripts/validate_artifacts.py out/assessment.json out/package/package.json
           '''
         }

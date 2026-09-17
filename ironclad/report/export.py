@@ -187,12 +187,23 @@ def export_audit_trail_csv(result: Any) -> str:
     return buffer.getvalue()
 
 
-def export_audit_package(result: Any, evidence: Any, destination: Path) -> list[Path]:
+def export_audit_package(
+    result: Any, evidence: Any, destination: Path, issued_report: Path | None = None
+) -> list[Path]:
     """Write the full auditor package to a directory. Returns the files written.
 
     The package is self-describing: README.txt states what each file is and,
     just as importantly, what the package does not contain, so nobody assumes
     the evidence itself travelled with it.
+
+    `issued_report` is the report as it was actually issued. The package's
+    `report.html` used to be re-rendered here from the stored result, which
+    is the same document until the issued one carries something the result
+    does not — the "Since the last assessment" section, rendered against the
+    previous assessment. The first pipeline run with a trend produced two
+    different reports: one issued, one in the package labelled "the
+    deliverable as issued" (PRODUCTIZE_NOTES §16.31). Given the file, the
+    package carries it byte for byte, so the checksums agree too.
     """
     destination.mkdir(parents=True, exist_ok=True)
     assessment = result.assessment
@@ -209,7 +220,12 @@ def export_audit_package(result: Any, evidence: Any, destination: Path) -> list[
     write("remediation-plan.csv", export_remediation_csv(result))
     write("evidence-index.csv", export_evidence_index_csv(result, evidence))
     write("audit-trail.csv", export_audit_trail_csv(result))
-    write("report.html", _render(result))
+    if issued_report is not None:
+        report_bytes = Path(issued_report).read_bytes()
+        (destination / "report.html").write_bytes(report_bytes)
+        written.append(destination / "report.html")
+    else:
+        write("report.html", _render(result))
 
     # Every file the package carries, checksummed, so the auditor who receives
     # it can tell whether it is the package that was issued. The audit chain

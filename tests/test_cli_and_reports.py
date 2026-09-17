@@ -244,6 +244,29 @@ class TestExports:
             assert check.returncode != 0
             assert "control-register.csv: FAILED" in check.stdout
 
+    def test_the_package_carries_the_report_as_issued_not_a_re_render(
+        self, result, evidence, tmp_path: Path
+    ) -> None:
+        # The issued report can carry what the stored result cannot — the
+        # "Since the last assessment" section rendered against a previous
+        # assessment. The first pipeline run with a trend produced two
+        # different reports, one issued and one in the package labelled "the
+        # deliverable as issued".
+        import hashlib
+
+        issued = tmp_path / "issued.html"
+        issued.write_text("<html><body>Since the last assessment: as issued</body></html>")
+        package = tmp_path / "package"
+        export_audit_package(result, evidence, package, issued_report=issued)
+        assert (package / "report.html").read_bytes() == issued.read_bytes()
+        sums = _sha256sums(package / "SHA256SUMS")
+        assert sums["report.html"] == hashlib.sha256(issued.read_bytes()).hexdigest()
+
+        # without one, the package still renders a report from the result
+        plain = tmp_path / "plain"
+        export_audit_package(result, evidence, plain)
+        assert "<html" in (plain / "report.html").read_text()
+
     def test_the_package_states_that_it_excludes_the_evidence_itself(
         self, result, evidence, tmp_path: Path
     ) -> None:
@@ -464,6 +487,60 @@ class TestCli:
             == 2
         )
         assert "different tenants" in capsys.readouterr().err
+
+    def test_export_refuses_a_missing_issued_report(self, tmp_path: Path, capsys) -> None:
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir()
+        (evidence_dir / "policy.md").write_text("access control policy")
+        out = tmp_path / "out"
+        assert (
+            main(
+                [
+                    "assess",
+                    "--client",
+                    "acme",
+                    "--framework",
+                    "soc2",
+                    "--group",
+                    "quick",
+                    "--evidence-dir",
+                    str(evidence_dir),
+                    "--out",
+                    str(out),
+                ]
+            )
+            == 0
+        )
+        code = main(
+            [
+                "export",
+                "--input",
+                str(out / "assessment.json"),
+                "--format",
+                "package",
+                "--report",
+                str(tmp_path / "absent.html"),
+                "--out",
+                str(tmp_path / "pkg"),
+            ]
+        )
+        assert code == 2
+        assert "issued report not found" in capsys.readouterr().err
+        code = main(
+            [
+                "export",
+                "--input",
+                str(out / "assessment.json"),
+                "--format",
+                "package",
+                "--report",
+                str(out / "report.html"),
+                "--out",
+                str(tmp_path / "pkg"),
+            ]
+        )
+        assert code == 0
+        assert (tmp_path / "pkg" / "report.html").read_bytes() == (out / "report.html").read_bytes()
 
     def test_assess_refuses_an_id_the_store_would_refuse(self, tmp_path: Path, capsys) -> None:
         # Found by passing `../../escape`: assess accepted it, the AI stage

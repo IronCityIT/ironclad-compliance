@@ -489,3 +489,6 @@ class TestTheReportCarriesTheTrend:
         report = (work / "out" / "report.html").read_text()
         assert "Since the last assessment" in report
         assert "trend-co-soc2-tsc-0001" in report
+        # and the auditor package carries that report, not a re-render without it
+        packaged = (work / "out" / "package" / "report.html").read_bytes()
+        assert packaged == (work / "out" / "report.html").read_bytes()
