@@ -1203,9 +1203,17 @@ pretend to. It now names two signals, as warnings that reach the report's
 caveats and as fields on the module output for the analyst and the AI
 stage: an item matched to at least half the framework (and ten controls),
 and an item that carries three or more controls' descriptions verbatim. The
-verdicts are left alone. The sample evidence raises neither. The residual is
-the nature of keyword matching, and it is what the AI stage and the auditor
-are for.
+verdicts are left alone. The residual is the nature of keyword matching, and
+it is what the AI stage and the auditor are for.
+
+**Calibrated the same day.** "Half the framework" was the first bar, tested
+on SOC 2 alone, and it named the sample access-control policy on HIPAA (13
+of 23), PCI DSS (15 of 27) and the incident-response plan on NIST CSF (21 of
+43). A framework whose controls all speak of access is matched widely by any
+policy about access; that is the framework's vocabulary, not a stuffed
+document. The bar is four fifths now, the stuffed pair (33 of 33) still
+trips it, and a test runs the sample evidence against all four shipped
+frameworks and asserts neither signal fires.
 
 ### 16.19 Scoping out the framework
 

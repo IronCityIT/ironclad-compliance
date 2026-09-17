@@ -18,6 +18,7 @@ strength of one document. What changed:
 
 from __future__ import annotations
 
+import math
 import re
 
 from ironclad.base import AssessmentContext, AssessmentModule, Finding, ModuleResult
@@ -35,8 +36,13 @@ RELEVANCE_THRESHOLD = 0.18
 CORROBORATION_MIN = 2
 
 # A document matched by wording to at least this many controls, and to at least
-# half the framework, is named as implausibly broad. Not a verdict: a warning.
+# four fifths of the framework, is named as implausibly broad. Not a verdict: a
+# warning. Half was tried first and named the sample access-control policy on
+# HIPAA (13 of 23) and PCI DSS (15 of 27): a framework whose controls all speak
+# of access is matched widely by any policy about access, and that is the
+# framework's vocabulary, not a stuffed document.
 BROAD_MATCH_MIN = 10
+BROAD_MATCH_SHARE = 0.8
 # A document that carries this many controls' descriptions verbatim (of at
 # least this length) is quoting the framework rather than evidencing it.
 QUOTE_MIN_CONTROLS = 3
@@ -189,7 +195,7 @@ class ControlMapping(AssessmentModule):
             for link in verdict.evidence_links:
                 if link.method is LinkMethod.AUTOMATED:
                     counts[link.artifact_id] = counts.get(link.artifact_id, 0) + 1
-        threshold = max(BROAD_MATCH_MIN, len(ctx.framework.controls) // 2)
+        threshold = max(BROAD_MATCH_MIN, math.ceil(len(ctx.framework.controls) * BROAD_MATCH_SHARE))
         flagged = []
         for artifact_id, count in counts.items():
             if count >= threshold:

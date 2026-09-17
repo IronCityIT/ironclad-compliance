@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,8 @@ from ironclad.model.control import Framework
 from ironclad.model.evidence import EvidenceSet, LinkMethod
 from ironclad.model.exception import RiskException
 from tests.conftest import NOW, make_artifact, verdict_for
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -257,18 +260,27 @@ class TestRun:
         assert sum("rarely evidences most of a framework" in w for w in result.warnings) == 2
         assert sum("framework's own wording" in w for w in result.warnings) == 2
 
-    def test_ordinary_evidence_raises_neither_signal(self, evidence) -> None:
+    @pytest.mark.parametrize("alias", ["soc2", "nist-csf", "pci-dss", "hipaa"])
+    def test_ordinary_evidence_raises_neither_signal(self, alias: str) -> None:
+        # The bundled sample evidence, on every shipped framework. At "half the
+        # framework" the broad-match signal named the sample access-control
+        # policy on HIPAA (13 of 23) and PCI DSS (15 of 27): a framework whose
+        # controls all speak of access is matched widely by any policy about
+        # access. That is vocabulary, not stuffing, and the bar is four fifths.
         from ironclad.frameworks.loader import load_framework
+        from ironclad.ingest import collect_from_directory
 
+        evidence, _ = collect_from_directory("acme", REPO_ROOT / "examples" / "evidence")
         result = run_assessment(
             tenant_id="acme",
-            framework=load_framework("soc2"),
+            framework=load_framework(alias),
             evidence=evidence,
             group="quick",
             as_of=NOW,
         )
         output = result.module_output["control_mapping"]
-        assert output["implausibly_broad"] == [] and output["quotes_framework"] == []
+        assert output["implausibly_broad"] == [], alias
+        assert output["quotes_framework"] == [], alias
 
     def test_evidence_from_another_tenant_is_refused(self, tiny_framework, evidence) -> None:
         # Assessing one client's evidence into another client's record is not a
