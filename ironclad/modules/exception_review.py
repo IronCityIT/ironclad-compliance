@@ -165,6 +165,18 @@ class ExceptionReview(AssessmentModule):
                 )
             )
 
+        # An accepted risk counts as half-met and carries no remediation item.
+        # Twenty-seven acceptances over a thirty-three-control framework moved
+        # readiness from 46.5% to 61.2% and emptied the remediation plan — each
+        # one approved by a second person, each one time-boxed, and together a
+        # headline that says more about the acceptances than the controls.
+        total = len(ctx.framework.controls)
+        if total and applied * 2 >= total:
+            ctx.warn(
+                f"{applied} of {total} controls are under an approved risk acceptance; each "
+                f"counts as half-met in the readiness figure and none carries a remediation item"
+            )
+
         ctx.module_output[self.name] = {
             "exceptions_total": len(ctx.exceptions),
             "applied": applied,

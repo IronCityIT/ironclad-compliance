@@ -332,11 +332,11 @@ class TestRun:
 
 
 class TestExceptionsInARun:
-    def _exception(self, expires_in_days: int = 90) -> RiskException:
+    def _exception(self, expires_in_days: int = 90, control_id: str = "CC9.9") -> RiskException:
         exception = RiskException(
-            exception_id="ex-1",
+            exception_id=f"ex-{control_id}",
             tenant_id="acme",
-            control_id="CC9.9",
+            control_id=control_id,
             justification="Compensating monitoring is in place until the next release.",
             requested_by="alice",
             requested_at=NOW,
@@ -358,7 +358,7 @@ class TestExceptionsInARun:
         )
         verdict = verdict_for(result, "CC9.9")
         assert verdict.status is ControlStatus.ACCEPTED_RISK
-        assert verdict.exception_id == "ex-1"
+        assert verdict.exception_id == "ex-CC9.9"
 
     def test_a_lapsed_acceptance_reopens_the_gap(self, tiny_framework, evidence) -> None:
         result = run_assessment(
@@ -384,6 +384,32 @@ class TestExceptionsInARun:
             as_of=NOW,
         )
         assert "CC9.9" not in {item.control_id for item in result.plan.items}
+
+    def test_accepting_half_the_framework_is_said_where_the_number_is_read(
+        self, tiny_framework, evidence
+    ) -> None:
+        # Twenty-seven acceptances over thirty-three controls: 46.5% → 61.2%,
+        # an empty remediation plan, and a headline that said nothing about it.
+        one = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="standard",
+            exceptions=[self._exception()],
+            as_of=NOW,
+        )
+        assert not any("under an approved risk acceptance" in w for w in one.warnings)
+        two = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="standard",
+            exceptions=[self._exception(), self._exception(control_id="CC1.1")],
+            as_of=NOW,
+        )
+        assert any(
+            "2 of 3 controls are under an approved risk acceptance" in w for w in two.warnings
+        ), two.warnings
 
     def test_an_imminent_expiry_is_flagged(self, tiny_framework, evidence) -> None:
         result = run_assessment(

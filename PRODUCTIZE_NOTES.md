@@ -1219,7 +1219,19 @@ framework is scoped out, the caveats now say how many and over how many the
 number is computed. Each exclusion is still a documented, approved decision;
 this is about where the number is read.
 
-### 16.20 Looked at and left
+### 16.20 Accepting the framework
+
+The same shape from the other direction: an approved, time-boxed, second-
+person acceptance on every one of the 27 gaps. Readiness 46.5% → 61.2%, 27
+accepted, **0 remediation items** — every one of those decisions is
+legitimate on its own terms and the engine applied each correctly, and the
+headline said nothing about there being twenty-seven of them. When half or
+more of the framework is under accepted risk, the caveats now say so, and
+say what it does to the number: each counts as half-met and none carries a
+remediation item. The 0.5 weight is the scoring rule (STATUS, open decision
+4's neighbour) and is not changed here.
+
+### 16.21 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
