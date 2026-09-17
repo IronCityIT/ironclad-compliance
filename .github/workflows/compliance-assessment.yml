@@ -372,15 +372,45 @@ jobs:
               out.write(f"analysed={consensus.get('analysed', 0)}\n")
           PY
 
+      # The trend. A compliance programme is a trend, not a snapshot, and
+      # the report has had a "Since the last assessment" section since the
+      # comparison was built — reachable only by hand, because nothing in the
+      # pipeline fetched the previous assessment. When a store is configured,
+      # the tenant's most recent stored assessment against the same framework
+      # is fetched here and the report is rendered against it. No store, or a
+      # first assessment, is not an error: the section is simply absent.
+      - name: Fetch the previous assessment from the store
+        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE != '' }}
+        env:
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
+          FRAMEWORK: ${{ inputs.framework }}
+          ASSESSMENT_ID: ${{ needs.prepare.outputs.assessment_id }}
+        run: |
+          set -euo pipefail
+          status=0
+          python -m ironclad.cli store latest \
+            --client "$CLIENT_ID" \
+            --framework "$FRAMEWORK" \
+            --before "$ASSESSMENT_ID" \
+            --out previous/assessment.json || status=$?
+          # 3 is "none yet": a first assessment. Anything else is a fault.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+
       - name: Render the report and the auditor package
         env:
           CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
+          compare=""
+          if [ -f previous/assessment.json ]; then
+            compare="--compare-to previous/assessment.json"
+          fi
+          # shellcheck disable=SC2086 — $compare is either empty or two words
           python -m ironclad.cli report \
             --input out/assessment.json \
             --out out/report.html \
-            --client-name "$CLIENT_ID"
+            --client-name "$CLIENT_ID" \
+            $compare
           python -m ironclad.cli export \
             --input out/assessment.json \
             --format package \

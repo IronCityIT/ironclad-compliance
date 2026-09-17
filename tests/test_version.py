@@ -234,7 +234,13 @@ class TestThePrepareJobResolvesTheStandardInputs:
     and run, because nothing else tests shell."""
 
     @staticmethod
-    def _run(step_name: str, env: dict[str, str], outputs_from: dict[str, str] | None = None):
+    def _run(
+        step_name: str,
+        env: dict[str, str],
+        outputs_from: dict[str, str] | None = None,
+        job: str = "prepare",
+        cwd: Path | None = None,
+    ):
         import os
         import subprocess
         import tempfile
@@ -244,13 +250,20 @@ class TestThePrepareJobResolvesTheStandardInputs:
         workflow = yaml.safe_load(
             (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
         )
-        steps = {s.get("name"): s for s in workflow["jobs"]["prepare"]["steps"]}
+        steps = {s.get("name"): s for s in workflow["jobs"][job]["steps"]}
         with tempfile.NamedTemporaryFile("w+", delete=False) as handle:
             output_file = handle.name
+        # The workflow says `python`, as setup-python provides it; here it is
+        # whatever interpreter runs the tests.
+        shim = Path(tempfile.mkdtemp()) / "bin"
+        shim.mkdir()
+        (shim / "python").symlink_to(sys.executable)
         completed = subprocess.run(
             ["bash", "-c", steps[step_name]["run"]],
+            cwd=cwd or REPO_ROOT,
             env={
-                "PATH": os.environ["PATH"],
+                "PATH": f"{shim}:{os.environ['PATH']}",
+                "PYTHONPATH": str(REPO_ROOT),
                 "GITHUB_OUTPUT": output_file,
                 # the step's declared env, as GitHub would set it for an empty input
                 **{k: "" for k in ("CLIENT_NAME", "CLIENT_ID_ALIAS", "SCAN_ID", "CLIENT_ID")},
@@ -364,3 +377,115 @@ def test_the_secret_literal_gate_catches_a_planted_credential(tmp_path: Path) ->
     )
     assert leak.returncode == 1
     assert "leak.py" in leak.stdout
+
+
+class TestTheReportCarriesTheTrend:
+    """The report has had a "Since the last assessment" section since the
+    comparison was built, reachable only by hand: nothing in the pipeline
+    fetched the previous assessment. The report job now does, from the store,
+    and renders against it. Both steps' shell is run as committed."""
+
+    def _assess_and_publish(self, tmp_path: Path, store: Path, run: str) -> Path:
+        import subprocess
+
+        out = tmp_path / run
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ironclad.cli",
+                "assess",
+                "--client",
+                "Trend Co",
+                "--framework",
+                "soc2",
+                "--group",
+                "quick",
+                "--evidence-dir",
+                str(REPO_ROOT / "examples" / "evidence"),
+                "--assessment-id",
+                f"trend-co-soc2-tsc-{run}",
+                "--out",
+                str(out),
+            ],
+            check=True,
+            capture_output=True,
+            cwd=REPO_ROOT,
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ironclad.cli",
+                "store",
+                "publish",
+                "--to",
+                str(store),
+                "--input",
+                str(out / "assessment.json"),
+            ],
+            check=True,
+            capture_output=True,
+            cwd=REPO_ROOT,
+        )
+        return out
+
+    def test_a_first_assessment_has_no_previous_and_that_is_not_an_error(
+        self, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "store"
+        store.mkdir()
+        work = tmp_path / "work"
+        work.mkdir()
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Fetch the previous assessment from the store",
+            {
+                "IRONCLAD_STORE": str(store),
+                "CLIENT_ID": "Trend Co",
+                "FRAMEWORK": "soc2",
+                "ASSESSMENT_ID": "trend-co-soc2-tsc-first",
+            },
+            job="report",
+            cwd=work,
+        )
+        assert code == 0, log
+        assert "no previous soc2-tsc assessment" in log
+        assert not (work / "previous" / "assessment.json").exists()
+
+    def test_the_previous_assessment_is_fetched_and_the_report_says_what_moved(
+        self, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "store"
+        store.mkdir()
+        self._assess_and_publish(tmp_path, store, "0001")
+        current = self._assess_and_publish(tmp_path, store, "0002")
+        work = tmp_path / "work"
+        (work / "out").mkdir(parents=True)
+        (work / "out" / "assessment.json").write_bytes((current / "assessment.json").read_bytes())
+
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Fetch the previous assessment from the store",
+            {
+                "IRONCLAD_STORE": str(store),
+                "CLIENT_ID": "Trend Co",
+                "FRAMEWORK": "soc2",
+                "ASSESSMENT_ID": "trend-co-soc2-tsc-0002",
+            },
+            job="report",
+            cwd=work,
+        )
+        assert code == 0, log
+        previous = json.loads((work / "previous" / "assessment.json").read_text())
+        # the one before the current, never the current itself
+        assert previous["assessment_id"] == "trend-co-soc2-tsc-0001"
+
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Render the report and the auditor package",
+            {"CLIENT_ID": "Trend Co"},
+            job="report",
+            cwd=work,
+        )
+        assert code == 0, log
+        report = (work / "out" / "report.html").read_text()
+        assert "Since the last assessment" in report
+        assert "trend-co-soc2-tsc-0001" in report

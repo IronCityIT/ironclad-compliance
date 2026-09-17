@@ -1452,7 +1452,22 @@ now rebuilds a comparable document from them, claiming nothing it does not
 hold, and a contract test on both stores asserts the comparison read out of
 the store is identical to the one built from the documents that went in.
 
-### 16.30 Looked at and left
+### 16.30 The trend reaches the client's report
+
+The comparison existed, the report rendered it, and nothing in either
+pipeline ever fetched the previous assessment — so no client report has ever
+carried a "Since the last assessment" section unless someone ran two CLI
+commands by hand. `ironclad store latest --client X --framework Y --out
+previous.json` writes the tenant's most recent stored assessment against
+that framework (exit 3 and no file when there is none, which a pipeline
+reads as "first assessment"; never the run being produced, by `--before`).
+The workflow's report job fetches it when a store is configured and renders
+against it; the Jenkins assessment stage does the same behind the
+`ironclad-store` credential. Both steps' shell is run as committed by a
+test: a first assessment gets no section and no error; a second gets the
+section naming the first.
+
+### 16.31 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

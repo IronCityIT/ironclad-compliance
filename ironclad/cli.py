@@ -226,6 +226,29 @@ def build_parser() -> argparse.ArgumentParser:
     store_list.add_argument("--client", required=True, help="tenant to list for")
     store_list.add_argument("--limit", type=int, default=25)
 
+    store_latest = with_target(
+        store_sub.add_parser(
+            "latest",
+            help="write a tenant's most recent stored assessment to a file, for --compare-to",
+            description=(
+                "The previous assessment, so the next report can say what moved since. "
+                "Filtered to one framework: a SOC 2 report compared against last quarter's "
+                "HIPAA assessment is not a trend, and the comparison would say so rather than "
+                "show one. Exit 0 and the file when there is one; exit 3 and no file when the "
+                "tenant has none yet, which a pipeline treats as 'first assessment', not as "
+                "an error."
+            ),
+        )
+    )
+    store_latest.add_argument("--client", required=True)
+    store_latest.add_argument("--framework", required=True, help="framework alias, e.g. soc2")
+    store_latest.add_argument("--out", required=True, help="where to write the document")
+    store_latest.add_argument(
+        "--before",
+        default="",
+        help="skip this assessment id — the one being produced now, if already stored",
+    )
+
     exception = sub.add_parser(
         "exception",
         help="the risk-acceptance workflow, against a tenant policy file",
@@ -685,6 +708,33 @@ def cmd_store(args: argparse.Namespace) -> int:
             }
         )
         return EXIT_OK
+
+    if args.store_command == "latest":
+        framework = load_framework(args.framework)
+        reader = getattr(store, "get_document", None)
+        if reader is None:
+            print("this store cannot hand back a stored assessment", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        tenant = client_slug(args.client)
+        for row in store.list_assessments(tenant, limit=50):
+            if str(row.get("framework_id", "")) != framework.id:
+                continue
+            if args.before and str(row.get("assessment_id", "")) == args.before:
+                continue
+            document = reader(tenant, str(row["assessment_id"]))
+            if document is None:
+                continue
+            out = Path(args.out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+            print(
+                f"previous {framework.id} assessment for {tenant}: {row['assessment_id']} "
+                f"({row.get('started_at', '')}) written to {out}",
+                file=sys.stderr,
+            )
+            return EXIT_OK
+        print(f"no previous {framework.id} assessment stored for {tenant}", file=sys.stderr)
+        return EXIT_PARTIAL
 
     source = Path(args.input)
     if not source.exists():

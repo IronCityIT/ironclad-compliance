@@ -301,6 +301,38 @@ pipeline {
               --evidence-dir "$EVIDENCE_DIR" \
               --group "$GROUP" \
               --out out/
+          '''
+        }
+        // The trend, the same way the GitHub workflow gets it: the tenant's
+        // previous assessment against this framework, out of the store when
+        // there is one, and the report re-issued against it. No credential,
+        // or a first assessment, leaves the report without the section.
+        script {
+          try {
+            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
+              withEnv(["CLIENT_ID=${params.CLIENT_ID}", "FRAMEWORK=${params.FRAMEWORK}"]) {
+                sh '''
+                  set -eu
+                  status=0
+                  python -m ironclad.cli store latest \
+                    --client "$CLIENT_ID" --framework "$FRAMEWORK" \
+                    --out previous/assessment.json || status=$?
+                  if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+                  if [ -f previous/assessment.json ]; then
+                    python -m ironclad.cli report \
+                      --input out/assessment.json --out out/report.html \
+                      --client-name "$CLIENT_ID" --compare-to previous/assessment.json
+                  fi
+                '''
+              }
+            }
+          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+            echo 'no ironclad-store credential on this controller — the report carries no trend'
+          }
+        }
+        withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
+          sh '''
+            set -eu
             python -m ironclad.cli export \
               --input out/assessment.json --format package --out out/package/
             python scripts/validate_artifacts.py out/assessment.json out/package/package.json
@@ -428,6 +460,7 @@ pipeline {
       // (PRODUCTIZE_NOTES §16.26), not by reading.
       dir('out') { deleteDir() }
       dir('dist') { deleteDir() }
+      dir('previous') { deleteDir() }
     }
   }
 }
