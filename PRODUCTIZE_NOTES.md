@@ -1305,7 +1305,21 @@ folds as `ok, 25 of 25, critical, 81.7%, 338 of 375`, with the commentary
 block rendered — the same result the report job got from the artifact.
 Posted as a comment on PR #6 for the reviewer; nothing merged.
 
-### 16.24 Looked at and left
+### 16.24 The one text the white-label gate cannot scan
+
+With the real engine output in hand (§16.23), its 250 lines of aggregated
+remediation and verification advice were read for product and vendor names.
+None — the models wrote "EDR", "SIEM", "DLP", "FIM", not brands. But that
+text is stored on the record and shipped in `assessment.json` inside the
+auditor package, and the gate that enforces the white-label rule scans the
+static surfaces at build time; nothing stood between a model recommending a
+tool by name tomorrow and that name reaching a client. `ironclad/white_label.py`
+carries the gate's own pattern — a test holds the two identical — and the
+merge replaces a match in the models' advice before it lands, counting the
+replacements on the record and in a warning. The real artifact folds with
+zero replacements.
+
+### 16.25 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

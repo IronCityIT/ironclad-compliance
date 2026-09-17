@@ -313,3 +313,14 @@ class TestThePrepareJobResolvesTheStandardInputs:
         assert out["assessment_id"] == "scan-2026-09-17-abc-dry-run"
         code, _, out = self._run("Plan the run", {"CLIENT_ID": "Acme Corp", "FRAMEWORK": "soc2"})
         assert out["assessment_id"].startswith("acme-corp-soc2-")
+
+
+def test_the_white_label_pattern_is_the_gates_pattern() -> None:
+    # One rule, two places it must run: the shell gate over the static
+    # surfaces, and the merge over the models' advice at run time.
+    from ironclad.white_label import PATTERN
+
+    script = (REPO_ROOT / "scripts/check_white_label.sh").read_text()
+    match = re.search(r"^pattern='([^']+)'", script, re.MULTILINE)
+    assert match, "the gate's pattern line moved"
+    assert match.group(1) == PATTERN

@@ -616,6 +616,38 @@ class TestConsensusPayload:
         assert a["results"] == b["results"]
         assert a["severity"] == b["severity"] and a["confidence"] == b["confidence"]
 
+    def test_a_tool_named_in_the_models_advice_is_replaced_before_storage(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The gates scan the static surfaces; the one text they cannot scan is
+        # what the models send back at run time, which is stored on the record
+        # and shipped in the auditor package.
+        result = self._run(tiny_framework, evidence)
+        sent = consensus_findings(result.findings_payload())
+        answer = _engine_result()
+        answer["aggregated_remediation"] = ["Deploy Wazuh agents to every host", "Run ZAP weekly"]
+        answer["verification_steps"] = ["Ask Gemini to summarise the log"]
+        merged = merge_consensus(result, _b64([answer] * len(sent)))
+        first = merged["results"][0]
+        assert first["remediation"] == [
+            "Deploy a supported tool agents to every host",
+            "Run a supported tool weekly",
+        ]
+        assert first["verification"] == ["Ask a supported tool to summarise the log"]
+        assert merged["redacted_tool_names"] == 3 * len(sent)
+        assert any("named an underlying tool" in w for w in result.warnings)
+        import json
+
+        blob = json.dumps(result.to_dict()).lower()
+        assert "wazuh" not in blob and "gemini" not in blob
+
+    def test_clean_advice_is_stored_untouched(self, tiny_framework, evidence) -> None:
+        result = self._run(tiny_framework, evidence)
+        sent = consensus_findings(result.findings_payload())
+        merged = merge_consensus(result, _b64([_engine_result()] * len(sent)))
+        assert merged["redacted_tool_names"] == 0
+        assert merged["results"][0]["remediation"][0] == "Adopt a second evidence source"
+
     def test_an_empty_consensus_is_recorded_as_unavailable(self, tiny_framework, evidence) -> None:
         # The engine documents an empty output when analysis fails. The
         # assessment must still be storable and reportable.

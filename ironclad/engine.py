@@ -36,6 +36,7 @@ from ironclad.model.exception import RiskException
 from ironclad.model.remediation import RemediationPlan
 from ironclad.policy import TenantPolicy
 from ironclad.version import __version__
+from ironclad.white_label import redact
 
 
 @dataclass
@@ -319,6 +320,7 @@ def merge_consensus(result: Any, consensus_b64: str) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     responded = 0
     asked = 0
+    redactions: list[int] = []
     for finding, item in zip(sent, payload, strict=False):
         successful = int(item.get("successful_models") or 0)
         total = int(item.get("total_models") or 0)
@@ -333,8 +335,14 @@ def merge_consensus(result: Any, consensus_b64: str) -> dict[str, Any]:
                 "exploitability": item.get("exploitability", ""),
                 "impact": item.get("impact", ""),
                 "false_positive_likelihood": item.get("false_positive_likelihood", ""),
-                "remediation": [str(r) for r in (item.get("aggregated_remediation") or [])[:5]],
-                "verification": [str(v) for v in (item.get("verification_steps") or [])[:5]],
+                "remediation": [
+                    _white_labelled(str(r), redactions)
+                    for r in (item.get("aggregated_remediation") or [])[:5]
+                ],
+                "verification": [
+                    _white_labelled(str(v), redactions)
+                    for v in (item.get("verification_steps") or [])[:5]
+                ],
                 "models_responded": successful,
                 "models_asked": total,
             }
@@ -365,7 +373,16 @@ def merge_consensus(result: Any, consensus_b64: str) -> dict[str, Any]:
         "models_asked": asked,
         "summary": _consensus_summary(results, severity, confidence),
         "results": results,
+        # The models' advice is stored on the record and shipped in the
+        # auditor package, which the gates cannot scan at run time. A tool
+        # named in it is replaced before it lands, and the count says so.
+        "redacted_tool_names": sum(redactions),
     }
+    if sum(redactions):
+        result.warnings.append(
+            f"AI commentary named an underlying tool {sum(redactions)} time(s); "
+            f"replaced before storage"
+        )
     result.assessment.consensus = merged
     result.audit.record(
         actor="system:pipeline",
@@ -375,6 +392,12 @@ def merge_consensus(result: Any, consensus_b64: str) -> dict[str, Any]:
         metadata={"severity": severity, "confidence": confidence, "analysed": len(results)},
     )
     return merged
+
+
+def _white_labelled(text: str, redactions: list[int]) -> str:
+    cleaned, count = redact(text)
+    redactions.append(count)
+    return cleaned
 
 
 def _number(value: Any) -> float | None:
