@@ -272,6 +272,26 @@ class TestCli:
         manifest.write_text(json.dumps({"contract_version": "1.0", "items": []}))
         assert main(["validate", "--manifest", str(manifest)]) == 2
 
+    def test_validate_reports_a_file_that_is_not_json_as_a_finding(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # The command exists to be handed dubious files. Handed one that was
+        # not JSON, all three flags produced a JSONDecodeError traceback.
+        not_json = tmp_path / "policy.json"
+        not_json.write_text("tenant: acme\n")
+        binary = tmp_path / "framework.json"
+        binary.write_bytes(b"\xff\xfe\x00")
+
+        assert main(["validate", "--policy", str(not_json), "--manifest", str(not_json)]) == 2
+        report = json.loads(capsys.readouterr().out)
+        assert report["valid"] is False
+        assert "not valid JSON" in report["problems"]["policy"][0]
+        assert "not valid JSON" in report["problems"]["manifest"][0]
+
+        assert main(["validate", "--framework", str(binary)]) == 2
+        report = json.loads(capsys.readouterr().out)
+        assert "not a text file" in report["problems"]["framework"][0]
+
     def test_assess_writes_the_three_pipeline_artifacts(self, tmp_path: Path) -> None:
         evidence_dir = tmp_path / "evidence"
         evidence_dir.mkdir()

@@ -329,11 +329,24 @@ def cmd_list_frameworks() -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     problems: dict[str, list[str]] = {}
 
+    def read_json(path: Path) -> tuple[Any, list[str]]:
+        """A document to validate, or the reason there is none.
+
+        `validate` exists to be handed dubious files; a file that is not JSON
+        is the first thing it should be able to say, not a traceback.
+        """
+        try:
+            return json.loads(path.read_text(encoding="utf-8")), []
+        except UnicodeDecodeError as exc:
+            return None, [f"{path} is not a text file: {exc}"]
+        except json.JSONDecodeError as exc:
+            return None, [f"{path} is not valid JSON: {exc}"]
+
     if args.framework:
         path = Path(args.framework)
         if path.suffix == ".json" and path.exists():
-            document = json.loads(path.read_text(encoding="utf-8"))
-            problems["framework"] = validate_framework_document(document)
+            document, faults = read_json(path)
+            problems["framework"] = faults or validate_framework_document(document)
         else:
             try:
                 load_framework(args.framework)
@@ -348,16 +361,16 @@ def cmd_validate(args: argparse.Namespace) -> int:
         if not manifest_path.exists():
             problems["manifest"] = [f"{manifest_path} does not exist"]
         else:
-            document = json.loads(manifest_path.read_text(encoding="utf-8"))
-            problems["manifest"] = validate_manifest(document)
+            document, faults = read_json(manifest_path)
+            problems["manifest"] = faults or validate_manifest(document)
 
     if args.policy:
         policy_path = Path(args.policy)
         if not policy_path.exists():
             problems["policy"] = [f"{policy_path} does not exist"]
         else:
-            document = json.loads(policy_path.read_text(encoding="utf-8"))
-            faults = validate_policy(document)
+            document, faults = read_json(policy_path)
+            faults = faults or validate_policy(document)
             if not faults:
                 # Structural validity is not enough: an acceptance can still be
                 # one the approval workflow refuses, such as a self-approval.

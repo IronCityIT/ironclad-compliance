@@ -1021,7 +1021,23 @@ the contract says, the truncation named. Two things were not right:
   reported as facts about the pipeline. Skipped now, with one warning naming
   them; a file that really is evidence can still be declared in a manifest.
 
-### 16.9 Looked at and left
+### 16.9 Hand-edited policy files
+
+The runbook has an operator editing `policy.json` by hand, so eight
+mis-edits went through `ironclad validate --policy`: a two-year acceptance,
+an expiry before its request, a self-approval, an exclusion for a control
+that exists nowhere, `owners` as a list, a tenant that is not the
+assessment's, a top-level array, naive timestamps. Seven were named
+correctly, in the operator's terms — the self-approval as "needs a second
+person", the tenant mismatch at `assess` time with both tenants named. The
+eighth was the file that was not JSON at all: every one of `validate`'s
+three flags produced a traceback for it. The command exists to be handed
+dubious files; a non-JSON file is now the first finding it reports.
+
+Naive timestamps are read as UTC and the acceptance in that file, expiring
+2026-09-01, correctly counted for nothing on 2026-09-17.
+
+### 16.10 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
