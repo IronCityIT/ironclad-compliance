@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `cd5cedd`, run
-[34687237036](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34687237036):
+Green on `productize/ironclad-compliance` at `e4c4f78`, run
+[35168120995](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35168120995):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
