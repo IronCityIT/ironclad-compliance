@@ -66,6 +66,7 @@ pipeline {
     PYTHONDONTWRITEBYTECODE = '1'
     // Gate results accumulate here so the summary can name every failure.
     GATE_FAILURES = ''
+    GATE_UNAVAILABLE = ''
   }
 
   stages {
@@ -116,6 +117,7 @@ pipeline {
           ]
 
           def failed = []
+          def unavailable = []
           for (gate in gates) {
             echo "── gate: ${gate.name}"
             def status = sh(script: gate.cmd, returnStatus: true)
@@ -148,6 +150,7 @@ pipeline {
           )
           if (rulesStatus == 66) {
             echo '── gate rules UNAVAILABLE — reported, not passed'
+            unavailable << 'rules'
             unstable('firestore.rules gate could not run on this agent')
           } else if (rulesStatus != 0) {
             failed << 'rules'
@@ -174,6 +177,7 @@ pipeline {
           )
           if (persistenceStatus == 66) {
             echo '── gate persistence UNAVAILABLE — reported, not passed'
+            unavailable << 'persistence'
             unstable('persistence gate could not run on this agent')
           } else if (persistenceStatus != 0) {
             failed << 'persistence'
@@ -199,6 +203,7 @@ pipeline {
           )
           if (functionsStatus == 66) {
             echo '── gate functions UNAVAILABLE — reported, not passed'
+            unavailable << 'functions'
             unstable('cloud functions gate could not run on this agent')
           } else if (functionsStatus != 0) {
             failed << 'functions'
@@ -224,6 +229,7 @@ pipeline {
           )
           if (securityStatus == 66) {
             echo '── gate security UNAVAILABLE — reported, not passed'
+            unavailable << 'security'
             unstable('security gate could not run on this agent')
           } else if (securityStatus != 0) {
             failed << 'security'
@@ -233,6 +239,7 @@ pipeline {
           }
 
           env.GATE_FAILURES = failed.join(', ')
+          env.GATE_UNAVAILABLE = unavailable.join(', ')
           if (failed) {
             // A red gate blocks the change. It is reported in full above and
             // named in the build description; it is never papered over.
@@ -346,7 +353,15 @@ pipeline {
       echo "BUILD OK — ${currentBuild.description}"
     }
     unstable {
-      echo 'BUILD UNSTABLE — a gate could not run. See the log above.'
+      // Named in the build description, so the build list says which gate
+      // this agent could not run rather than leaving a blank beside UNSTABLE
+      // (the first real run left it blank).
+      script {
+        currentBuild.description = env.GATE_UNAVAILABLE
+          ? "gates unavailable on this agent: ${env.GATE_UNAVAILABLE}"
+          : 'a gate could not run'
+      }
+      echo "BUILD UNSTABLE — ${currentBuild.description}. See the log above."
     }
     failure {
       script {
@@ -359,11 +374,12 @@ pipeline {
     always {
       // Idempotent: a re-run starts from a clean workspace, so a stale report
       // from a previous build can never be archived as this build's output.
-      cleanWs(
-        deleteDirs: true,
-        notFailBuild: true,
-        patterns: [[pattern: 'out/**', type: 'INCLUDE'], [pattern: 'dist/**', type: 'INCLUDE']]
-      )
+      // Core steps only. This was `cleanWs(...)`, which is the ws-cleanup
+      // plugin: on a controller without it the whole post section threw
+      // "No such DSL method 'cleanWs'" — found on the first real run
+      // (PRODUCTIZE_NOTES §16.26), not by reading.
+      dir('out') { deleteDir() }
+      dir('dist') { deleteDir() }
     }
   }
 }

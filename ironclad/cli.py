@@ -659,8 +659,22 @@ def cmd_store(args: argparse.Namespace) -> int:
             )
             return EXIT_BAD_INPUT
         verdict = artifacts.verify(args.client, args.assessment_id)
-        _emit({"location": artifacts.location(args.client, args.assessment_id), **verdict})
-        return EXIT_OK if verdict["verified"] else EXIT_BAD_INPUT
+        # The deliverables and the trail are the two things a restore has to
+        # get right; both are checked here, and the command is red if either
+        # is wrong. The chain check is per assessment (§16.27).
+        chain = None
+        verify_chain = getattr(store, "verify_audit_chain", None)
+        if callable(verify_chain):
+            chain = verify_chain(args.client)
+        _emit(
+            {
+                "location": artifacts.location(args.client, args.assessment_id),
+                **verdict,
+                "audit_chain": chain,
+            }
+        )
+        chain_ok = chain is None or bool(chain["verified"])
+        return EXIT_OK if verdict["verified"] and chain_ok else EXIT_BAD_INPUT
 
     if args.store_command == "list":
         _emit(

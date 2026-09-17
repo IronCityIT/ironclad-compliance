@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ironclad.ids import is_safe_document_id
-from ironclad.store.base import StoreError
+from ironclad.store.base import StoreError, verify_stored_chains
 from ironclad.store.rows import TABLES, rows_from_document
 
 AUDIT_FILE = "audit.jsonl"
@@ -190,6 +190,10 @@ class FileResultStore:
     def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
         events = self._read_audit(tenant_id)
         return events[-limit:] if limit else events
+
+    def verify_audit_chain(self, tenant_id: str) -> dict[str, Any]:
+        """Re-verify every assessment's chain in this tenant's trail, as stored."""
+        return verify_stored_chains(self._read_audit(tenant_id), tenant_id)
 
     # ----------------------------------------------------------------- health
 

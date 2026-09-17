@@ -154,12 +154,19 @@ def main(argv: list[str] | None = None) -> int:
             len(events) >= len(result.audit.events),
             f"the trail came back short: {len(events)} of {len(result.audit.events)}",
         )
-        previous = ""
-        for index, event in enumerate(events):
-            if index and event["prev_hash"] != previous:
-                raise CheckError(f"the stored chain breaks at event {event['event_id']}")
-            previous = str(event["hash"])
-        print(f"audit        {len(events)} event(s), chain verifies out of the store")
+        # One chain per assessment. This used to walk the tenant's whole trail
+        # as a single chain, which passed against a fresh store and failed the
+        # second time the gate ran into the same volume — every assessment's
+        # trail starts at genesis, and a tenant with two has two chains.
+        verdict = store.verify_audit_chain(TENANT)
+        check(
+            verdict["verified"],
+            f"the stored chain breaks at event {verdict['broken_at']}: {verdict['detail']}",
+        )
+        print(
+            f"audit        {len(events)} event(s) across {verdict['chains']} assessment(s), "
+            f"every chain verifies out of the store"
+        )
 
         # ---- the queue ------------------------------------------------------
         queue = store.list_remediation(TENANT)

@@ -320,6 +320,28 @@ class StoreContract:
         stored = [a["assessment_id"] for a in store.list_assessments("acme")]
         assert sorted(stored) == ["acme-store-1", "acme-store-2"]
 
+    def test_every_assessments_chain_verifies_out_of_the_store(
+        self, tmp_path: Path, document
+    ) -> None:
+        # Each assessment's trail starts at genesis, and a tenant with two has
+        # two chains. The first verifier read the tenant's trail as one chain:
+        # green against a fresh store, "broken at event 000000" the second
+        # time the end-to-end gate ran into the same volume.
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        second = json.loads(json.dumps(document))
+        second["assessment_id"] = "acme-store-2"
+        second["started_at"] = "2026-12-01T00:00:00+00:00"
+        second["remediation"]["assessment_id"] = "acme-store-2"
+        for event in second["audit"]["events"]:
+            event["object_id"] = "acme-store-2"
+        store.put_assessment(second)
+
+        verdict = store.verify_audit_chain("acme")
+        assert verdict["verified"] is True, verdict
+        assert verdict["chains"] == 2
+        assert verdict["events"] == 2 * len(document["audit"]["events"])
+
     def test_the_queue_is_the_latest_assessment_not_every_run(
         self, tmp_path: Path, document
     ) -> None:
@@ -418,6 +440,22 @@ class TestTheVolume(StoreContract):
         document["assessment_id"] = "a/b/c"
         with pytest.raises(StoreError, match="not a usable assessment directory"):
             store.put_assessment(document)
+
+    def test_an_edited_audit_line_is_caught_and_named(self, tmp_path: Path, document) -> None:
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        trail = tmp_path / "nas" / "acme" / "audit.jsonl"
+        lines = trail.read_text().splitlines()
+        last = json.loads(lines[-1])
+        last["prev_hash"] = "tampered"
+        lines[-1] = json.dumps(last, separators=(",", ":"), sort_keys=True)
+        trail.write_text("\n".join(lines) + "\n")
+
+        verdict = store.verify_audit_chain("acme")
+        assert verdict["verified"] is False
+        assert verdict["broken_at"] == last["event_id"]
+        assert verdict["assessment_id"] == "acme-store-1"
+        assert "does not follow" in verdict["detail"]
 
     def test_health_fails_closed_on_an_unusable_root(self, tmp_path: Path) -> None:
         # A NAS volume that is not mounted must report unwritable rather than

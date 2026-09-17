@@ -21,7 +21,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from ironclad.store.base import StoreError
+from ironclad.store.base import StoreError, verify_stored_chains
 from ironclad.store.rows import RowSet, rows_from_document
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
@@ -279,24 +279,7 @@ class MariaDBResultStore:
         events = self._query(
             "SELECT * FROM audit_events WHERE tenant_id = %s ORDER BY id", (tenant_id,)
         )
-        previous = ""
-        for index, event in enumerate(events):
-            if index and event.get("prev_hash") != previous:
-                return {
-                    "tenant_id": tenant_id,
-                    "events": len(events),
-                    "verified": False,
-                    "broken_at": event.get("event_id"),
-                    "detail": "prev_hash does not match the previous event's hash",
-                }
-            previous = str(event.get("hash", ""))
-        return {
-            "tenant_id": tenant_id,
-            "events": len(events),
-            "verified": True,
-            "broken_at": None,
-            "detail": "",
-        }
+        return verify_stored_chains(events, tenant_id)
 
 
 def statements_in(sql: str) -> list[str]:

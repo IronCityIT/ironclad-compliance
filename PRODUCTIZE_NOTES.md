@@ -1343,7 +1343,71 @@ three (and proven to catch a planted key and to pass a secret's *name*); CI
 runs the catalog check; the Jenkins security gate matches CI's. The parity
 test names any script or gate command missing from any of the three.
 
-### 16.26 Looked at and left
+### 16.26 The Jenkins pipeline ran on a controller
+
+"DONE, not executed on an agent" since it was written. This machine has a
+JVM, so a throwaway Jenkins (`jenkins.war`, setup wizard off, the
+declarative-pipeline, git, docker-workflow and junit plugins from the update
+centre) ran in the scratchpad on a loopback port. Two things came of it.
+
+**The declarative linter passes the committed Jenkinsfile.** That is the
+first check the file had ever had beyond balanced braces.
+
+**Then the pipeline itself ran.** The committed file declares a
+`python:3.11-slim` Docker agent and this controller has no Docker, so a copy
+with `agent any` substituted — and nothing else — was built from a local
+clone, with the CI-parity venv on the controller's PATH. Build 3: every gate
+in the Gates stage green in order (format, lint, typecheck, test, artifacts,
+catalog, end-to-end, build), then `rules` green — the Firestore emulator
+started and the 53 cases ran — `functions` green, `security` green (the
+first `bandit` run on this machine, through the venv), and `persistence`
+UNAVAILABLE with no MariaDB, which marked the build UNSTABLE exactly as the
+pipeline promises. 775 seconds.
+
+Two defects, both found by the run and neither by the linter:
+
+- **`cleanWs(...)` in the `always` post section is the ws-cleanup plugin,
+  not a core step.** On a controller without it the whole post section
+  threw "No such DSL method 'cleanWs'" — after the gates, so a green build
+  would have ended red. `dir('out') { deleteDir() }` and the same for
+  `dist/` do what the patterns did, with core steps only.
+- **An UNSTABLE build had no description.** The `success` and `failure`
+  branches set one; `unstable` echoed a line into the log and left the
+  build list blank. The unavailable gates are now accumulated beside the
+  failed ones and named in the description.
+
+Not proven: the Docker agent itself, and the pipeline on ICIT's own
+controller with its plugin set. The `junit` step is the JUnit plugin, which
+is in the setup wizard's recommended set and was installed here to match a
+normal controller; it is the one plugin the file still assumes.
+
+### 16.27 The "free integrity check on any restore" cried tamper on every second assessment
+
+Build 4 of the same throwaway Jenkins job, run to prove the description
+change, failed its end-to-end gate: *"the stored chain breaks at event
+000000"*. Nothing had changed in the store code. What had changed was the
+workspace: build 3 had already published `icit-internal`'s assessment into
+`$WORKSPACE/.ironclad-volume`, and build 4 published a second one beside it.
+
+Every assessment's audit trail starts at the genesis hash; a tenant's store
+holds every assessment's trail, one after another. The end-to-end check —
+and `MariaDBResultStore.verify_audit_chain`, the check `HANDOFF.md` calls
+"the free integrity check on any restore from backup" — walked a tenant's
+whole trail as one chain. Green against a fresh store, which is all CI ever
+has; a break at the second assessment's first event on any store that has
+been used twice. A restore check that reports tampering on every tenant with
+two assessments would have been switched off the first week.
+
+`verify_stored_chains` in `store/base.py` verifies one chain per
+`assessment_id` — each starting at genesis, each linking forward — and both
+stores and the end-to-end script use it; `ironclad store verify` now reports
+the chain verdict beside the deliverables' and is red if either is wrong.
+Run three times into one volume: 2, 4, 6 events across 1, 2, 3 assessments,
+every chain verifying. The contract test covers two assessments on both
+stores, and the volume store test edits a line and gets the event and the
+assessment named. Found by a pipeline that had never run, running twice.
+
+### 16.28 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from ironclad.errors import IroncladError
+from ironclad.model.audit import GENESIS_HASH
 
 
 class StoreError(IroncladError):
@@ -62,3 +63,50 @@ class ResultStore(Protocol):
         is a clear failure at the start rather than a lost result at the end.
         """
         ...
+
+
+def verify_stored_chains(events: list[dict[str, Any]], tenant_id: str = "") -> dict[str, Any]:
+    """Re-verify a tenant's stored audit events, one chain per assessment.
+
+    Every assessment's trail starts at the genesis hash and links forward; a
+    tenant's store holds every assessment's trail, one after another. The
+    first version of this check read the whole tenant as one chain, so it
+    verified a tenant with one assessment and reported the second
+    assessment's first event as a break — found the first time the Jenkins
+    pipeline's end-to-end gate ran twice into the same workspace volume
+    (PRODUCTIZE_NOTES §16.27). A restore check that cries tamper on every
+    tenant with two assessments is worse than no check.
+
+    The digests are stored verbatim and are not recomputed here: the rows are
+    a projection, not the events. What is checked is the shape of each chain
+    — starts at genesis, each event follows the last — which is what an edit
+    to a stored row breaks.
+    """
+    chains: dict[str, str] = {}  # assessment_id -> hash of its latest event seen
+    for event in events:
+        assessment_id = str(event.get("assessment_id") or "")
+        expected = chains.get(assessment_id, GENESIS_HASH)
+        if str(event.get("prev_hash") or "") != expected:
+            return {
+                "tenant_id": tenant_id,
+                "events": len(events),
+                "chains": len(chains),
+                "verified": False,
+                "broken_at": event.get("event_id"),
+                "assessment_id": assessment_id,
+                "detail": (
+                    "prev_hash does not follow the previous event of this assessment"
+                    if assessment_id in chains
+                    else "the first event of this assessment does not start at genesis"
+                ),
+            }
+        chains[assessment_id] = str(event.get("hash") or "")
+    return {
+        "tenant_id": tenant_id,
+        "events": len(events),
+        "chains": len(chains),
+        "verified": True,
+        "broken_at": None,
+        "assessment_id": None,
+        "detail": "",
+    }
