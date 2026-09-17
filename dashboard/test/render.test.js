@@ -108,6 +108,25 @@ test("the assessment list escapes every field it takes from a record", async (t)
     assert.ok(!html.includes(BREAKOUT), "evidence_artifacts reached the output unescaped");
   });
 
+  await t.test("the caveats, which are free text out of the engine", () => {
+    const html = renderAssessments([{ ...hostile, warnings: [XSS, BREAKOUT] }]);
+    assertNoInjection(html, "caveats");
+    assert.ok(html.includes('<ul class="caveats">'), "the caveats must render");
+  });
+
+  await t.test("the failed-stage names", () => {
+    const html = renderAssessments([{ ...hostile, failed_modules: { [XSS]: BREAKOUT } }]);
+    assertNoInjection(html, "failed stages");
+    assert.ok(html.includes("did not complete"), "a partial assessment must say so");
+  });
+
+  await t.test("the scoped-out count", () => {
+    const html = renderAssessments([
+      { ...hostile, summary: { ...hostile.summary, not_applicable: XSS } },
+    ]);
+    assertNoInjection(html, "not_applicable");
+  });
+
   await t.test("a queued assessment", () => {
     assertNoInjection(renderAssessments([{ ...hostile, status: "queued" }]), "queued");
   });
@@ -303,6 +322,67 @@ test("the status labels are client language, not engine language", async (t) => 
       for (const name of ["zap", "nuclei", "wazuh", "prowler", "puppeteer", "openai", "groq"]) {
         assert.ok(!source.includes(name), `${file} names ${name}`);
       }
+    }
+  });
+});
+
+
+test("the card says how far to trust the number", async (t) => {
+  const record = {
+    status: "completed",
+    assessment_id: "acme-soc2-1",
+    framework: { name: "SOC 2" },
+    summary: {
+      readiness_score: 100,
+      total_controls: 33,
+      compliant: 1,
+      partial: 0,
+      gap: 0,
+      accepted_risk: 0,
+      not_applicable: 32,
+    },
+    warnings: [
+      "32 of 33 controls are scoped out by the tenant policy; the readiness figure is computed over the remaining 1",
+      "second",
+      "third",
+      "fourth",
+      "fifth",
+    ],
+  };
+
+  await t.test("a scoped-out count appears beside the others", () => {
+    const html = renderAssessments([record]);
+    assert.ok(html.includes("32 Not applicable"), "the scoped-out count must show");
+  });
+
+  await t.test("the first three caveats show, and the rest are counted", () => {
+    const html = renderAssessments([record]);
+    assert.ok(html.includes("32 of 33 controls are scoped out"));
+    assert.ok(html.includes("third"));
+    assert.ok(!html.includes("fourth"));
+    assert.ok(html.includes("and 2 more in the report."));
+  });
+
+  await t.test("warnings that arrive as a JSON string, as they do out of MariaDB, still render", () => {
+    const html = renderAssessments([{ ...record, warnings: JSON.stringify(["from a row"]) }]);
+    assert.ok(html.includes("from a row"));
+  });
+
+  await t.test("a record with no caveats renders no list", () => {
+    const html = renderAssessments([{ ...record, warnings: [], summary: { ...record.summary, not_applicable: 0 } }]);
+    assert.ok(!html.includes("caveats"));
+    assert.ok(!html.includes("Not applicable"));
+  });
+
+  await t.test("a failed stage marks the assessment partial", () => {
+    const html = renderAssessments([{ ...record, warnings: [], failed_modules: { freshness_check: "boom" } }]);
+    assert.ok(html.includes("1 stage(s) did not complete (freshness_check); this assessment is partial."));
+  });
+
+  await t.test("warnings of a shape nobody expects render nothing rather than throwing", () => {
+    for (const odd of [42, "not json", { a: 1 }, null, "[broken"]) {
+      const html = renderAssessments([{ ...record, warnings: odd }]);
+      assert.ok(!html.includes("caveats"), `warnings=${JSON.stringify(odd)} produced a list`);
     }
   });
 });

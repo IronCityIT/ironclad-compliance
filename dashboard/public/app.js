@@ -149,6 +149,7 @@ export function renderAssessments(assessments) {
           ${count("partial", summary.partial)}
           ${count("accepted_risk", summary.accepted_risk)}
           ${count("gap", summary.gap)}
+          ${summary.not_applicable ? count("not_applicable", summary.not_applicable) : ""}
         </div>
         ${
           summary.stale_artifacts
@@ -157,9 +158,62 @@ export function renderAssessments(assessments) {
               )} evidence items are out of date.</p>`
             : ""
         }
+        ${caveats(a)}
       </article>`;
     })
     .join("");
+}
+
+// Everything the engine says about how far to trust the number, on the card
+// that shows the number. The report carried these caveats and the record
+// stored them; the dashboard showed the bare figure, so a readiness of 100%
+// over one control (32 scoped out), or one that rested on assertions about
+// items nobody read, looked exactly like any other 100%. The record's
+// `warnings` is a list; out of MariaDB it arrives as a JSON string, and a
+// hand-edited record could make it anything, so it is coerced before it is
+// read and every entry is escaped.
+const CAVEATS_SHOWN = 3;
+
+function caveats(record) {
+  const warnings = listOf(record.warnings);
+  const failed = record.failed_modules;
+  const stages =
+    failed && typeof failed === "object" && !Array.isArray(failed)
+      ? Object.keys(failed)
+      : [];
+  const lines = [];
+  if (stages.length) {
+    lines.push(
+      `${escapeHtml(stages.length)} stage(s) did not complete (${escapeHtml(
+        stages.join(", ")
+      )}); this assessment is partial.`
+    );
+  }
+  for (const warning of warnings.slice(0, CAVEATS_SHOWN)) {
+    lines.push(escapeHtml(warning));
+  }
+  if (warnings.length > CAVEATS_SHOWN) {
+    lines.push(`and ${escapeHtml(warnings.length - CAVEATS_SHOWN)} more in the report.`);
+  }
+  if (!lines.length) {
+    return "";
+  }
+  return `<ul class="caveats">${lines.map((line) => `<li>${line}</li>`).join("")}</ul>`;
+}
+
+function listOf(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v));
+  }
+  if (typeof value === "string" && value.trim().startsWith("[")) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map((v) => String(v)) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function bar(kind, value, total) {

@@ -1514,7 +1514,28 @@ schema anywhere but CI's throwaway and this machine's scratch server, so
 there is nothing to migrate; a database that had been would need the tables
 recreated, since `init` only creates what is missing.
 
-### 16.34 Looked at and left
+### 16.34 The dashboard showed the bare number
+
+Every caveat added this week — half the framework scoped out, half under
+accepted risk, controls held at partial on assertions about unread items, a
+document that matches most of a framework, a lapsed acceptance — reaches
+the report and is stored on the record. The dashboard card, the surface a
+client looks at most often, rendered the readiness figure, four bars and
+the stale-evidence line, and nothing else: a 100% over one control with 32
+scoped out was indistinguishable from any other 100%, and an assessment
+with a failed stage (exit 3, "partial", named in the report) carried no
+mark at all.
+
+The card now shows a scoped-out count beside the other four, a partial
+notice naming any stage that did not complete, and the first three caveats
+with a count of the rest. `warnings` is a list on the record and a JSON
+string out of a MariaDB row, and a hand-edited record could make it
+anything, so it is coerced before it is read, every entry is escaped, and
+the hostile-record test covers all three new fields. The CSS went into the
+committed `index.html` with the foreign working-tree edits set aside and
+put back afterwards, untouched (§14).
+
+### 16.35 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
