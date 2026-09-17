@@ -1293,6 +1293,12 @@ FlateDecode content stream. `pypdf` 6 refuses it on its own — "Limit reached
 while decompressing" — in 0.4 s and 171 MB, and the extractor reports that
 in the usual words. Nothing to add there; recorded so nobody adds it twice.
 
+And the ordinary case, for the record: the sample access-control policy
+saved as a `.docx` and the access review as an `.xlsx` (one line per cell),
+beside the three remaining `.txt` files, assess to the same 46.5% as the
+all-text set, with the review on its 90-day clock and the scan on its 30
+from the file names. The binary paths and the text path agree.
+
 ### 16.23 consensus-engine PR #6, validated against the real artifact
 
 The fix that unblocks the red AI job sits in another repo, unmerged since
