@@ -44,7 +44,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
 | GitHub workflows | **DONE; `ci.yml` green; `compliance-assessment.yml` executed twice as a dry run, report stage proven, AI job red on the engine's output size (consensus-engine PR #6)** | `.github/workflows/` |
-| Jenkins pipeline | **DONE; passes the declarative linter; executed on a throwaway controller with the Docker agent substituted — every runnable gate green, `persistence` UNAVAILABLE as designed (§16.26)** | `Jenkinsfile` |
+| Jenkins pipeline | **DONE; passes the declarative linter; executed on a throwaway controller with the Docker agent substituted — every runnable gate green, `persistence` UNAVAILABLE as designed; the assessment mode published to a volume store through an `ironclad-store` credential (§16.26–16.28)** | `Jenkinsfile` |
 | Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
 | Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
 | Trend comparison between assessments | **DONE, tested** | `ironclad/compare.py` |

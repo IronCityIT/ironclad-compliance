@@ -1425,6 +1425,13 @@ uses it. Builds 7 and 8 (SOC 2, HIPAA): archived, not published, and the
 build description says exactly that — "assessment: ICIT Dry Run / hipaa —
 not published: no store is configured on this controller".
 
+Then with an `ironclad-store` secret-text credential on the controller
+pointing at a scratch volume, build 9: SUCCESS in fifteen seconds,
+"published to the store", the credential value masked in the log, the
+record and twelve deliverables on the volume, and `ironclad store verify`
+green on both the deliverables and the chain. That is the Jenkins route
+from evidence to a store, end to end, for the first time.
+
 ### 16.29 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
