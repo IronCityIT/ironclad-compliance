@@ -1156,7 +1156,22 @@ with and without the copy. A copy with a *word* changed is still two
 documents; that is a similarity question, not an identity one, and it is
 recorded here rather than approximated.
 
-### 16.16 Looked at and left
+### 16.16 The manifest could move the freshness clock
+
+Freshness held up well under `touch`: a 200-day-old access review and a
+400-day-old policy read as stale, five controls dropped from compliant to
+partial, readiness 46.5% → 37.0%. A file dated ten days ahead was accepted
+without a word, which led to the manifest: `collected_at: 2030-01-01` made a
+review fresh until 2030, and `valid_until: 2099-01-01` was accepted as
+quietly as any other date. The windows are Iron City policy (STATUS, open
+decision 5) and the manifest is the tenant's file. A future `collected_at`
+or `valid_from` — beyond a day of clock skew — is now pulled back to
+ingestion time, named in a warning. An explicit `valid_until` past the
+standard window for the class stands, because the contract promises the
+override for evidence with a real validity period, and is disclosed on the
+record and in the report's caveats; a shorter one is nobody's business.
+
+### 16.17 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

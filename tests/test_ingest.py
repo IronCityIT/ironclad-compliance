@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -274,6 +275,74 @@ class TestCollection:
         one, _ = collect_from_directory("acme", first)
         two, _ = collect_from_directory("acme", second)
         assert next(iter(one)).artifact_id == next(iter(two)).artifact_id
+
+
+class TestTheManifestCannotMoveTheFreshnessClock:
+    """The freshness windows are Iron City policy; the manifest is the
+    tenant's file. A future collected_at started the clock later than the
+    evidence existed; a 2099 valid_until was accepted as quietly as any other."""
+
+    def _manifest(self, tmp_path: Path, item: dict) -> None:
+        (tmp_path / "review.txt").write_text("quarterly user access review completed")
+        document = {
+            "contract_version": CONTRACT_VERSION,
+            "tenant_id": "acme",
+            "items": [{"name": "Q3 access review", "uri": "review.txt", **item}],
+        }
+        (tmp_path / "manifest.json").write_text(json.dumps(document))
+
+    def test_a_future_collected_at_is_pulled_back_to_now_and_said(self, tmp_path: Path) -> None:
+        from ironclad.ids import utc_now
+
+        self._manifest(
+            tmp_path, {"evidence_type": "access review", "collected_at": "2030-01-01T00:00:00Z"}
+        )
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        artifact = next(iter(evidence))
+        assert abs((artifact.collected_at - utc_now()).total_seconds()) < 60
+        assert artifact.effective_valid_until < utc_now() + timedelta(days=91)
+        assert warnings == [
+            f"Q3 access review: collected_at 2030-01-01 is in the future; "
+            f"treated as {utc_now().date().isoformat()}"
+        ]
+
+    def test_a_days_clock_skew_is_not_the_future(self, tmp_path: Path) -> None:
+        from ironclad.ids import utc_now
+
+        soon = (utc_now() + timedelta(hours=6)).isoformat()
+        self._manifest(tmp_path, {"collected_at": soon})
+        _, warnings = collect_from_directory("acme", tmp_path)
+        assert warnings == []
+
+    def test_a_declared_validity_past_the_standard_window_is_disclosed(
+        self, tmp_path: Path
+    ) -> None:
+        self._manifest(
+            tmp_path,
+            {
+                "evidence_type": "access review",
+                "collected_at": "2026-01-01T00:00:00Z",
+                "valid_until": "2027-01-01T00:00:00Z",
+            },
+        )
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        # the override stands, as the contract promises
+        assert next(iter(evidence)).effective_valid_until.year == 2027
+        assert len(warnings) == 1
+        assert "past the standard 90-day window" in warnings[0]
+        assert "is disclosed" in warnings[0]
+
+    def test_a_shorter_declared_validity_is_nobodys_business(self, tmp_path: Path) -> None:
+        self._manifest(
+            tmp_path,
+            {
+                "evidence_type": "policy",
+                "collected_at": "2026-01-01T00:00:00Z",
+                "valid_until": "2026-06-01T00:00:00Z",
+            },
+        )
+        _, warnings = collect_from_directory("acme", tmp_path)
+        assert warnings == []
 
 
 class TestACopyIsNotCorroboration:

@@ -86,6 +86,14 @@ Set `valid_until` explicitly to override. With no manifest at all the file's own
 name is used as the evidence type, so `Q3 access review.xlsx` still ages on the
 90-day clock rather than the annual one.
 
+The windows are Iron City policy and the manifest is the tenant's own file, so
+the dates in it cannot quietly move the clock. A `collected_at` or `valid_from`
+more than a day in the future is pulled back to the time of ingestion and the
+item is named in a warning. A `valid_until` that runs past the standard window
+for the item's class stands — that is what the override is for — and is
+disclosed in a warning that reaches the report's caveats; one that shortens the
+window is nobody's business.
+
 With no manifest, hidden files and directories (`.DS_Store`, `.git/`) and the
 `__MACOSX` resource forks a Mac zip leaves behind are not treated as evidence.
 The skip is reported as a warning naming them, never silent; declare such a file

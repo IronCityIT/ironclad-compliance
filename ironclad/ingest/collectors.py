@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +16,7 @@ from ironclad.ingest.contract import (
     manifest_from_directory,
 )
 from ironclad.ingest.extractors import extract_text
-from ironclad.model.evidence import EvidenceArtifact, EvidenceSet
+from ironclad.model.evidence import EvidenceArtifact, EvidenceSet, validity_days_for
 
 
 def _moment(value: Any, default: datetime | None = None) -> datetime | None:
@@ -45,7 +45,8 @@ def collect_from_manifest(
     the whole ingest, with every offender named.
     """
     tenant_id = slugify(manifest["tenant_id"])
-    default_collected = _moment(manifest.get("collected_at"), utc_now())
+    now = utc_now()
+    default_collected = _moment(manifest.get("collected_at"), now)
     evidence = EvidenceSet(tenant_id=tenant_id)
     warnings: list[str] = []
     seen_text: dict[str, str] = {}  # text fingerprint -> artifact id already kept
@@ -76,6 +77,7 @@ def collect_from_manifest(
             source_system=str(manifest.get("source_system", "")),
             classification=str(item.get("classification", "confidential")),
         )
+        warnings.extend(_check_dates(artifact, now))
 
         # Only a local path can be read here. A gs:// or https:// URI is fetched
         # by the workflow before this runs, and the manifest it hands over points
@@ -131,6 +133,44 @@ def collect_from_manifest(
         evidence.add(artifact)
 
     return evidence, warnings
+
+
+# A day, for clocks that disagree. Anything further ahead than that is not skew.
+_CLOCK_SKEW = timedelta(days=1)
+
+
+def _check_dates(artifact: EvidenceArtifact, now: datetime) -> list[str]:
+    """Keep the dates a manifest declares honest about the freshness window.
+
+    The freshness windows are Iron City policy and the manifest is the
+    tenant's own file. Three fields in it move the window: a `collected_at`
+    or `valid_from` in the future starts the clock later than the evidence
+    exists, so both are pulled back to now; an explicit `valid_until` is the
+    documented override for evidence with a real validity period, so it is
+    kept — but one that runs past the standard window for its class is said
+    out loud, on the record and in the report's caveats, rather than
+    accepted as quietly as a shorter one.
+    """
+    notes: list[str] = []
+    for field_name in ("collected_at", "valid_from"):
+        value = getattr(artifact, field_name)
+        if value is not None and value > now + _CLOCK_SKEW:
+            notes.append(
+                f"{artifact.name}: {field_name} {value.date().isoformat()} is in the future; "
+                f"treated as {now.date().isoformat()}"
+            )
+            setattr(artifact, field_name, now)
+    if artifact.valid_until is not None:
+        window = validity_days_for(artifact.evidence_type or artifact.name)
+        standard = (artifact.valid_from or artifact.collected_at) + timedelta(days=window)
+        if artifact.valid_until > standard:
+            extra = (artifact.valid_until - standard).days
+            notes.append(
+                f"{artifact.name}: declared valid until {artifact.valid_until.date().isoformat()}, "
+                f"{extra} day(s) past the standard {window}-day window for its class; "
+                f"the declaration stands and is disclosed"
+            )
+    return notes
 
 
 def _text_fingerprint(text: str) -> str:
