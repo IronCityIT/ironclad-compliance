@@ -324,3 +324,43 @@ def test_the_white_label_pattern_is_the_gates_pattern() -> None:
     match = re.search(r"^pattern='([^']+)'", script, re.MULTILINE)
     assert match, "the gate's pattern line moved"
     assert match.group(1) == PATTERN
+
+
+def test_every_gate_script_is_run_by_ci_gates_sh_and_jenkins() -> None:
+    # The white-label check existed in CI and gates.sh and not in the
+    # Jenkinsfile; the secrets check existed in CI alone. A gate one pipeline
+    # runs and another does not is a gate that gets discovered by the one that
+    # runs it.
+    ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+    gates = (REPO_ROOT / "scripts/gates.sh").read_text()
+    jenkins = (REPO_ROOT / "Jenkinsfile").read_text()
+    for script in ("check_white_label.sh", "check_secret_literals.sh", "validate_artifacts.py"):
+        for name, text in (("ci.yml", ci), ("gates.sh", gates), ("Jenkinsfile", jenkins)):
+            assert script in text, f"{name} does not run scripts/{script}"
+    for gate in ("build_catalog.py --check",):
+        for name, text in (("ci.yml", ci), ("gates.sh", gates), ("Jenkinsfile", jenkins)):
+            assert gate in text, f"{name} does not run {gate}"
+
+
+def test_the_secret_literal_gate_catches_a_planted_credential(tmp_path: Path) -> None:
+    import shutil
+    import subprocess
+
+    # A copy of the repository's checked files, plus one planted literal; the
+    # script is run against the copy so the real tree is never touched.
+    copy = tmp_path / "repo"
+    (copy / "scripts").mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "scripts/check_secret_literals.sh", copy / "scripts")
+    (copy / "clean.py").write_text('API_KEY_NAME = "GROQ_API_KEY"  # a name, not a value\n')
+    clean = subprocess.run(
+        ["sh", "scripts/check_secret_literals.sh"], cwd=copy, capture_output=True, text=True
+    )
+    assert clean.returncode == 0, clean.stdout + clean.stderr
+    # Assembled rather than written out, or this file would trip the gate.
+    planted = "api_" + "key = " + '"' + "AKIA" + "X" * 20 + '"' + "\n"
+    (copy / "leak.py").write_text(planted)
+    leak = subprocess.run(
+        ["sh", "scripts/check_secret_literals.sh"], cwd=copy, capture_output=True, text=True
+    )
+    assert leak.returncode == 1
+    assert "leak.py" in leak.stdout

@@ -47,6 +47,7 @@ run "test"      python3 -m pytest -q
 run "artifacts" python3 scripts/validate_artifacts.py
 run "catalog"   python3 tools/build_catalog.py --check
 run "white-label" sh scripts/check_white_label.sh
+run "secret-literals" sh scripts/check_secret_literals.sh
 
 if [ "${1:-}" = "--all" ]; then
   if command -v npm >/dev/null 2>&1; then

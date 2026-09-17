@@ -56,6 +56,12 @@ jobs:
       - name: Validate artifacts
         run: python scripts/validate_artifacts.py
 
+      - name: The committed catalog is what the registry says
+        # The dashboard renders from dashboard/public/catalog.json. gates.sh
+        # checked it and CI did not, so a registry change could ship a stale
+        # catalog with every job green — found by a parity test, not a run.
+        run: python tools/build_catalog.py --check
+
       - name: Build
         run: |
           set -euo pipefail
@@ -221,19 +227,10 @@ jobs:
         run: bandit --quiet --recursive ironclad scripts tools
 
       - name: Check for committed secrets
-        # Named secrets only, never values. A literal that looks like a
-        # credential is a hard failure, not a warning.
-        run: |
-          set -euo pipefail
-          pattern='(api[_-]?key|secret|token|password|passwd|credential)[[:space:]]*[:=][[:space:]]*["'"'"'][A-Za-z0-9_/+=-]{12,}'
-          if grep -rEn "$pattern" \
-               --include='*.py' --include='*.js' --include='*.yml' \
-               --include='*.json' --include='Jenkinsfile' \
-               --exclude-dir=node_modules . ; then
-            echo "::error::a hardcoded credential literal is present"
-            exit 1
-          fi
-          echo "no hardcoded credential literals"
+        # Named secrets only, never values. One script, shared with gates.sh
+        # and the Jenkins pipeline, which did not run this check at all while
+        # it was inline here.
+        run: sh scripts/check_secret_literals.sh
 
       - name: Check the white-label rule
         # No underlying tool or model vendor may be named on a client-facing

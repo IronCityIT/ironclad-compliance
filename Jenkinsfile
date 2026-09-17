@@ -105,6 +105,8 @@ pipeline {
             [name: 'typecheck', cmd: 'mypy'],
             [name: 'test',     cmd: 'pytest --cov=ironclad --cov-report=xml --cov-report=term-missing --junitxml=junit.xml'],
             [name: 'artifacts', cmd: 'python scripts/validate_artifacts.py'],
+            // The committed dashboard catalog must be what the registry says.
+            [name: 'catalog',  cmd: 'python tools/build_catalog.py --check'],
             // The whole path against a real store: ingest the sample evidence,
             // assess, render the deliverables, publish, read the record back and
             // re-checksum it. Needs no service — a directory in the workspace is
@@ -213,9 +215,10 @@ pipeline {
               set -eu
               pip install --quiet pip-audit bandit 2>/dev/null || {
                 echo "security tooling unavailable on this agent"; exit 66; }
-              pip-audit --strict --desc || exit 1
-              bandit -q -r ironclad scripts -x tests || exit 1
+              pip-audit --strict --desc --requirement requirements.txt --requirement requirements-dev.txt || exit 1
+              bandit -q -r ironclad scripts tools -x tests || exit 1
               sh scripts/check_white_label.sh || exit 1
+              sh scripts/check_secret_literals.sh || exit 1
             ''',
             returnStatus: true
           )

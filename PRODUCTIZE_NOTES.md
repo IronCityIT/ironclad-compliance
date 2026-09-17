@@ -1325,7 +1325,25 @@ merge replaces a match in the models' advice before it lands, counting the
 replacements on the record and in a warning. The real artifact folds with
 zero replacements.
 
-### 16.25 Looked at and left
+### 16.25 Three pipelines, and the gates only one of them ran
+
+`ci.yml`, `scripts/gates.sh` and the `Jenkinsfile` are meant to run the same
+gates (§11.8). Read side by side: the committed-secrets check was inline
+shell in `ci.yml` and existed nowhere else; the Jenkins security gate
+audited the whole environment (the scoping to `requirements*.txt` that made
+`pip-audit` runnable in CI never reached it), ran `bandit` without `tools/`,
+and had no catalog gate. Then a parity test written to hold the three
+together failed on its first run against **CI**: `tools/build_catalog.py
+--check` — the gate that keeps the dashboard's `catalog.json` equal to what
+the registry says — ran in `gates.sh` and the Jenkinsfile and not in CI. A
+registry change could have shipped a stale catalog with six green jobs.
+
+The secrets check is `scripts/check_secret_literals.sh` now, run by all
+three (and proven to catch a planted key and to pass a secret's *name*); CI
+runs the catalog check; the Jenkins security gate matches CI's. The parity
+test names any script or gate command missing from any of the three.
+
+### 16.26 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
