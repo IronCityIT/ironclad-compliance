@@ -207,6 +207,18 @@ def manifest_from_directory(
     evidence even if the folder was reorganised in between.
     """
     items: list[dict[str, Any]] = []
+    # Symlinks are refused rather than followed, the same rule `ironclad
+    # evidence stage` applies to a tenant's prefix. A link inside one tenant's
+    # folder can point anywhere on the volume, and following it would read that
+    # target as this tenant's evidence and record its resolved path in their
+    # assessment. Directory links are checked too: rglob does not descend into
+    # them, so without the check they would vanish without a word.
+    links = sorted(str(p.relative_to(directory)) for p in directory.rglob("*") if p.is_symlink())
+    if links:
+        raise ValidationError(
+            f"{directory} contains symbolic links, which evidence ingestion does not follow",
+            [f"symbolic link: {link}" for link in links],
+        )
     for path in sorted(directory.rglob("*")):
         if not path.is_file() or path.name in MANIFEST_FILENAMES:
             continue

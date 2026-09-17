@@ -259,6 +259,143 @@ class TestCollection:
         assert next(iter(one)).artifact_id == next(iter(two)).artifact_id
 
 
+class TestTheEvidenceDirectoryIsABoundary:
+    """A tenant's manifest is tenant-supplied, and so is every URI in it.
+
+    Found by writing one: `../other/policy.txt` and `/etc/passwd` were both
+    read, matched and linked to the tenant's controls, with the path recorded
+    in their evidence inventory. Staging confines the prefix a run may read;
+    nothing confined what a manifest inside that prefix could point at.
+    """
+
+    def _manifest(self, tmp_path: Path, *uris: str) -> None:
+        document = {
+            "contract_version": CONTRACT_VERSION,
+            "tenant_id": "acme",
+            "items": [{"name": f"item-{i}", "uri": uri} for i, uri in enumerate(uris)],
+        }
+        (tmp_path / "manifest.json").write_text(json.dumps(document))
+
+    def test_a_relative_uri_that_climbs_out_is_refused_and_named(self, tmp_path: Path) -> None:
+        outside = tmp_path / "other"
+        outside.mkdir()
+        (outside / "beta-policy.txt").write_text("least privilege access control")
+        evidence_dir = tmp_path / "acme"
+        evidence_dir.mkdir()
+        (evidence_dir / "own.txt").write_text("code of conduct")
+        self._manifest(evidence_dir, "own.txt", "../other/beta-policy.txt")
+
+        with pytest.raises(ValidationError) as caught:
+            collect_from_directory("acme", evidence_dir)
+        assert "outside the evidence directory" in str(caught.value)
+        assert any("beta-policy.txt" in e for e in caught.value.errors)
+        assert not any("own.txt" in e for e in caught.value.errors)
+
+    def test_an_absolute_uri_elsewhere_is_refused_even_if_it_exists(self, tmp_path: Path) -> None:
+        evidence_dir = tmp_path / "acme"
+        evidence_dir.mkdir()
+        self._manifest(evidence_dir, "/etc/passwd", "/nonexistent/but/outside.txt")
+
+        with pytest.raises(ValidationError) as caught:
+            collect_from_directory("acme", evidence_dir)
+        assert len(caught.value.errors) == 2
+
+    def test_an_absolute_uri_inside_the_directory_is_fine(self, tmp_path: Path) -> None:
+        # The derived manifest writes resolved absolute paths itself; a
+        # declared one that lands inside the directory is the same thing.
+        (tmp_path / "policy.md").write_text("least privilege access control")
+        self._manifest(tmp_path, str((tmp_path / "policy.md").resolve()))
+
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        assert len(evidence) == 1
+        assert "least privilege" in next(iter(evidence)).text
+        assert warnings == []
+
+    def test_a_symlink_that_resolves_out_is_judged_by_where_it_lands(self, tmp_path: Path) -> None:
+        outside = tmp_path / "other"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("not this tenant's")
+        evidence_dir = tmp_path / "acme"
+        evidence_dir.mkdir()
+        (evidence_dir / "link.txt").symlink_to(outside / "secret.txt")
+        self._manifest(evidence_dir, "link.txt")
+
+        with pytest.raises(ValidationError) as caught:
+            collect_from_directory("acme", evidence_dir)
+        assert any("link.txt" in e for e in caught.value.errors)
+
+    def test_a_remote_uri_is_not_a_local_path_and_is_not_judged(self, tmp_path: Path) -> None:
+        self._manifest(tmp_path, "gs://bucket/acme/policy.pdf", "https://example.test/x.pdf")
+        evidence, _ = collect_from_directory("acme", tmp_path)
+        assert len(evidence) == 2
+
+    def test_without_a_base_dir_nothing_can_be_confined(self, tmp_path: Path) -> None:
+        # The API caller who passes no root has chosen not to have one. The
+        # CLI and the workflow always pass the evidence directory.
+        (tmp_path / "policy.md").write_text("content")
+        manifest = {
+            "contract_version": CONTRACT_VERSION,
+            "tenant_id": "acme",
+            "items": [{"name": "p", "uri": str(tmp_path / "policy.md")}],
+        }
+        evidence, _ = collect_from_manifest(manifest)
+        assert next(iter(evidence)).text == "content"
+
+    def test_a_derived_manifest_refuses_a_symlinked_file(self, tmp_path: Path) -> None:
+        outside = tmp_path / "other"
+        outside.mkdir()
+        (outside / "secret.txt").write_text("not this tenant's")
+        evidence_dir = tmp_path / "acme"
+        evidence_dir.mkdir()
+        (evidence_dir / "own.txt").write_text("code of conduct")
+        (evidence_dir / "secret.txt").symlink_to(outside / "secret.txt")
+
+        with pytest.raises(ValidationError) as caught:
+            collect_from_directory("acme", evidence_dir)
+        assert "symbolic links" in str(caught.value)
+        assert caught.value.errors == ["symbolic link: secret.txt"]
+
+    def test_a_derived_manifest_refuses_a_symlinked_directory(self, tmp_path: Path) -> None:
+        # rglob does not descend into a directory link, so without the check
+        # the link would be neither read nor mentioned.
+        evidence_dir = tmp_path / "acme"
+        (evidence_dir / "nested").mkdir(parents=True)
+        (evidence_dir / "nested" / "up").symlink_to(tmp_path)
+        (evidence_dir / "loop").symlink_to(evidence_dir)
+
+        with pytest.raises(ValidationError) as caught:
+            collect_from_directory("acme", evidence_dir)
+        assert caught.value.errors == ["symbolic link: loop", "symbolic link: nested/up"]
+
+    def test_the_cli_refuses_with_the_item_named_and_writes_nothing(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        from ironclad.cli import main
+
+        evidence_dir = tmp_path / "acme"
+        evidence_dir.mkdir()
+        (evidence_dir / "own.txt").write_text("code of conduct")
+        self._manifest(evidence_dir, "own.txt", "/etc/passwd")
+        out = tmp_path / "out"
+
+        code = main(
+            [
+                "assess",
+                "--client",
+                "acme",
+                "--framework",
+                "soc2",
+                "--evidence-dir",
+                str(evidence_dir),
+                "--out",
+                str(out),
+            ]
+        )
+        assert code == 2
+        assert "/etc/passwd" in capsys.readouterr().err
+        assert not out.exists()
+
+
 class TestTheContractDocumentMatchesTheEngine:
     """The document a client is asked to submit evidence against.
 

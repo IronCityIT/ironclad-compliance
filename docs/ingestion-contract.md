@@ -52,7 +52,7 @@ broken pipeline, and nobody can tell the difference by looking at the report.
 | Field | Required | Notes |
 |---|---|---|
 | `name` | yes | as shown to a human in the report and the evidence index |
-| `uri` | yes | must be unique within the manifest |
+| `uri` | yes | must be unique within the manifest; a local path must resolve inside the evidence directory — see *Rules* |
 | `evidence_type` | no | **drives the freshness window** — see below |
 | `media_type` | no | advisory |
 | `sha256` | no | 64 hex characters. Strongly recommended: it is what gives an artifact a stable identity |
@@ -109,6 +109,16 @@ contract exists to prevent is that state being *inferred* from a failed download
 recorded — an auditor can be pointed at it — but the engine reads only local
 paths. The pipeline downloads first and hands over a manifest pointing at the
 local copies. The engine never reaches out to storage on its own.
+
+**A local URI must lie inside the evidence directory.** The manifest is the
+tenant's own file, so every URI in it is tenant-supplied. When the engine is
+given a directory — which is how the CLI and the pipeline always call it — a
+local item that resolves anywhere else is refused, whether written as
+`../other-client/policy.pdf`, as an absolute path, or as a symlink that lands
+outside; and the refusal names every offending item. The same rule applies to
+a directory with no manifest: symbolic links in it are refused, not followed.
+Existence is not the test — a path outside the directory would otherwise be
+recorded in the tenant's evidence inventory even when nothing is there.
 
 **Identity is the checksum.** An artifact's id is derived from `sha256` where
 one is supplied, so the same file re-submitted under a new path is recognised as

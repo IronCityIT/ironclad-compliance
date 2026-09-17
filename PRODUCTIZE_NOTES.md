@@ -851,3 +851,87 @@ vendor-naming, so no caller loses anything from the output.
 Until it merges, the run summary reports what the report got and what the AI
 job said, side by side, rather than letting a red job stand for a lost
 analysis.
+
+## 16. The evidence directory was not a boundary
+
+Session of 2026-09-16. Nothing was waiting on this machine — PR #4 open, CI
+green, consensus-engine PR #6 unmerged, no word from Bill — so the session
+went back to the pattern that has found every defect on this branch: hand the
+engine something a real tenant might, and read what comes out.
+
+What it was handed: an evidence directory with a `manifest.json` in it naming
+three items — its own file, `../other/beta-access-policy.txt`, and
+`/etc/passwd`. Then a directory with no manifest, containing a symlink to a
+file outside it, a symlink loop and a directory link climbing out.
+
+### 16.1 A manifest could point anywhere on the volume
+
+`collect_from_manifest` resolved every local URI relative to the evidence
+directory and read whatever was there. The borrowed file was extracted,
+matched and linked to eleven of the tenant's controls; its path went into the
+evidence inventory on the record. `/etc/passwd` was catalogued too, with its
+path, and reported as "unsupported evidence format" — which is the only
+reason it contributed no text.
+
+Why this matters more than the local repro suggests: the pipeline stages a
+tenant's prefix with `ironclad evidence stage`, which refuses a traversal and
+a symlink — that was §11's work and it holds. Then it runs `assess
+--evidence-dir evidence/`, and if the tenant's prefix carries a manifest, the
+URIs in it were never judged against anything. On a shared NAS volume that is
+one tenant's manifest reading another tenant's documents into the first
+tenant's assessment. The prefix was confined; what the prefix's own manifest
+could name was not.
+
+Fixed in `ironclad/ingest/collectors.py`: when the engine is given a
+directory, every local URI must resolve — `..` segments and symlinks judged by
+where they land — to a path inside it. One escaping item refuses the whole
+ingest, every offender named, exit 2, nothing written. Existence is not the
+test: a URI outside the directory is refused whether or not a file is there,
+because the path itself would otherwise be recorded on the tenant's record.
+Remote URIs are untouched — they were never read. An API caller who passes no
+directory gets no confinement, which is documented rather than guessed at;
+the CLI and the workflow always pass one.
+
+### 16.2 The derived manifest followed symlinks
+
+With no manifest, `manifest_from_directory` walked the folder with
+`rglob("*")` and took `is_file()` as the filter — true for a symlink to a
+file — and wrote `path.resolve()` as the URI. A `secret.txt -> /etc/passwd`
+became an artifact whose recorded URI was `/etc/passwd`. Directory links were
+the opposite failure: `rglob` does not descend into them, so `deep/up -> ../..`
+was neither read nor mentioned. The loop did not hang, for the same reason.
+
+Now refused, files and directories alike, with every link named — the rule
+staging already applies to the same data, applied at the second place the
+data is read.
+
+### 16.3 What was not changed
+
+- The tenant id inside a manifest was already checked: `run_assessment`
+  refuses an evidence set whose tenant is not the one being assessed. Verified
+  by reading `engine.py`, not re-tested; the existing test stands.
+- `_local_path` still returns `None` for an item inside the directory that
+  does not exist, so a declared-but-missing item is catalogued without text,
+  as the contract says.
+
+Ten tests in `tests/test_ingest.py::TestTheEvidenceDirectoryIsABoundary`,
+including the CLI's exit code and that the output directory is not created.
+`docs/ingestion-contract.md` now states the rule under *Rules*. The clean
+sample evidence assesses to the same 46.5% it did before.
+
+### 16.4 Looked at and left
+
+`frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
+PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
+no requirements and changed no numbering; v4.0 was retired on 2024-12-31, so
+a report issued today names a retired revision. The 27 controls here are the
+`x.y` objective statements and their points of focus are Iron City
+paraphrases, so the bump is probably a version string — but "probably" is
+what a compliance framework file cannot run on, and the summary-of-changes
+document is behind a click-through this machine cannot get past (403). Left
+for someone with the document. One thing to check when they do: `8.4`'s
+points of focus label `8.4.1` as remote access; in the published numbering
+`8.4.1` is non-console administrative access into the CDE and remote access
+from outside the network is `8.4.3` (checked against three independent QSA
+write-ups, not the standard itself). That reads like a paraphrase written from
+memory, and it predates the version question.
