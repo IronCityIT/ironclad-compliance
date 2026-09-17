@@ -1120,8 +1120,19 @@ and both-given-and-disagreeing — and every later job reads the resolved
 value. A `scan_id` becomes the assessment id after the same character rule
 the engine applies, and a dry run still suffixes it. The prepare job's shell
 is extracted from the workflow as committed and run by a test, because
-nothing else tests shell. Not dispatched: a live dispatch is Bill's call
-under REVIEW ONLY, and the two dry runs on record stand.
+nothing else tests shell.
+
+Then proven on a runner, the way the first two dry runs were:
+[35170758865](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35170758865),
+dispatched with `client_name="ICIT Dry Run"`, `scan_id=icit-dry-run-standard-inputs-20260917`,
+`dry_run=true`, `group=quick`. `prepare` resolved the client and
+`assess` ran as `icit-dry-run-standard-inputs-20260917-dry-run` at the
+familiar 46.5%. The AI job was **cancelled while still queued** — fifteen
+models over twenty-five findings for thirteen minutes proves nothing about
+input names — and the report job, which runs regardless, rendered with
+`consensus status: unavailable`, exported the package, validated the
+artifacts and published nothing. A third dry run on record; nothing real
+dispatched.
 
 ### 16.15 Looked at and left
 
