@@ -1191,7 +1191,23 @@ met, 33 partial, 33 remediation items — still generous for nothing read, and
 partial-counts-half is the scoring rule rather than this change; recorded as
 a residual.
 
-### 16.18 Looked at and left
+### 16.18 A document that *is* the framework scores 100%
+
+Two text files holding every SOC 2 control's description and points of
+focus, differing by one sentence: 100.0%, 33 met. Matching is on words, by
+design ("crude, and deliberately so: a readiness signal for a human
+reviewer, not an audit opinion"), and a document that contains the
+framework's words matches the framework. The engine cannot tell a policy
+that quotes the criteria — many do — from a copy of them, so it does not
+pretend to. It now names two signals, as warnings that reach the report's
+caveats and as fields on the module output for the analyst and the AI
+stage: an item matched to at least half the framework (and ten controls),
+and an item that carries three or more controls' descriptions verbatim. The
+verdicts are left alone. The sample evidence raises neither. The residual is
+the nature of keyword matching, and it is what the AI stage and the auditor
+are for.
+
+### 16.19 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

@@ -34,6 +34,14 @@ RELEVANCE_THRESHOLD = 0.18
 # auditor applies.
 CORROBORATION_MIN = 2
 
+# A document matched by wording to at least this many controls, and to at least
+# half the framework, is named as implausibly broad. Not a verdict: a warning.
+BROAD_MATCH_MIN = 10
+# A document that carries this many controls' descriptions verbatim (of at
+# least this length) is quoting the framework rather than evidencing it.
+QUOTE_MIN_CONTROLS = 3
+QUOTE_MIN_CHARS = 40
+
 
 _WORD = re.compile(r"[a-z0-9]+")
 
@@ -144,12 +152,68 @@ class ControlMapping(AssessmentModule):
                 f"could not read, and are held at partial: {', '.join(asserted_only)}"
             )
 
+        # Matching is on words, and a document that contains the framework's
+        # own words matches the framework. Two files holding every control's
+        # description scored 100% (PRODUCTIZE_NOTES §16.18). The engine cannot
+        # tell a policy that quotes the criteria from a copy of them, so it
+        # does not pretend to: it says which items matched implausibly widely
+        # and which quote the framework's wording, for the analyst and the
+        # AI stage, and leaves the verdicts alone.
+        broad = self._implausibly_broad(ctx)
+        quoting = self._quotes_the_framework(ctx)
+        for name, count in broad:
+            ctx.warn(
+                f"{name} matched {count} of {len(ctx.framework.controls)} controls; a single "
+                f"document rarely evidences most of a framework — verify it before relying on it"
+            )
+        for name, count in quoting:
+            ctx.warn(
+                f"{name} contains the framework's own wording for {count} control(s); matching "
+                f"on quoted criteria is not evidence of the practice"
+            )
+
         ctx.module_output[self.name] = {
             "controls_assessed": len(ctx.assessment.controls),
             "links_created": sum(len(c.evidence_links) for c in ctx.assessment.controls),
             "asserted_only": asserted_only,
+            "implausibly_broad": [{"name": n, "controls": c} for n, c in broad],
+            "quotes_framework": [{"name": n, "controls": c} for n, c in quoting],
         }
         return self.result(findings, controls_assessed=len(ctx.assessment.controls))
+
+    @staticmethod
+    def _implausibly_broad(ctx: AssessmentContext) -> list[tuple[str, int]]:
+        """Artifacts linked, by matching, to at least half the framework (and ten)."""
+        counts: dict[str, int] = {}
+        for verdict in ctx.assessment.controls:
+            for link in verdict.evidence_links:
+                if link.method is LinkMethod.AUTOMATED:
+                    counts[link.artifact_id] = counts.get(link.artifact_id, 0) + 1
+        threshold = max(BROAD_MATCH_MIN, len(ctx.framework.controls) // 2)
+        flagged = []
+        for artifact_id, count in counts.items():
+            if count >= threshold:
+                artifact = ctx.evidence.get(artifact_id)
+                flagged.append((artifact.name if artifact else artifact_id, count))
+        return sorted(flagged, key=lambda pair: (-pair[1], pair[0]))
+
+    @staticmethod
+    def _quotes_the_framework(ctx: AssessmentContext) -> list[tuple[str, int]]:
+        """Artifacts whose text contains several controls' descriptions verbatim."""
+        descriptions = [
+            " ".join(control.description.lower().split())
+            for control in ctx.framework.controls
+            if len(control.description) >= QUOTE_MIN_CHARS
+        ]
+        flagged = []
+        for artifact in ctx.evidence:
+            if not artifact.text:
+                continue
+            text = " ".join(artifact.text.lower().split())
+            quoted = sum(1 for description in descriptions if description in text)
+            if quoted >= QUOTE_MIN_CONTROLS:
+                flagged.append((artifact.name, quoted))
+        return sorted(flagged, key=lambda pair: (-pair[1], pair[0]))
 
     @staticmethod
     def _asserted_only(verdict, ctx: AssessmentContext) -> bool:  # type: ignore[no-untyped-def]

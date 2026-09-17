@@ -228,6 +228,48 @@ class TestRun:
         assert "by assertion only" not in verdict.rationale
         assert result.module_output["control_mapping"]["asserted_only"] == []
 
+    def test_a_document_that_is_the_framework_is_named_not_believed(self) -> None:
+        # Two files holding every SOC 2 control's own description scored 100%.
+        # Matching is on words and the engine cannot tell a policy that quotes
+        # the criteria from a copy of them, so it names both signals for the
+        # analyst rather than pretending to a judgement.
+        from ironclad.frameworks.loader import load_framework
+
+        framework = load_framework("soc2")
+        text = " ".join(
+            f"{c.name}. {c.description} " + " ".join(p.description for p in c.points_of_focus)
+            for c in framework.controls
+        )
+        evidence = EvidenceSet(tenant_id="acme")
+        evidence.add(make_artifact("security-policy.txt", text, evidence_type="policy"))
+        evidence.add(
+            make_artifact("access-review.txt", text + " Reviewed.", evidence_type="access review")
+        )
+        result = run_assessment(
+            tenant_id="acme", framework=framework, evidence=evidence, group="quick", as_of=NOW
+        )
+        output = result.module_output["control_mapping"]
+        assert {b["name"] for b in output["implausibly_broad"]} == {
+            "security-policy.txt",
+            "access-review.txt",
+        }
+        assert all(q["controls"] == len(framework.controls) for q in output["quotes_framework"])
+        assert sum("rarely evidences most of a framework" in w for w in result.warnings) == 2
+        assert sum("framework's own wording" in w for w in result.warnings) == 2
+
+    def test_ordinary_evidence_raises_neither_signal(self, evidence) -> None:
+        from ironclad.frameworks.loader import load_framework
+
+        result = run_assessment(
+            tenant_id="acme",
+            framework=load_framework("soc2"),
+            evidence=evidence,
+            group="quick",
+            as_of=NOW,
+        )
+        output = result.module_output["control_mapping"]
+        assert output["implausibly_broad"] == [] and output["quotes_framework"] == []
+
     def test_evidence_from_another_tenant_is_refused(self, tiny_framework, evidence) -> None:
         # Assessing one client's evidence into another client's record is not a
         # warning condition.
