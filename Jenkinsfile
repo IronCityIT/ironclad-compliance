@@ -328,19 +328,57 @@ pipeline {
         }
       }
       steps {
-        // Bound only here, and only for the duration of this step.
-        withCredentials([
-          string(credentialsId: 'ironclad-store-results-url', variable: 'STORE_RESULTS_URL'),
-          string(credentialsId: 'ironclad-ingest-api-key', variable: 'INGEST_API_KEY'),
-        ]) {
-          withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
-            sh '''
-              set -eu
-              python scripts/store_results.py \
-                --client-id "$CLIENT_ID" \
-                --results-dir out/ \
-                --report-dir out/
-            '''
+        // The same three-way choice the GitHub workflow makes, in the same
+        // order: the target store when its credential exists, the retired
+        // ingest when only that one does, otherwise a note. This stage used
+        // to bind the two retired-ingest credentials unconditionally, so a
+        // controller without them — every controller, today — failed the
+        // publish of an assessment that had run; and it knew nothing of the
+        // store the workflow has published to since the architecture change.
+        // Credentials are bound only inside the step that uses them.
+        script {
+          def published = false
+          try {
+            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
+              sh '''
+                set -eu
+                python -m ironclad.cli store health
+                python -m ironclad.cli store publish \
+                  --input out/assessment.json \
+                  --artifacts out/
+              '''
+            }
+            published = true
+            env.PUBLISH_NOTE = 'published to the store'
+          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+            echo 'no ironclad-store credential on this controller — not publishing to the store'
+          }
+          if (!published) {
+            try {
+              withCredentials([
+                string(credentialsId: 'ironclad-store-results-url', variable: 'STORE_RESULTS_URL'),
+                string(credentialsId: 'ironclad-ingest-api-key', variable: 'INGEST_API_KEY'),
+              ]) {
+                withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
+                  // RETIRED PATH: the Cloud Function ingest. Goes with functions/.
+                  sh '''
+                    set -eu
+                    python scripts/store_results.py \
+                      --client-id "$CLIENT_ID" \
+                      --results-dir out/ \
+                      --report-dir out/
+                  '''
+                }
+              }
+              published = true
+              env.PUBLISH_NOTE = 'published to the legacy ingest'
+            } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+              echo 'no legacy ingest credentials on this controller either'
+            }
+          }
+          if (!published) {
+            env.PUBLISH_NOTE = 'not published: no store is configured on this controller'
+            unstable('no store is configured — the assessment is in this build\'s archived artifacts only (HANDOFF.md §3.2)')
           }
         }
       }
@@ -351,19 +389,25 @@ pipeline {
     success {
       script {
         currentBuild.description = params.RUN_ASSESSMENT
-          ? "assessment: ${params.CLIENT_ID} / ${params.FRAMEWORK}"
+          ? "assessment: ${params.CLIENT_ID} / ${params.FRAMEWORK} — ${env.PUBLISH_NOTE ?: 'published'}"
           : 'all gates green'
       }
       echo "BUILD OK — ${currentBuild.description}"
     }
     unstable {
       // Named in the build description, so the build list says which gate
-      // this agent could not run rather than leaving a blank beside UNSTABLE
-      // (the first real run left it blank).
+      // this agent could not run — or that an assessment ran and was not
+      // published — rather than leaving a blank beside UNSTABLE (the first
+      // real run left it blank; the first assessment run said "a gate could
+      // not run" about a publish).
       script {
-        currentBuild.description = env.GATE_UNAVAILABLE
-          ? "gates unavailable on this agent: ${env.GATE_UNAVAILABLE}"
-          : 'a gate could not run'
+        if (params.RUN_ASSESSMENT) {
+          currentBuild.description = "assessment: ${params.CLIENT_ID} / ${params.FRAMEWORK} — ${env.PUBLISH_NOTE ?: 'a step could not run'}"
+        } else {
+          currentBuild.description = env.GATE_UNAVAILABLE
+            ? "gates unavailable on this agent: ${env.GATE_UNAVAILABLE}"
+            : 'a gate could not run'
+        }
       }
       echo "BUILD UNSTABLE — ${currentBuild.description}. See the log above."
     }

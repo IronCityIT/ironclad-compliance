@@ -468,8 +468,11 @@ substituted, four builds, every runnable gate green and `persistence`
 UNAVAILABLE as designed. The runs found `cleanWs` to be a plugin step, the
 gate accumulators never reaching `post`, and — because the second build
 published into the same workspace volume — the restore check reading a
-tenant's trail as one chain (`PRODUCTIZE_NOTES.md` §16.26–16.27). Still
-unproven: the Docker agent and ICIT's own controller.
+tenant's trail as one chain (`PRODUCTIZE_NOTES.md` §16.26–16.27). Its assessment mode ran too (builds 7 and 8), which found the Publish stage
+bound to the retired ingest alone; it now prefers an `ironclad-store`
+credential (a volume path or DSN) the way the workflow prefers
+`IRONCLAD_STORE`, and neither credential id exists yet. Still unproven: the
+Docker agent and ICIT's own controller.
 
 `compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
 `workflow_call`. Its real contract — read from that repository, not assumed — is

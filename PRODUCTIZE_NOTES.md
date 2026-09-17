@@ -1408,7 +1408,24 @@ every chain verifying. The contract test covers two assessments on both
 stores, and the volume store test edits a line and gets the event and the
 assessment named. Found by a pipeline that had never run, running twice.
 
-### 16.28 Looked at and left
+### 16.28 The Jenkins assessment mode ran, and its publish stage was wired to the retired path
+
+`RUN_ASSESSMENT=true`, `CLIENT_ID="ICIT Dry Run"`, `EVIDENCE_DIR=examples/evidence`
+on the throwaway controller: assess, package, validate, archive — 46.5%,
+eleven artifacts including `SHA256SUMS`, fourteen seconds. Then the
+Publish stage, which had never run either: it bound the two retired-ingest
+credential ids unconditionally, so on a controller without them — every
+controller, today — an assessment that had run failed at publish; and it
+knew nothing of `IRONCLAD_STORE`, the sink the GitHub workflow has
+published to since the architecture change. It now makes the workflow's
+three-way choice in the workflow's order: the store when an `ironclad-store`
+credential exists, the retired ingest when only those two do, otherwise a
+named note and UNSTABLE, each credential bound only inside the step that
+uses it. Builds 7 and 8 (SOC 2, HIPAA): archived, not published, and the
+build description says exactly that — "assessment: ICIT Dry Run / hipaa —
+not published: no store is configured on this controller".
+
+### 16.29 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
