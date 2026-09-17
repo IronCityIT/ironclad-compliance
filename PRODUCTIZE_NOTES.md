@@ -1537,6 +1537,28 @@ put back afterwards, untouched (§14).
 
 ### 16.35 Looked at and left
 
+Examined during §16 and deliberately not changed, each with the reason:
+
+- **An acceptance or exclusion may name a control that exists in no shipped
+  framework** (`ZZ9.9`). Inert — the engine warns at assessment time — and
+  a tenant policy is deliberately not bound to the shipped set because the
+  CLI takes a framework file by path (§16.4).
+- **A static file with a space in its name is not served** by `ironclad
+  serve`'s static handler (404). The dashboard's assets have no spaces and
+  the strict path rule is worth more than the convenience.
+- **Partial counts as half-met, and so does accepted risk.** The scoring
+  weights (STATUS, open decisions 4 and 5) are a commercial call; the
+  caveats now say when they dominate the number (§16.19–16.20), which is
+  the most the engine should do on its own.
+- **A document with a *word* changed is two documents** (§16.15): a
+  similarity question, not an identity one.
+- **The `python:3.11-slim` Docker agent** in the Jenkinsfile (§16.26): the
+  file runs; the agent image has not been proven from this machine.
+- **The dashboard reads Firestore** and cannot read `ironclad serve` until
+  B6 is decided (HANDOFF §16). Every field the card now shows is in the
+  record both stores hand back, so the switch is a data-source change.
+- **PCI DSS 4.0.1**, below.
+
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
 no requirements and changed no numbering; v4.0 was retired on 2024-12-31, so

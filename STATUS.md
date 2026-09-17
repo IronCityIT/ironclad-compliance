@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `a9599c3`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `14f4728`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -64,7 +64,7 @@ Run on this branch, this machine, 2026-09-06.
 | Typecheck | `mypy` | **PASS** — 81 source files |
 | Test | `pytest` | **PASS** — 836 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
-| Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
+| Dashboard | `npm --prefix dashboard test` | **PASS** — 46 passed (on the committed tree) |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
 | Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29 |
 | End-to-end | `scripts/end_to_end.py` | **PASS** in CI against MariaDB **and** a volume |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `a9599c3`, run
-[35181257013](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35181257013):
+Green on `productize/ironclad-compliance` at `14f4728`, run
+[35181839444](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35181839444):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,10 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **The dashboard card says how far to trust the number (2026-09-17).**
+  Every caveat the engine raises reached the report and the record and the
+  card showed the bare figure; it now shows the scoped-out count, names a
+  stage that did not complete, and lists the first three caveats. §16.34.
 - **MariaDB, from this machine (2026-09-17).** Two more store defects the
   CI suite could not see: a record read back as the number 46.5 from the
   volume and the string "46.50" from MariaDB through the API's JSON; and
