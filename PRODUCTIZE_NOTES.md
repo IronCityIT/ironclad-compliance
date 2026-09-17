@@ -1588,7 +1588,18 @@ it. The comparison now says when either side did not run remediation
 planning and that the opened/closed counts are not a trend; the counts stay,
 the caveat sits beside them.
 
-### 16.37 Looked at and left
+### 16.37 A fourth dry run, for the report job's new shape
+
+[35183541091](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35183541091),
+`group=quick`, the AI stage cancelled once `assess` had reported. What it
+proved: the report job tolerates the absent `previous-assessment` artifact
+(a dry run and a first assessment look the same to it), renders without a
+trend, packages the report as issued, validates the artifacts and publishes
+nothing. The `hashFiles` guard on the upload and the `continue-on-error`
+download are the two pieces of YAML the local shell tests cannot exercise,
+and they behaved.
+
+### 16.38 Looked at and left
 
 Examined during §16 and deliberately not changed, each with the reason:
 

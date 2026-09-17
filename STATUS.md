@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c5d167a`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c5d167a`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -331,6 +331,7 @@ client "ICIT Dry Run", framework `soc2`. Full account in
 | [34722216087](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34722216087) | ✅ | ✅ 46.5% | ❌ 23 min | ✅ | The engine analysed all 57 findings — 14 of 15 models on every one — then the job failed at the **1 MB job-output cap** ("Maximum object size exceeded"). The report ran with `consensus: unavailable`. Reading the artifact it also uploaded showed the merge would have rejected the result anyway: a list, and field names the merge never read. |
 | [34723682288](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34723682288) | ✅ | ✅ 46.5% | ❌ 13 min | ✅ **`consensus status: ok analysed: 25 of 25`** | On the fixed workflow: 25 findings sent (one per control, gaps only, capped), the report job read the engine's **artifact** — 707 KB — merged it, rendered the report with the commentary block populated, exported the auditor package, validated the artifacts, published nowhere. The AI job is still red: 25 results are 0.9 MB base64 and the step output is counted alongside the job output. |
 | [35170758865](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35170758865) | ✅ | ✅ 46.5% | cancelled while queued | ✅ `consensus: unavailable` | 2026-09-17, dispatched with the **standard input names** `client_name` and `scan_id` (§16.14): the client resolved, the scan id became the assessment id with `-dry-run` suffixed, the report and package rendered, nothing published. The AI stage was cancelled deliberately — it proves nothing about input names and costs 13 minutes of model calls. |
+| [35183541091](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35183541091) | ✅ | ✅ 46.5% | cancelled while running | ✅ | 2026-09-17, after the report job learned to take the previous assessment from the assess job and to package the report as issued (§16.30–16.35): the absent `previous-assessment` artifact is tolerated, the report renders without a trend, the package carries the issued report, artifacts valid, nothing published. |
 
 The red AI job is the engine's output size, not its analysis. Fixed at the
 source in **[consensus-engine PR #6](https://github.com/IronCityIT/consensus-engine/pull/6)**
