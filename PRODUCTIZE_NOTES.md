@@ -1171,7 +1171,27 @@ standard window for the class stands, because the contract promises the
 override for evidence with a real validity period, and is disclosed on the
 record and in the report's caveats; a shorter one is nobody's business.
 
-### 16.17 Looked at and left
+### 16.17 Two URLs nobody read scored 100%
+
+`control_hints` is how an operator links a scanned policy the engine cannot
+read, and the mapping took the assertion at face value: full coverage of
+every point of focus. The manifest is the tenant's file. Two `gs://` items —
+catalogued, never fetched — each hinting all 33 SOC 2 control ids: **100.0%
+readiness, 33 met, 0 remediation items**, from zero bytes read. A verdict
+table that says "compliant" on the strength of items nobody opened is an
+assertion wearing an assessment's clothes.
+
+The assertion is kept, because the scanned-policy case is real: beside a
+readable item, an asserted link still counts as the corroborating second and
+still fills the points. But a control whose *every* link is an assertion
+about an unread item is held at partial, with a rationale saying so, a
+warning naming the controls (it reaches the report's caveats), and
+`asserted_only` on the module output. The same manifest now reads 50.0%, 0
+met, 33 partial, 33 remediation items — still generous for nothing read, and
+partial-counts-half is the scoring rule rather than this change; recorded as
+a residual.
+
+### 16.18 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

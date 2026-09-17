@@ -108,6 +108,14 @@ derived, so an auditor reading `evidence-index.csv` can tell them apart.
 
 Hints are additive. They never suppress a match the engine found on its own.
 
+A hint supports a control; on its own it does not evidence it. A control whose
+every link is an assertion about items the engine could not read is held at
+*partial*, with a rationale that says so and a warning that names the controls
+— two remote URIs hinting every control id would otherwise have read as 100%
+readiness without a byte being read. Beside a readable item, an asserted link
+counts as the corroborating second, which is the scanned-policy case the hint
+exists for.
+
 ## Rules
 
 **Every fault is reported at once.** Validation does not stop at the first

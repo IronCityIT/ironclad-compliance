@@ -192,6 +192,42 @@ class TestRun:
         links = verdict_for(result, "CC9.9").evidence_links
         assert links and links[0].method is LinkMethod.MANUAL
 
+    def test_asserted_links_to_unread_items_cannot_make_a_control_compliant(
+        self, tiny_framework
+    ) -> None:
+        # Two remote URIs nobody read, each hinting every control, scored 100%
+        # readiness. An assertion supports a control; on its own it does not
+        # evidence it.
+        ids = [c.id for c in tiny_framework.controls]
+        evidence = EvidenceSet(tenant_id="acme")
+        evidence.add(make_artifact("Everything A", "", evidence_type="policy", hints=ids))
+        evidence.add(make_artifact("Everything B", "", evidence_type="access review", hints=ids))
+        result = run_assessment(
+            tenant_id="acme", framework=tiny_framework, evidence=evidence, group="quick", as_of=NOW
+        )
+        statuses = {v.status for v in result.assessment.controls}
+        assert statuses == {ControlStatus.PARTIAL}
+        assert "by assertion only" in verdict_for(result, ids[0]).rationale
+        assert any("rest on asserted links" in w for w in result.warnings)
+        held = result.module_output["control_mapping"]["asserted_only"]
+        # CC9.9 has no points of focus and never reached compliant to begin with
+        assert set(held) == {"CC6.1", "CC1.1"}
+
+    def test_an_asserted_scanned_policy_beside_a_readable_item_still_counts(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The case the assertion exists for: a scanned policy the engine cannot
+        # read, beside evidence it can. The assertion is not thrown away.
+        evidence.add(make_artifact("Scanned Policy", "", evidence_type="policy", hints=["CC6.1"]))
+        result = run_assessment(
+            tenant_id="acme", framework=tiny_framework, evidence=evidence, group="quick", as_of=NOW
+        )
+        verdict = verdict_for(result, "CC6.1")
+        methods = {link.method for link in verdict.evidence_links}
+        assert LinkMethod.MANUAL in methods and LinkMethod.AUTOMATED in methods
+        assert "by assertion only" not in verdict.rationale
+        assert result.module_output["control_mapping"]["asserted_only"] == []
+
     def test_evidence_from_another_tenant_is_refused(self, tiny_framework, evidence) -> None:
         # Assessing one client's evidence into another client's record is not a
         # warning condition.

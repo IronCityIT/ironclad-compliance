@@ -78,6 +78,7 @@ class ControlMapping(AssessmentModule):
 
     def run(self, ctx: AssessmentContext) -> ModuleResult:
         findings: list[Finding] = []
+        asserted_only: list[str] = []
         ctx.assessment.controls = []
 
         for control in ctx.framework.controls:
@@ -101,6 +102,22 @@ class ControlMapping(AssessmentModule):
                 len(fresh_links), len(verdict.evidence_links), verdict.coverage
             )
 
+            # A control whose every link is an assertion about an item the
+            # engine never read is asserted, not assessed. Two remote URIs
+            # with every control id in their hints scored 100% readiness
+            # without a byte being read (PRODUCTIZE_NOTES §16.17). The
+            # assertion is kept — it is how a scanned policy is linked — but
+            # on its own it reaches partial, never compliant, and says why.
+            if verdict.status is ControlStatus.COMPLIANT and self._asserted_only(verdict, ctx):
+                verdict.status = ControlStatus.PARTIAL
+                verdict.rationale = (
+                    f"{len(fresh_links)} item(s) are linked to this control by assertion only, "
+                    "and none of them could be read. An asserted link supports a control; "
+                    "it does not evidence it on its own. Supply a readable item, or the "
+                    "auditor verifies the asserted ones directly."
+                )
+                asserted_only.append(control.id)
+
             ctx.assessment.controls.append(verdict)
 
             if verdict.status in (ControlStatus.GAP, ControlStatus.PARTIAL):
@@ -121,11 +138,31 @@ class ControlMapping(AssessmentModule):
                     )
                 )
 
+        if asserted_only:
+            ctx.warn(
+                f"{len(asserted_only)} control(s) rest on asserted links to items the engine "
+                f"could not read, and are held at partial: {', '.join(asserted_only)}"
+            )
+
         ctx.module_output[self.name] = {
             "controls_assessed": len(ctx.assessment.controls),
             "links_created": sum(len(c.evidence_links) for c in ctx.assessment.controls),
+            "asserted_only": asserted_only,
         }
         return self.result(findings, controls_assessed=len(ctx.assessment.controls))
+
+    @staticmethod
+    def _asserted_only(verdict, ctx: AssessmentContext) -> bool:  # type: ignore[no-untyped-def]
+        """True when every link is manual and no linked artifact has any text."""
+        if not verdict.evidence_links:
+            return False
+        if any(link.method is not LinkMethod.MANUAL for link in verdict.evidence_links):
+            return False
+        for link in verdict.evidence_links:
+            artifact = ctx.evidence.get(link.artifact_id)
+            if artifact is not None and artifact.text:
+                return False
+        return True
 
     def _link_for(
         self, control_id: str, artifact: EvidenceArtifact, terms: set[str]
