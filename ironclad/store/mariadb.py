@@ -18,6 +18,8 @@ Errors name the host, the port and the database, never the credential.
 from __future__ import annotations
 
 import urllib.parse
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -219,7 +221,7 @@ class MariaDBResultStore:
         try:
             with connection.cursor() as cursor:
                 cursor.execute(sql, params)
-                return list(cursor.fetchall())
+                return [_plain(row) for row in cursor.fetchall()]
         finally:
             connection.close()
 
@@ -363,6 +365,27 @@ class MariaDBResultStore:
             "SELECT * FROM audit_events WHERE tenant_id = %s ORDER BY id", (tenant_id,)
         )
         return verify_stored_chains(events, tenant_id)
+
+
+def _plain(row: dict[str, Any]) -> dict[str, Any]:
+    """A row in the types the volume store hands back.
+
+    The driver returns DECIMAL as Decimal and TIMESTAMP as datetime, and the
+    HTTP layer serialises both with `str`: a readiness of 46.5 came out of
+    the volume store as the number 46.5 and out of MariaDB as the string
+    "46.50" (PRODUCTIZE_NOTES §16.32). A dashboard reading one store and then
+    the other would see the same record change type. Numbers are numbers and
+    moments are ISO-8601 text, whichever store answered.
+    """
+    plain: dict[str, Any] = {}
+    for key, value in row.items():
+        if isinstance(value, Decimal):
+            plain[key] = float(value)
+        elif isinstance(value, datetime):
+            plain[key] = value.isoformat()
+        else:
+            plain[key] = value
+    return plain
 
 
 def statements_in(sql: str) -> list[str]:

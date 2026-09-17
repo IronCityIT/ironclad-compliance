@@ -1485,7 +1485,20 @@ has no issued report beside it. Build 12 on the controller: the issued and
 the packaged report share one digest, the trend is in both, and the stored
 deliverables verify — three chains in the tenant's trail by now, all sound.
 
-### 16.32 Looked at and left
+### 16.32 The same record, two types
+
+`ironclad serve` in front of the scratch MariaDB: health reports the store
+kind, a stranger's read is 403, the listing and the queue come back. And
+`readiness_score` came back as the string `"46.50"`. From the volume store
+the same field is the number `46.5`. The driver returns DECIMAL as
+`Decimal` and TIMESTAMP as `datetime`, and the HTTP layer's JSON serialises
+whatever it does not recognise with `str`. A dashboard reading one store and
+then the other — which is exactly the migration in HANDOFF §13 — would watch
+a number turn into a string. Rows are normalised on the way out of MariaDB
+now, Decimal to float and datetime to ISO-8601, and a contract test on both
+stores asserts the record reads back in the same types.
+
+### 16.33 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

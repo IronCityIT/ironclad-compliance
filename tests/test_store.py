@@ -342,6 +342,28 @@ class StoreContract:
         assert verdict["chains"] == 2
         assert verdict["events"] == 2 * len(document["audit"]["events"])
 
+    def test_a_record_reads_back_in_the_same_types_from_either_store(
+        self, tmp_path: Path, document
+    ) -> None:
+        # 46.5 came out of the volume as the number 46.5 and out of MariaDB
+        # as the string "46.50" once it had been through the HTTP layer's
+        # JSON. A dashboard must not see a record change type with the store.
+        import json as _json
+
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        record = store.get_assessment("acme", "acme-store-1")
+        assert record is not None
+        assert isinstance(record["readiness_score"], float)
+        assert record["readiness_score"] == document["summary"]["readiness_score"]
+        for key in ("total_controls", "compliant", "gap"):
+            assert isinstance(record[key], int), key
+        # everything the record carries survives the JSON the API emits, as
+        # numbers and text, never as str() of a driver type
+        for key, value in _json.loads(_json.dumps(record, default=str)).items():
+            assert not (isinstance(value, str) and value.startswith("Decimal(")), key
+        assert isinstance(record.get("started_at", ""), str)
+
     def test_a_trend_can_be_read_out_of_the_store(self, tmp_path: Path, document) -> None:
         # `ironclad compare --client` refused the MariaDB store: it keeps the
         # rows, not the document. Everything the comparison reads is in the
