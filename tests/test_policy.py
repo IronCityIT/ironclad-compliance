@@ -266,6 +266,38 @@ class TestScopeReviewInARun:
             > without_policy.assessment.summary.readiness_score
         )
 
+    def test_scoping_out_half_the_framework_is_said_where_the_number_is_read(
+        self, tiny_framework, evidence
+    ) -> None:
+        # One exclusion of three: no caveat. Two of three: the readiness figure
+        # rests on one control, and the caveats say so.
+        one = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            policy=self._policy(),
+            group="standard",
+            as_of=NOW,
+        )
+        assert not any("scoped out by the tenant policy" in w for w in one.warnings)
+
+        two = policy_from_document(
+            policy_doc(scope_exclusions=[exclusion(), exclusion(control_id="CC1.1")])
+        )
+        result = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            policy=two,
+            group="standard",
+            as_of=NOW,
+        )
+        assert any(
+            "2 of 3 controls are scoped out by the tenant policy" in w
+            and "over the remaining 1" in w
+            for w in result.warnings
+        ), result.warnings
+
     def test_the_exclusion_is_written_to_the_audit_trail(self, tiny_framework, evidence) -> None:
         result = run_assessment(
             tenant_id="acme",

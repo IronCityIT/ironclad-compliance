@@ -1207,7 +1207,19 @@ verdicts are left alone. The sample evidence raises neither. The residual is
 the nature of keyword matching, and it is what the AI stage and the auditor
 are for.
 
-### 16.19 Looked at and left
+### 16.19 Scoping out the framework
+
+A policy scoping out all 33 SOC 2 controls: readiness 0.0%, no crash, every
+control not applicable, the report saying so. All but one: 0.0% over one
+control, with the scope review already raising "scoped-out control has
+supporting evidence" for the ones that had evidence — the right finding. What
+was missing was the headline: a readiness figure computed over one control
+looked exactly like one computed over thirty-three. When half or more of the
+framework is scoped out, the caveats now say how many and over how many the
+number is computed. Each exclusion is still a documented, approved decision;
+this is about where the number is read.
+
+### 16.20 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

@@ -135,6 +135,19 @@ class ScopeReview(AssessmentModule):
                         )
                     )
 
+        # Each exclusion is a documented decision and lifts the score without a
+        # control being fixed (the comparison says as much). Enough of them and
+        # the readiness figure is over a sliver of the framework: a policy
+        # scoping out 32 of 33 controls produced a report whose headline number
+        # rested on one. Said in the caveats, where the number is read.
+        total = len(ctx.framework.controls)
+        if total and applied * 2 >= total:
+            remaining = total - applied
+            ctx.warn(
+                f"{applied} of {total} controls are scoped out by the tenant policy; the "
+                f"readiness figure is computed over the remaining {remaining}"
+            )
+
         ctx.module_output[self.name] = {
             "excluded": applied,
             "exclusions": [e.to_dict() for e in policy.exclusions],
