@@ -1481,7 +1481,9 @@ comment says must never happen. `export --format package --report
 out/report.html` now carries the issued file byte for byte, so the package's
 `SHA256SUMS` line is the issued report's digest; both pipelines pass it.
 Without the flag the package still renders one, for a stored result that
-has no issued report beside it.
+has no issued report beside it. Build 12 on the controller: the issued and
+the packaged report share one digest, the trend is in both, and the stored
+deliverables verify — three chains in the tenant's trail by now, all sound.
 
 ### 16.32 Looked at and left
 

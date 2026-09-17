@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `d3d2977`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `3572b55`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -45,9 +45,9 @@ deploy, no `workflow_dispatch` fired against a real client.
 | HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
 | GitHub workflows | **DONE; `ci.yml` green; `compliance-assessment.yml` executed twice as a dry run, report stage proven, AI job red on the engine's output size (consensus-engine PR #6)** | `.github/workflows/` |
 | Jenkins pipeline | **DONE; passes the declarative linter; executed on a throwaway controller with the Docker agent substituted — every runnable gate green, `persistence` UNAVAILABLE as designed; the assessment mode published to a volume store through an `ironclad-store` credential (§16.26–16.28)** | `Jenkinsfile` |
-| Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
+| Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI and 10.11 on this machine; the trend reads out of both stores** | `ironclad/store/` |
 | Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
-| Trend comparison between assessments | **DONE, tested** | `ironclad/compare.py` |
+| Trend comparison between assessments | **DONE, tested; reaches the client report from both pipelines when a store is configured (§16.30)** | `ironclad/compare.py` |
 | End-to-end round trip | **DONE, green in CI against MariaDB and a volume** | `scripts/end_to_end.py` |
 | Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 829 passed, 27 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips; 836 with the extras in a venv); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 834 passed, 28 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `d3d2977`, run
-[35178998601](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35178998601):
+Green on `productize/ironclad-compliance` at `3572b55`, run
+[35180556868](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35180556868):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,13 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **The trend reaches the report (2026-09-17).** The comparison existed and
+  nothing in either pipeline fetched the previous assessment; now both do,
+  from the store, and the auditor package carries the report as issued
+  rather than a re-render that lost the section. MariaDB found to be
+  installed here: 73 store tests and the round trip pass against 10.11,
+  twenty concurrent publishes land clean, and `compare --client` now works
+  against it. §16.29–16.31.
 - **The Jenkins pipeline ran (2026-09-17).** On a throwaway controller in
   the scratchpad with only the Docker agent substituted: nine builds, every
   runnable gate green, the assessment mode publishing to a volume store
