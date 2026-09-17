@@ -114,6 +114,15 @@ def build_parser() -> argparse.ArgumentParser:
     assess.add_argument(
         "--consensus-b64", default="", help="base64 consensus output to fold into the result"
     )
+    assess.add_argument(
+        "--previous",
+        default="",
+        help=(
+            "the tenant's previous stored assessment (from `ironclad store latest`): a "
+            "remediation item it still carries keeps its first-raised and target dates "
+            "instead of starting its clock again today"
+        ),
+    )
     assess.add_argument("--out", default="out", help="output directory")
 
     report = sub.add_parser("report", help="render an HTML report from a stored result")
@@ -463,6 +472,15 @@ def cmd_assess(args: argparse.Namespace) -> int:
     if policy_path is not None:
         policy = load_policy(policy_path, expected_tenant=tenant)
 
+    previous = None
+    if args.previous:
+        previous = _stored_document(args.previous, "previous assessment")
+        previous_tenant = str(previous.get("tenant_id") or previous.get("client_id") or "")
+        if previous_tenant != tenant:
+            raise ValidationError(
+                f"{args.previous} belongs to tenant {previous_tenant!r}, not {tenant!r}"
+            )
+
     result = run_assessment(
         tenant_id=tenant,
         framework=args.framework,
@@ -473,6 +491,7 @@ def cmd_assess(args: argparse.Namespace) -> int:
         crosswalk=load_crosswalks(),
         assessment_type=args.assessment_type,
         assessment_id=args.assessment_id,
+        previous=previous,
     )
     result.warnings.extend(ingest_warnings)
 

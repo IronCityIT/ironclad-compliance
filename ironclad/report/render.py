@@ -80,6 +80,7 @@ tr:last-child td { border-bottom: none; }
 .ours { font-weight: 700; color: var(--navy); white-space: nowrap; }
 .improved { color: var(--met); font-weight: 700; }
 .regressed { color: var(--gap); font-weight: 700; }
+.overdue { color: var(--gap); font-weight: 700; }
 .scoped { color: var(--muted); font-weight: 700; }
 h3 { font-size: 11pt; margin: 22px 0 8px; color: var(--navy); }
 .callout { background: #f7fafc; border-left: 4px solid var(--navy);
@@ -145,9 +146,19 @@ def _control_rows(assessment: Any, view: ReportView) -> str:
 
 
 def _remediation_rows(plan: RemediationPlan) -> str:
+    # Judged against the plan's own generation time, not the reader's clock,
+    # so a report says the same thing whenever it is opened.
+    overdue = {item.item_id for item in plan.overdue(plan.generated_at)}
     rows = []
     for item in plan.ordered():
         due = item.due_date.date().isoformat() if item.due_date else "—"
+        if item.item_id in overdue:
+            since = item.created_at.date().isoformat()
+            due_cell = (
+                f'<span class="overdue">{escape(due)} — overdue; raised {escape(since)}</span>'
+            )
+        else:
+            due_cell = escape(due)
         required = ", ".join(item.evidence_gap[:4]) or "—"
         rows.append(
             "<tr>"
@@ -156,7 +167,7 @@ def _remediation_rows(plan: RemediationPlan) -> str:
             f'<div class="note">{escape(item.guidance)}</div></td>'
             f"<td>{_pill(str(item.severity), str(item.severity).title())}</td>"
             f"<td>{escape(item.owner or '—')}</td>"
-            f"<td>{escape(due)}</td>"
+            f"<td>{due_cell}</td>"
             f"<td>{escape(required)}</td>"
             "</tr>"
         )
@@ -394,7 +405,8 @@ def render_html(
         remediation_block = f"""
         <h2>Remediation plan</h2>
         <p>{len(result.plan)} item(s), ordered by risk. Target dates are derived
-           from severity.</p>
+           from severity when an item is first raised, and kept across assessments
+           until the item closes.</p>
         <table>
           <thead><tr><th>Control</th><th>Action</th><th>Severity</th><th>Owner</th>
           <th>Target date</th><th>Evidence required</th></tr></thead>

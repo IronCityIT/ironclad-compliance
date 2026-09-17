@@ -166,6 +166,9 @@ jobs:
     env:
       IRONCLAD_EVIDENCE_ROOT: ${{ secrets.IRONCLAD_EVIDENCE_ROOT }}
       GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      # Read here for the previous assessment; the record is published by the
+      # report job, never from this one.
+      IRONCLAD_STORE: ${{ secrets.IRONCLAD_STORE }}
 
     outputs:
       findings_b64: ${{ steps.assess.outputs.findings_b64 }}
@@ -248,12 +251,40 @@ jobs:
           to a mounted volume. See HANDOFF.md §3.2."
           exit 1
 
+      # The tenant's previous assessment against this framework, when a store
+      # is configured. Two things read it: remediation planning, so an item
+      # still open keeps the target date it was first given rather than
+      # starting its clock again today (an item outstanding for six months
+      # used to read "due in 30 days" in every report); and the report job,
+      # for the "Since the last assessment" section. A first assessment has
+      # none, and that is exit 3, not a fault.
+      - name: Fetch the previous assessment from the store
+        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE != '' }}
+        env:
+          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
+          FRAMEWORK: ${{ inputs.framework }}
+          ASSESSMENT_ID: ${{ needs.prepare.outputs.assessment_id }}
+        run: |
+          set -euo pipefail
+          status=0
+          python -m ironclad.cli store latest \
+            --client "$CLIENT_ID" \
+            --framework "$FRAMEWORK" \
+            --before "$ASSESSMENT_ID" \
+            --out previous/assessment.json || status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+
       - name: Run the assessment
         id: assess
         env:
           CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
         run: |
           set -euo pipefail
+          previous=""
+          if [ -f previous/assessment.json ]; then
+            previous="--previous previous/assessment.json"
+          fi
+          # shellcheck disable=SC2086 — $previous is either empty or two words
           python -m ironclad.cli assess \
             --client "$CLIENT_ID" \
             --framework "${{ inputs.framework }}" \
@@ -261,6 +292,7 @@ jobs:
             --group "${{ inputs.group }}" \
             --assessment-type "${{ inputs.assessment_type }}" \
             --assessment-id "${{ needs.prepare.outputs.assessment_id }}" \
+            $previous \
             --out out/
 
           # The consensus engine takes base64; the CLI already wrote it.
@@ -273,6 +305,17 @@ jobs:
           name: assessment
           path: out/
           retention-days: 90
+
+      # Handed to the report job beside the assessment rather than fetched
+      # again there: one read, one answer, the same "previous" in the plan
+      # and in the report. Absent on a first assessment or without a store.
+      - name: Hand the previous assessment to the report job
+        if: ${{ hashFiles('previous/assessment.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: previous-assessment
+          path: previous/
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Central AI consensus. One source of truth for LLM analysis; nothing here
@@ -375,26 +418,18 @@ jobs:
       # The trend. A compliance programme is a trend, not a snapshot, and
       # the report has had a "Since the last assessment" section since the
       # comparison was built — reachable only by hand, because nothing in the
-      # pipeline fetched the previous assessment. When a store is configured,
-      # the tenant's most recent stored assessment against the same framework
-      # is fetched here and the report is rendered against it. No store, or a
-      # first assessment, is not an error: the section is simply absent.
-      - name: Fetch the previous assessment from the store
-        if: ${{ !inputs.dry_run && env.IRONCLAD_STORE != '' }}
-        env:
-          CLIENT_ID: ${{ needs.prepare.outputs.client_id }}
-          FRAMEWORK: ${{ inputs.framework }}
-          ASSESSMENT_ID: ${{ needs.prepare.outputs.assessment_id }}
-        run: |
-          set -euo pipefail
-          status=0
-          python -m ironclad.cli store latest \
-            --client "$CLIENT_ID" \
-            --framework "$FRAMEWORK" \
-            --before "$ASSESSMENT_ID" \
-            --out previous/assessment.json || status=$?
-          # 3 is "none yet": a first assessment. Anything else is a fault.
-          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+      # pipeline fetched the previous assessment. The assess job fetches it
+      # now (and plans remediation against it); here it is rendered against.
+      # No store, or a first assessment, is not an error: the section is
+      # simply absent.
+      - name: Take the previous assessment the assess job fetched
+        # Absent on a first assessment or without a store; the render below
+        # checks for the file rather than relying on this step's outcome.
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: previous-assessment
+          path: previous/
 
       - name: Render the report and the auditor package
         env:

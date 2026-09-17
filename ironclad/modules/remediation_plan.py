@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from ironclad.base import AssessmentContext, AssessmentModule, Finding, ModuleResult
 from ironclad.model.assessment import ControlStatus
-from ironclad.model.remediation import RemediationPlan, build_item
+from ironclad.model.remediation import RemediationPlan, build_item, carry_forward
 
 # Verdicts that generate work. Accepted risk does not: it is tracked through the
 # exception's own expiry, and duplicating it as an open task would double-count
@@ -39,6 +39,14 @@ class RemediationPlanning(AssessmentModule):
             generated_at=ctx.as_of,
         )
 
+        # The previous assessment's items by id, so an item still open keeps
+        # the dates it was first given rather than starting its clock again.
+        earlier = {
+            str(item.get("item_id")): item
+            for item in ((ctx.previous or {}).get("remediation") or {}).get("items") or []
+        }
+        carried = 0
+
         for verdict in ctx.assessment.controls:
             if verdict.status not in ACTIONABLE:
                 continue
@@ -59,6 +67,9 @@ class RemediationPlanning(AssessmentModule):
                 missing_evidence=missing,
                 now=ctx.as_of,
             )
+            if item.item_id in earlier:
+                carry_forward(item, earlier[item.item_id], now=ctx.as_of)
+                carried += 1
             # An unowned action item is a report line; an owned one is work.
             if ctx.policy is not None:
                 item.owner = ctx.policy.owner_for(verdict.control_id)
@@ -85,8 +96,20 @@ class RemediationPlanning(AssessmentModule):
                 )
             )
 
+        overdue = plan.overdue(ctx.as_of)
+        if overdue:
+            ctx.warn(
+                f"{len(overdue)} remediation item(s) are past the target date they were "
+                f"first given: {', '.join(i.control_id for i in overdue[:8])}"
+                + (", …" if len(overdue) > 8 else "")
+            )
+
         ctx.plan = plan
-        ctx.module_output[self.name] = plan.to_dict()
+        ctx.module_output[self.name] = {
+            **plan.to_dict(),
+            "carried_forward": carried,
+            "overdue": len(overdue),
+        }
         return self.result(findings, items=len(plan), by_severity=plan.by_severity())
 
     @staticmethod

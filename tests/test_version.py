@@ -445,7 +445,7 @@ class TestTheReportCarriesTheTrend:
                 "FRAMEWORK": "soc2",
                 "ASSESSMENT_ID": "trend-co-soc2-tsc-first",
             },
-            job="report",
+            job="assess",
             cwd=work,
         )
         assert code == 0, log
@@ -471,7 +471,7 @@ class TestTheReportCarriesTheTrend:
                 "FRAMEWORK": "soc2",
                 "ASSESSMENT_ID": "trend-co-soc2-tsc-0002",
             },
-            job="report",
+            job="assess",
             cwd=work,
         )
         assert code == 0, log

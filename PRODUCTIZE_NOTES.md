@@ -1535,7 +1535,32 @@ the hostile-record test covers all three new fields. The CSS went into the
 committed `index.html` with the foreign working-tree edits set aside and
 put back afterwards, untouched (§14).
 
-### 16.35 Looked at and left
+### 16.35 Nothing could ever be overdue
+
+`build_item` minted every remediation item with `created_at=now` and
+`due_date=now + SLA`, on every run. A control outstanding for six months
+read "due in 30 days" in every report; `RemediationPlan.overdue()` could
+not be true within the run that made the plan; the dashboard's overdue
+mark and the `idx_remediation_tenant (priority, due_date)` index were
+decorative. The item id is minted from tenant and control precisely so a
+run can recognise last run's item — the comparison uses that — and the
+plan never did.
+
+With the previous assessment in hand (which both pipelines now fetch,
+§16.30, and pass as `assess --previous`), an item still open keeps the
+first-raised and target dates it was given, unless its severity rose — then
+the target is the sooner of the two, because a gap that got worse does not
+get more time. The plan counts what it carried and what is overdue, the
+caveats name the overdue controls, and the report marks each overdue row
+with the date it was first raised, judged against the plan's own
+generation time so the document reads the same whenever it is opened. Run
+against a previous assessment dated a hundred days back: 27 carried, 27
+overdue, every row marked. The workflow's assess job fetches the previous
+assessment (it needed the store read there) and hands it to the report job
+as an artifact, so the plan and the trend see the same one; the Jenkins
+stage fetches first and assesses second.
+
+### 16.36 Looked at and left
 
 Examined during §16 and deliberately not changed, each with the reason:
 

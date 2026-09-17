@@ -85,6 +85,10 @@ class AssessmentContext:
     policy: TenantPolicy | None = None
     crosswalk: Crosswalk = field(default_factory=Crosswalk)
     plan: RemediationPlan | None = None
+    # The tenant's previous assessment against this framework, as stored, when
+    # the caller has one. Read by remediation planning to carry an item's
+    # first-raised and target dates forward; nothing else reads it.
+    previous: dict[str, Any] | None = None
     as_of: datetime = field(default_factory=utc_now)
     actor: str = "system:pipeline"
     warnings: list[str] = field(default_factory=list)

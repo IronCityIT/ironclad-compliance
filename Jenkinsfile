@@ -283,6 +283,29 @@ pipeline {
           }
         }
         sh 'pip install --quiet pypdf python-docx openpyxl'
+        // The tenant's previous assessment against this framework, out of the
+        // store when there is one, the same way the GitHub workflow gets it.
+        // Remediation planning keeps an open item's first-raised and target
+        // dates from it, and the report says what moved since. No credential,
+        // or a first assessment, leaves both out.
+        script {
+          try {
+            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
+              withEnv(["CLIENT_ID=${params.CLIENT_ID}", "FRAMEWORK=${params.FRAMEWORK}"]) {
+                sh '''
+                  set -eu
+                  status=0
+                  python -m ironclad.cli store latest \
+                    --client "$CLIENT_ID" --framework "$FRAMEWORK" \
+                    --out previous/assessment.json || status=$?
+                  if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+                '''
+              }
+            }
+          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+            echo 'no ironclad-store credential on this controller — no previous assessment'
+          }
+        }
         withEnv([
           "CLIENT_ID=${params.CLIENT_ID}",
           "FRAMEWORK=${params.FRAMEWORK}",
@@ -295,40 +318,24 @@ pipeline {
               echo "evidence directory not found: $EVIDENCE_DIR" >&2
               exit 2
             fi
+            previous=""
+            if [ -f previous/assessment.json ]; then
+              previous="--previous previous/assessment.json"
+            fi
+            # shellcheck disable=SC2086 — $previous is either empty or two words
             python -m ironclad.cli assess \
               --client "$CLIENT_ID" \
               --framework "$FRAMEWORK" \
               --evidence-dir "$EVIDENCE_DIR" \
               --group "$GROUP" \
+              $previous \
               --out out/
+            if [ -f previous/assessment.json ]; then
+              python -m ironclad.cli report \
+                --input out/assessment.json --out out/report.html \
+                --client-name "$CLIENT_ID" --compare-to previous/assessment.json
+            fi
           '''
-        }
-        // The trend, the same way the GitHub workflow gets it: the tenant's
-        // previous assessment against this framework, out of the store when
-        // there is one, and the report re-issued against it. No credential,
-        // or a first assessment, leaves the report without the section.
-        script {
-          try {
-            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
-              withEnv(["CLIENT_ID=${params.CLIENT_ID}", "FRAMEWORK=${params.FRAMEWORK}"]) {
-                sh '''
-                  set -eu
-                  status=0
-                  python -m ironclad.cli store latest \
-                    --client "$CLIENT_ID" --framework "$FRAMEWORK" \
-                    --out previous/assessment.json || status=$?
-                  if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
-                  if [ -f previous/assessment.json ]; then
-                    python -m ironclad.cli report \
-                      --input out/assessment.json --out out/report.html \
-                      --client-name "$CLIENT_ID" --compare-to previous/assessment.json
-                  fi
-                '''
-              }
-            }
-          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
-            echo 'no ironclad-store credential on this controller — the report carries no trend'
-          }
         }
         withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
           sh '''

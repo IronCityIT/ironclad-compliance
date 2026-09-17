@@ -147,8 +147,14 @@ def run_assessment(
     actor: str = "system:pipeline",
     as_of: datetime | None = None,
     framework_dir: Path | None = None,
+    previous: dict[str, Any] | None = None,
 ) -> RunResult:
-    """Run the selected capabilities against one tenant's evidence."""
+    """Run the selected capabilities against one tenant's evidence.
+
+    `previous` is the tenant's last stored assessment, when the caller has it:
+    remediation items it still carries keep their first-raised and target
+    dates rather than being re-dated to today.
+    """
     now = as_of or utc_now()
     tenant = slugify(tenant_id)
 
@@ -205,6 +211,7 @@ def run_assessment(
         exceptions=resolved_exceptions,
         policy=policy,
         crosswalk=crosswalk if crosswalk is not None else load_crosswalks(),
+        previous=previous,
         as_of=now,
         actor=actor,
     )

@@ -20,6 +20,7 @@ from ironclad.model.assessment import ControlStatus
 from ironclad.model.control import Framework
 from ironclad.model.evidence import EvidenceSet, LinkMethod
 from ironclad.model.exception import RiskException
+from ironclad.model.remediation import SLA_DAYS, Severity
 from tests.conftest import NOW, make_artifact, verdict_for
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -779,3 +780,80 @@ class TestCrosswalkProjection:
         )
         assert result.ok
         assert any("cross-framework" in w for w in result.warnings)
+
+
+class TestRemediationDatesAcrossAssessments:
+    """Every run minted its items fresh, so a control outstanding for six
+    months read "due in 30 days" in every report and nothing could ever be
+    overdue. Given the previous assessment, an open item keeps the dates it
+    was first given."""
+
+    def _run(self, tiny_framework, evidence, as_of, previous=None):
+        return run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="standard",
+            as_of=as_of,
+            previous=previous,
+        )
+
+    def test_an_open_item_keeps_its_first_raised_and_target_dates(
+        self, tiny_framework, evidence
+    ) -> None:
+        first = self._run(tiny_framework, evidence, NOW)
+        later = self._run(
+            tiny_framework, evidence, NOW + timedelta(days=100), previous=first.to_dict()
+        )
+        before = {i.item_id: i for i in first.plan.items}
+        # a hundred days on, the evidence has aged and more controls are open;
+        # the items that were open then keep their dates, the new ones start now
+        common = [i for i in later.plan.items if i.item_id in before]
+        fresh = [i for i in later.plan.items if i.item_id not in before]
+        assert common, "the sample leaves gaps on purpose"
+        for item in common:
+            assert item.created_at == before[item.item_id].created_at
+            assert item.due_date == before[item.item_id].due_date
+        for item in fresh:
+            assert item.created_at == NOW + timedelta(days=100)
+        output = later.module_output["remediation_plan"]
+        assert output["carried_forward"] == len(common)
+        assert output["overdue"] == len(common)
+        assert any("past the target date they were first given" in w for w in later.warnings)
+
+    def test_without_a_previous_assessment_the_clock_starts_today(
+        self, tiny_framework, evidence
+    ) -> None:
+        result = self._run(tiny_framework, evidence, NOW)
+        for item in result.plan.items:
+            assert item.created_at == NOW
+        output = result.module_output["remediation_plan"]
+        assert output["carried_forward"] == 0 and output["overdue"] == 0
+
+    def test_a_gap_that_got_worse_does_not_get_more_time(self, tiny_framework, evidence) -> None:
+        from ironclad.model.remediation import carry_forward
+
+        first = self._run(tiny_framework, evidence, NOW)
+        item = first.plan.items[0]
+        previous = dict(item.to_dict())
+        # the previous record says this was a low finding due far out; now it is critical
+        previous["severity"] = "low"
+        previous["due_date"] = (NOW + timedelta(days=300)).isoformat()
+        previous["created_at"] = (NOW - timedelta(days=10)).isoformat()
+        item.severity = type(item.severity)("critical")
+        item.created_at = NOW
+        item.due_date = NOW + timedelta(days=7)
+        carry_forward(item, previous, now=NOW)
+        assert item.created_at == NOW - timedelta(days=10)
+        assert item.due_date == NOW + timedelta(days=SLA_DAYS[Severity.CRITICAL])
+
+    def test_a_previous_record_with_unreadable_dates_changes_nothing(
+        self, tiny_framework, evidence
+    ) -> None:
+        from ironclad.model.remediation import carry_forward
+
+        first = self._run(tiny_framework, evidence, NOW)
+        item = first.plan.items[0]
+        created, due = item.created_at, item.due_date
+        carry_forward(item, {"created_at": "yesterday-ish", "due_date": None}, now=NOW)
+        assert (item.created_at, item.due_date) == (created, due)

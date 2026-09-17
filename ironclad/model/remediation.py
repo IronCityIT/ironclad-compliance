@@ -9,7 +9,7 @@ exist has gone stale.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -152,6 +152,50 @@ def build_item(
         due_date=now + timedelta(days=SLA_DAYS[severity]),
         evidence_gap=missing_evidence,
     )
+
+
+def carry_forward(
+    item: RemediationItem, previous: dict[str, Any] | None, now: datetime | None = None
+) -> RemediationItem:
+    """Keep an item's first-raised date and target date across assessments.
+
+    Every run minted its items fresh — `created_at=now`, `due_date=now + SLA`
+    — so a control outstanding for six months read as "due in 30 days" in
+    every report, `RemediationPlan.overdue()` could never be true, and the
+    dashboard's overdue mark was decorative (PRODUCTIZE_NOTES §16.36). Given
+    the same item from the previous assessment (same id: it is minted from
+    tenant and control), the earlier dates are kept, unless the severity has
+    risen — then the target is the sooner of the two, because a gap that
+    got worse does not get more time.
+    """
+    if not previous:
+        return item
+    earlier_created = _moment(previous.get("created_at"))
+    earlier_due = _moment(previous.get("due_date"))
+    if earlier_created is not None and earlier_created < item.created_at:
+        item.created_at = earlier_created
+    if earlier_due is not None and item.due_date is not None:
+        fresh = (now or item.created_at) + timedelta(days=SLA_DAYS[item.severity])
+        item.due_date = min(earlier_due, fresh) if _rose(previous, item) else earlier_due
+    return item
+
+
+def _rose(previous: dict[str, Any], item: RemediationItem) -> bool:
+    order = [str(s) for s in Severity]
+    try:
+        return order.index(str(item.severity)) > order.index(str(previous.get("severity", "")))
+    except ValueError:
+        return False
+
+
+def _moment(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 @dataclass
