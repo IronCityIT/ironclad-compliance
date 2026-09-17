@@ -339,7 +339,7 @@ class MariaDBResultStore:
         """
         return self._query(
             "SELECT r.* FROM remediation_items r "
-            "JOIN assessments a ON a.assessment_id = r.assessment_id "
+            "JOIN assessments a ON a.tenant_id = r.tenant_id AND a.assessment_id = r.assessment_id "
             "WHERE r.tenant_id = %s AND a.assessment_id = ("
             "  SELECT assessment_id FROM assessments WHERE tenant_id = %s "
             "  ORDER BY started_at DESC, assessment_id DESC LIMIT 1"

@@ -364,6 +364,35 @@ class StoreContract:
             assert not (isinstance(value, str) and value.startswith("Decimal(")), key
         assert isinstance(record.get("started_at", ""), str)
 
+    def test_two_tenants_may_use_the_same_assessment_id(
+        self, tmp_path: Path, document, other_document
+    ) -> None:
+        # A dispatcher's scan_id becomes the assessment id, and two clients'
+        # dispatchers may hand in the same one. The volume store partitioned
+        # by tenant; MariaDB keyed assessments on the id alone, so the second
+        # tenant's publish was an IntegrityError.
+        store = self.store(tmp_path)
+        first = json.loads(json.dumps(document))
+        second = json.loads(json.dumps(other_document))
+        for doc in (first, second):
+            doc["assessment_id"] = "scan-777"
+            doc["remediation"]["assessment_id"] = "scan-777"
+            for event in doc["audit"]["events"]:
+                event["object_id"] = "scan-777"
+        store.put_assessment(first)
+        store.put_assessment(second)
+
+        mine = store.get_assessment("acme", "scan-777")
+        theirs = store.get_assessment("beta", "scan-777")
+        assert mine is not None and theirs is not None
+        assert mine["tenant_id"] == "acme" and theirs["tenant_id"] == "beta"
+        assert len(store.list_controls("acme", "scan-777")) == len(document["controls"])
+        assert len(store.list_controls("beta", "scan-777")) == len(document["controls"])
+        # re-storing one tenant's record touches only that tenant's rows
+        store.put_assessment(first)
+        assert len(store.list_controls("beta", "scan-777")) == len(document["controls"])
+        assert [a["assessment_id"] for a in store.list_assessments("beta")] == ["scan-777"]
+
     def test_a_trend_can_be_read_out_of_the_store(self, tmp_path: Path, document) -> None:
         # `ironclad compare --client` refused the MariaDB store: it keeps the
         # rows, not the document. Everything the comparison reads is in the

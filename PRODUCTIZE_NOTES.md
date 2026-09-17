@@ -1498,7 +1498,23 @@ a number turn into a string. Rows are normalised on the way out of MariaDB
 now, Decimal to float and datetime to ISO-8601, and a contract test on both
 stores asserts the record reads back in the same types.
 
-### 16.33 Looked at and left
+### 16.33 Two clients, one scan id, one IntegrityError
+
+`scan_id` is a standard dispatch input now (§16.14) and becomes the
+assessment id verbatim; nothing about it is tenant-scoped, and two clients'
+dispatchers can hand in the same one. The volume store partitions by tenant
+and stored both. MariaDB keyed `assessments` on `assessment_id` alone, so
+the second tenant's publish died with `StoreError: … failed: IntegrityError`
+— an opaque failure of one client's run caused by another client's id. The
+key is `(tenant_id, assessment_id)` now, the child tables carry the composite
+key and cascade on it, the one join matches the tenant too, and a contract
+test publishes the same id for two tenants on both stores and re-stores one
+without touching the other. Nothing has been initialised from the old
+schema anywhere but CI's throwaway and this machine's scratch server, so
+there is nothing to migrate; a database that had been would need the tables
+recreated, since `init` only creates what is missing.
+
+### 16.34 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

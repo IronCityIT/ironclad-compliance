@@ -146,6 +146,14 @@ class FileResultStore:
             self._assessment_dir(tenant_id, assessment_id) / "rows" / "assessments.json"
         )
 
+    def list_controls(self, tenant_id: str, assessment_id: str) -> list[dict[str, Any]]:
+        """The projected control rows, as the MariaDB store lists them."""
+        path = self._assessment_dir(tenant_id, assessment_id) / "rows" / "assessment_controls.json"
+        if not path.exists():
+            return []
+        rows: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
+        return sorted(rows, key=lambda row: str(row.get("control_id", "")))
+
     def get_document(self, tenant_id: str, assessment_id: str) -> dict[str, Any] | None:
         """The complete stored document, as it was written."""
         path = self._assessment_dir(tenant_id, assessment_id) / "assessment.json"

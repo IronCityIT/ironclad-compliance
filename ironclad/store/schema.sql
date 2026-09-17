@@ -10,6 +10,10 @@
 --   * Every table carries tenant_id, and every index leads with it. A query
 --     that forgets the tenant is a full scan rather than a quiet leak of one
 --     client's data into another's report.
+--   * The assessment key is (tenant_id, assessment_id), as it is on the volume
+--     store. Two clients whose dispatchers hand in the same scan_id are two
+--     records; with assessment_id alone as the key, the second was an
+--     IntegrityError. Child rows carry the composite key.
 --   * Child rows cascade from their assessment. Re-storing an assessment
 --     replaces exactly its own rows and cannot orphan detail.
 --   * audit_events is unique on (tenant_id, assessment_id, event_id) so an
@@ -58,7 +62,10 @@ CREATE TABLE IF NOT EXISTS assessments (
   audit_chain_head  VARCHAR(128) NOT NULL DEFAULT '',
   report_url        VARCHAR(512) NOT NULL DEFAULT '',
   stored_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (assessment_id),
+  -- Tenant-scoped, as the volume store is: two clients whose dispatchers
+  -- hand in the same scan_id are two records, not an IntegrityError for the
+  -- second (PRODUCTIZE_NOTES §16.33).
+  PRIMARY KEY (tenant_id, assessment_id),
   KEY idx_assessments_tenant (tenant_id, started_at),
   CONSTRAINT fk_assessments_tenant FOREIGN KEY (tenant_id)
     REFERENCES tenants (tenant_id) ON DELETE CASCADE
@@ -83,10 +90,10 @@ CREATE TABLE IF NOT EXISTS assessment_controls (
   assessed_by     VARCHAR(128) NOT NULL DEFAULT '',
   notes           LONGTEXT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_control_per_assessment (assessment_id, control_id),
+  UNIQUE KEY uq_control_per_assessment (tenant_id, assessment_id, control_id),
   KEY idx_controls_tenant_status (tenant_id, status),
-  CONSTRAINT fk_controls_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessments (assessment_id) ON DELETE CASCADE
+  CONSTRAINT fk_controls_assessment FOREIGN KEY (tenant_id, assessment_id)
+    REFERENCES assessments (tenant_id, assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- References and checksums. The evidence itself never enters the database:
@@ -105,10 +112,10 @@ CREATE TABLE IF NOT EXISTS control_evidence (
   matched_terms  LONGTEXT NOT NULL,
   note           TEXT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_link (assessment_id, control_id, artifact_id),
+  UNIQUE KEY uq_link (tenant_id, assessment_id, control_id, artifact_id),
   KEY idx_evidence_tenant_artifact (tenant_id, artifact_id),
-  CONSTRAINT fk_evidence_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessments (assessment_id) ON DELETE CASCADE
+  CONSTRAINT fk_evidence_assessment FOREIGN KEY (tenant_id, assessment_id)
+    REFERENCES assessments (tenant_id, assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- item_id is deterministic on (tenant, control), so the same control produces
@@ -132,11 +139,11 @@ CREATE TABLE IF NOT EXISTS remediation_items (
   exception_id   VARCHAR(64) NOT NULL DEFAULT '',
   source         VARCHAR(64) NOT NULL DEFAULT '',
   created_at     VARCHAR(64) NOT NULL DEFAULT '',
-  PRIMARY KEY (assessment_id, item_id),
+  PRIMARY KEY (tenant_id, assessment_id, item_id),
   KEY idx_remediation_tenant (tenant_id, priority, due_date),
   KEY idx_remediation_item (item_id),
-  CONSTRAINT fk_remediation_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessments (assessment_id) ON DELETE CASCADE
+  CONSTRAINT fk_remediation_assessment FOREIGN KEY (tenant_id, assessment_id)
+    REFERENCES assessments (tenant_id, assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS findings (
@@ -151,10 +158,10 @@ CREATE TABLE IF NOT EXISTS findings (
   detail         TEXT NOT NULL,
   evidence       LONGTEXT NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_finding (assessment_id, ordinal),
+  UNIQUE KEY uq_finding (tenant_id, assessment_id, ordinal),
   KEY idx_findings_tenant_severity (tenant_id, severity),
-  CONSTRAINT fk_findings_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessments (assessment_id) ON DELETE CASCADE
+  CONSTRAINT fk_findings_assessment FOREIGN KEY (tenant_id, assessment_id)
+    REFERENCES assessments (tenant_id, assessment_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Append-only. No ON DELETE CASCADE and no foreign key to assessments on
