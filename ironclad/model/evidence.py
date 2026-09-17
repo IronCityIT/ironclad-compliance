@@ -167,13 +167,22 @@ class EvidenceSet:
     def __iter__(self):  # type: ignore[no-untyped-def]
         return iter(self.artifacts)
 
-    def add(self, artifact: EvidenceArtifact) -> None:
+    def add(self, artifact: EvidenceArtifact) -> bool:
+        """Add an artifact; returns False if one with the same id is already here.
+
+        The id is derived from the checksum, so a second copy of the same bytes
+        under another name is the same artifact. It used to be appended anyway
+        and counted twice — once toward the two-item corroboration bar.
+        """
         if artifact.tenant_id != self.tenant_id:
             raise ValueError(
                 f"artifact {artifact.artifact_id} belongs to tenant "
                 f"{artifact.tenant_id!r}, not {self.tenant_id!r}"
             )
+        if self.get(artifact.artifact_id) is not None:
+            return False
         self.artifacts.append(artifact)
+        return True
 
     def get(self, artifact_id: str) -> EvidenceArtifact | None:
         for artifact in self.artifacts:

@@ -125,10 +125,14 @@ a directory with no manifest: symbolic links in it are refused, not followed.
 Existence is not the test — a path outside the directory would otherwise be
 recorded in the tenant's evidence inventory even when nothing is there.
 
-**Identity is the checksum.** An artifact's id is derived from `sha256` where
-one is supplied, so the same file re-submitted under a new path is recognised as
-the same evidence rather than counted twice. Without a checksum the URI is used
-instead.
+**Identity is the checksum, and a copy is counted once.** An artifact's id is
+derived from `sha256` where one is supplied, so the same file re-submitted under
+a new path is recognised as the same evidence rather than counted twice. Without
+a checksum the URI is used instead. Beyond bytes, two items whose extracted text
+is the same once case and whitespace are set aside are one document: the
+earlier submission (by `collected_at`, or the file's own timestamp) is kept, its
+`control_hints` merged, and the copy is named in a warning. The corroboration
+rule asks for two *independent* items; a second copy of the policy is not one.
 
 **An unreadable item is a fact about the pipeline, not the client.** A corrupt
 PDF is catalogued and reported as unreadable at `info` severity. It never

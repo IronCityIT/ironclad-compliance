@@ -1134,7 +1134,29 @@ input names — and the report job, which runs regardless, rendered with
 artifacts and published nothing. A third dry run on record; nothing real
 dispatched.
 
-### 16.15 Looked at and left
+### 16.15 A copy of the policy was corroboration
+
+The scoring rule says a control reads as met only with two current items —
+"one document is a claim; two is corroboration" — and the contract said the
+checksum was an artifact's identity, so a re-submitted file would be
+recognised rather than counted twice. Tried: the sample evidence plus a
+byte-identical copy of `access-control-policy.txt` under a second name. Same
+artifact id in the inventory, listed twice; `evidence_count` up by one on
+eleven controls; CC6.8 moved from one item at 0.34 confidence to two at
+0.59. Had its coverage been over 75%, the copy would have flipped it to
+compliant. A copy with one byte appended did exactly the same.
+
+`EvidenceSet.add` appended regardless of id. It refuses a duplicate id now,
+and the collector goes one step further: two items whose extracted text is
+the same once case and whitespace are set aside are one document. The
+earlier submission is kept — by the manifest's `collected_at`, or the file's
+own timestamp, whichever sorts first — its operator hints merged, and the
+copy named in a warning. A test asserts the whole verdict table is identical
+with and without the copy. A copy with a *word* changed is still two
+documents; that is a similarity question, not an identity one, and it is
+recorded here rather than approximated.
+
+### 16.16 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

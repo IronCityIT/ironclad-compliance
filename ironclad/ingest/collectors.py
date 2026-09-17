@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ def collect_from_manifest(
     default_collected = _moment(manifest.get("collected_at"), utc_now())
     evidence = EvidenceSet(tenant_id=tenant_id)
     warnings: list[str] = []
+    seen_text: dict[str, str] = {}  # text fingerprint -> artifact id already kept
 
     if base_dir is not None:
         escaped = [
@@ -93,9 +95,48 @@ def collect_from_manifest(
         # control mapping module, which records them as manual links.
         artifact.control_hints = [str(h) for h in item.get("control_hints", [])]
 
+        # One document, submitted twice, is one document. The corroboration
+        # rule asks for two *independent* items, and a copy under a second name
+        # — byte-identical, or identical once whitespace and case are set
+        # aside — was counted as the second. The first submission stays; the
+        # copy is named so nobody wonders where it went.
+        fingerprint = _text_fingerprint(artifact.text)
+        twin = evidence.get(artifact.artifact_id) or (
+            evidence.get(seen_text[fingerprint]) if fingerprint in seen_text else None
+        )
+        if twin is not None:
+            how = (
+                "byte-identical to"
+                if twin.artifact_id == artifact.artifact_id
+                else "same content as"
+            )
+            # The earlier submission is the original; a copy made later — by
+            # mtime, or by the manifest's own collected_at — is the copy,
+            # whichever sorts first.
+            keep, drop = (
+                (artifact, twin) if artifact.collected_at < twin.collected_at else (twin, artifact)
+            )
+            # An operator's asserted links ride with the document, not the copy.
+            keep.control_hints = sorted(set(keep.control_hints) | set(drop.control_hints))
+            if keep is artifact:
+                evidence.artifacts.remove(twin)
+                evidence.add(artifact)
+                if fingerprint:
+                    seen_text[fingerprint] = artifact.artifact_id
+            warnings.append(f"{drop.name}: {how} {keep.name}; counted once")
+            continue
+        if fingerprint:
+            seen_text[fingerprint] = artifact.artifact_id
+
         evidence.add(artifact)
 
     return evidence, warnings
+
+
+def _text_fingerprint(text: str) -> str:
+    """A digest of the extracted text with case and whitespace set aside, or ""."""
+    normalised = " ".join(text.lower().split())
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest() if normalised else ""
 
 
 def _candidate_path(uri: str, base_dir: Path | None) -> Path | None:

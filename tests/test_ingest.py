@@ -276,6 +276,118 @@ class TestCollection:
         assert next(iter(one)).artifact_id == next(iter(two)).artifact_id
 
 
+class TestACopyIsNotCorroboration:
+    """The corroboration bar asks for two independent items. A copy of the
+    same document under a second name was counted as the second: the contract
+    said the checksum was its identity, and the set appended it anyway."""
+
+    def test_a_byte_identical_copy_is_counted_once_and_named(self, tmp_path: Path) -> None:
+        import os
+        import time
+
+        original = tmp_path / "access-control-policy.md"
+        original.write_text("least privilege access control review")
+        copy = tmp_path / "access-control-policy (copy).md"
+        copy.write_text("least privilege access control review")
+        then = time.time() - 3600
+        os.utime(original, (then, then))  # the original is the older file
+
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        assert [a.name for a in evidence] == ["access-control-policy.md"]
+        assert warnings == [
+            "access-control-policy (copy).md: byte-identical to access-control-policy.md; "
+            "counted once"
+        ]
+
+    def test_the_same_text_under_a_different_byte_layout_is_counted_once(
+        self, tmp_path: Path
+    ) -> None:
+        # One byte appended, a CRLF, a change of case: a different checksum,
+        # the same document.
+        import os
+        import time
+
+        original = tmp_path / "policy.md"
+        original.write_text("Least privilege\naccess control review\n")
+        copy = tmp_path / "policy-final-v2.md"
+        copy.write_text("least  privilege\r\naccess control review\r\n\n")
+        then = time.time() - 3600
+        os.utime(original, (then, then))
+
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        assert [a.name for a in evidence] == ["policy.md"]
+        assert warnings == ["policy-final-v2.md: same content as policy.md; counted once"]
+
+    def test_the_earlier_submission_is_the_one_kept_whatever_sorts_first(
+        self, tmp_path: Path
+    ) -> None:
+        manifest = {
+            "contract_version": CONTRACT_VERSION,
+            "tenant_id": "acme",
+            "items": [
+                {
+                    "name": "later copy",
+                    "uri": "policy-copy.md",
+                    "collected_at": "2026-09-01T00:00:00+00:00",
+                    "control_hints": ["CC6.2"],
+                },
+                {
+                    "name": "original",
+                    "uri": "policy.md",
+                    "collected_at": "2026-01-01T00:00:00+00:00",
+                    "control_hints": ["CC6.1"],
+                },
+            ],
+        }
+        (tmp_path / "policy.md").write_text("least privilege")
+        (tmp_path / "policy-copy.md").write_text("least privilege")
+        (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        kept = next(iter(evidence))
+        assert kept.name == "original"
+        # and the operator's asserted links ride with the document, not the copy
+        assert kept.control_hints == ["CC6.1", "CC6.2"]
+        # no sha256 declared, so identity comes from the URI and the match is
+        # on content rather than on bytes
+        assert warnings == ["later copy: same content as original; counted once"]
+
+    def test_two_different_documents_are_two(self, tmp_path: Path) -> None:
+        (tmp_path / "policy.md").write_text("least privilege access control")
+        (tmp_path / "review.md").write_text("quarterly user access review completed")
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        assert len(evidence) == 2
+        assert warnings == []
+
+    def test_a_copy_does_not_move_the_verdict(self, tmp_path: Path) -> None:
+        # The assessment-level fact: readiness and every evidence_count are the
+        # same with and without the copy.
+        from ironclad.engine import run_assessment
+
+        one = tmp_path / "one"
+        two = tmp_path / "two"
+        for d in (one, two):
+            d.mkdir()
+            (d / "access-control-policy.md").write_text(
+                "Access control policy. Least privilege, role definitions, "
+                "user access review, separation of duties."
+            )
+        (two / "access-control-policy (1).md").write_text(
+            "Access control policy. Least privilege, role definitions, "
+            "user access review, separation of duties.\n"
+        )
+
+        def counts(directory: Path) -> dict[str, tuple[str, int]]:
+            evidence, _ = collect_from_directory("acme", directory)
+            result = run_assessment("acme", "soc2", evidence, group="standard")
+            return {
+                v.control_id: (str(v.status), len(v.evidence_links))
+                for v in result.assessment.controls
+            }
+
+        assert counts(one) == counts(two)
+
+
 class TestTheEvidenceDirectoryIsABoundary:
     """A tenant's manifest is tenant-supplied, and so is every URI in it.
 
