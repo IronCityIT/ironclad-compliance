@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `43c30b8`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `d3d2977`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 827 passed, 26 skipped locally (2026-09-17; 834 passed, 19 skipped with the extraction extras in a venv); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 829 passed, 27 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips; 836 with the extras in a venv); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `43c30b8`, run
-[35177982556](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35177982556):
+Green on `productize/ironclad-compliance` at `d3d2977`, run
+[35178998601](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35178998601):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,14 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **The Jenkins pipeline ran (2026-09-17).** On a throwaway controller in
+  the scratchpad with only the Docker agent substituted: nine builds, every
+  runnable gate green, the assessment mode publishing to a volume store
+  through a credential. Found four defects the linter could not — a
+  plugin-only cleanup step, gate accumulators that never reached `post`, a
+  publish stage wired to the retired ingest alone, and the restore check
+  reading a tenant's trail as one chain, which broke on the second
+  assessment into any store used twice. §16.26–16.28.
 - **Three pipelines, one set of gates (2026-09-17).** A parity test written
   to hold `ci.yml`, `gates.sh` and the Jenkinsfile together failed first
   against CI: the catalog check that keeps the dashboard's `catalog.json`
