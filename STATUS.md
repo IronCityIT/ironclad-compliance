@@ -7,8 +7,8 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-16
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `e4c4f78`, all six jobs, on every commit of 2026-09-16. The product workflow has run twice as a dry run — see "Dry runs".**
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `01c0c90`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 800 passed, 25 skipped locally (2026-09-17); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 813 passed, 25 skipped locally (2026-09-17); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `e4c4f78`, run
-[35168120995](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35168120995):
+Green on `productize/ironclad-compliance` at `01c0c90`, run
+[35172000896](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35172000896):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -240,6 +240,22 @@ decides which tenant a write lands in.
   would not send, a swapped `compare`, and non-JSON files to `report`,
   `export`, `compare` and `validate` each get a named refusal instead of a
   traceback or a coerced value. §16.4–16.9.
+
+- **The scoring cannot be talked into a verdict (2026-09-17).** Three ways a
+  tenant's own files moved the number, each tried and closed: a copy of a
+  document counted as the corroborating second (one document now, by bytes
+  or by text); a manifest's `collected_at: 2030` made a review fresh for
+  years (pulled back to ingestion, named) and a `valid_until: 2099` was
+  accepted silently (stands, disclosed); two remote URIs nobody read, each
+  hinting every control id, scored **100%** (held at partial, named). A
+  document that *is* the framework's wording still scores 100% — keyword
+  matching cannot tell a quoting policy from a copy — and is now named as
+  such in the caveats rather than believed quietly. §16.15–16.18.
+- **Also 2026-09-17:** `ironclad serve` closes a stalled connection after
+  30 s instead of holding its thread forever; the auditor package carries a
+  digest for every file and a `SHA256SUMS`; `store verify` lists every fault;
+  the workflow speaks the standard `client_name`/`scan_id` inputs, proven by
+  a third dry run. §16.10–16.14.
 
 ## Dry runs — the product workflow has now executed
 
