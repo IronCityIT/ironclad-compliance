@@ -513,6 +513,43 @@ class TestAcceptanceWorkflow:
         policy = json.loads((policy_root / "acme" / "policy.json").read_text())
         assert [e["status"] for e in policy["exceptions"]] == ["revoked", "pending_approval"]
 
+    def test_twenty_people_at_once_all_land_and_the_chain_holds(self, as_, server) -> None:
+        # Twenty concurrent requests for twenty controls: fourteen were
+        # answered 200 and eight were on file, because each request read the
+        # policy, appended its entry and wrote the whole file back over the
+        # others'; six more read a half-written file and got a 500. An
+        # acknowledged acceptance that is not on file is the worst thing this
+        # store can do. The store now holds a lock across each write path and
+        # replaces the file atomically.
+        import threading
+
+        _, _, policy_root = server
+        controls = [f"CC{i}.{j}" for i in range(1, 10) for j in range(1, 4)][:20]
+        outcomes: dict[str, int] = {}
+
+        def raise_one(control_id: str) -> None:
+            status, _, _ = as_("acme-contributor").post(
+                "/api/v1/tenants/acme/exceptions",
+                {"control_id": control_id, "justification": "at once", "expires_in_days": 30},
+            )
+            outcomes[control_id] = status
+
+        threads = [threading.Thread(target=raise_one, args=(c,)) for c in controls]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert set(outcomes.values()) == {200}, outcomes
+        policy = json.loads((policy_root / "acme" / "policy.json").read_text())
+        assert sorted(e["control_id"] for e in policy["exceptions"]) == sorted(controls)
+        status, body, _ = as_("acme-manager").get("/api/v1/tenants/acme/audit?limit=100")
+        events = body["data"]["events"]
+        assert len(events) == 20
+        assert all(events[i]["prev_hash"] == events[i - 1]["hash"] for i in range(1, 20))
+        # nothing half-written left behind
+        assert not [p for p in (policy_root / "acme").iterdir() if p.suffix == ".tmp"]
+
     def test_a_lapsed_approval_on_file_does_not_block_its_renewal(self, as_, server) -> None:
         # The engine sweeps lapsed approvals before an assessment; nothing
         # swept the policy store. An acceptance past its expiry sat there as

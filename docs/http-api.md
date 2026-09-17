@@ -32,9 +32,13 @@ IRONCLAD_STORE=/srv/ironclad/results \
                  --static dashboard/public
 ```
 
-- `--policy-root` holds `<tenant>/policy.json` and its audit sidecar per tenant.
-  The directory for a tenant is created on that tenant's first write, after the
-  write has been authorized — a refused request creates nothing.
+- `--policy-root` holds `<tenant>/policy.json`, its audit sidecar and a
+  `policy.json.lock` per tenant. The directory for a tenant is created on that
+  tenant's first authorized write — a refused request creates nothing. Every
+  write path holds the lock for its whole read-modify-write, so two people
+  acting at once take turns, and the CLI working on the same volume takes the
+  same lock; both files are replaced atomically, so a reader never sees a
+  half-written one.
 - Without `--tokens` the server starts and answers every request with 503. It
   never falls open.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse

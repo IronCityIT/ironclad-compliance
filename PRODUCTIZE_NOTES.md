@@ -1231,7 +1231,31 @@ say what it does to the number: each counts as half-met and none carries a
 remediation item. The 0.5 weight is the scoring rule (STATUS, open decision
 4's neighbour) and is not changed here.
 
-### 16.21 Looked at and left
+### 16.21 Twenty people at once: fourteen acknowledged, eight on file
+
+Twenty concurrent POSTs to `ironclad serve`, twenty different controls.
+Fourteen answered 200; **eight** acceptances were in `policy.json`
+afterwards. Six answered 500 — "not valid JSON" — having read the file while
+another thread was half-way through writing it. Each request read the
+policy, appended its entry and wrote the whole document back over whatever
+the others had written since; the audit sidecar raced the same way. An
+acknowledged acceptance that is not on file is the worst outcome a record
+store can produce, and a dashboard with two compliance managers is exactly
+where it happens.
+
+`PolicyStore.locked()` now takes an advisory `flock` on `policy.json.lock`
+— across threads, since each acquisition opens its own descriptor, and
+across processes, so the CLI and the server can share a volume — and the
+service holds it around the whole of request, approve and revoke: the read
+that decides, the write that records, the audit event that chains onto the
+last. Both files are written to a temp file and renamed over the original.
+Authorization happens *before* the lock is taken, because the lock file
+lives beside the tenant's policy and a stranger's refused probe must still
+leave nothing named for the tenant (§13.2 — the test for that failed on the
+first attempt and pointed at the ordering). Replayed: 20 of 20 answered 200,
+20 on file, 20 audit events, chain intact.
+
+### 16.22 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

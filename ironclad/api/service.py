@@ -13,6 +13,7 @@ they hold whichever backing is in use.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
@@ -275,17 +276,34 @@ class ComplianceService:
 
     # ----------------------------------------------------------------- exceptions
 
+    def _locked(self) -> AbstractContextManager[None]:
+        """The store's exclusive hold for one write path, if it has one.
+
+        The policy file store does; the in-memory store does not need one.
+        Held around the whole of request, approve and revoke — the read that
+        decides, the write that records it and the audit event that chains
+        onto the last — so two people acting at once take turns rather than
+        overwriting each other.
+        """
+        locked = getattr(self.store, "locked", None)
+        return locked() if callable(locked) else nullcontext()
+
     def request_exception(self, principal: Any, request: ExceptionRequest) -> ServiceResponse:
         """Raise a risk acceptance for approval."""
         errors = validate_exception_request(request)
         if errors:
             return ServiceResponse.failure(*errors)
-
+        # Authorized before the lock is taken: the lock file lives beside the
+        # tenant's policy, and a stranger's refused probe must leave nothing
+        # named for the tenant it probed (§13.2).
         try:
             authorize(principal, "exception:request", request.tenant_id)
         except AuthorizationError as exc:
             return ServiceResponse.failure(str(exc), kind="authorization")
+        with self._locked():
+            return self._request_exception(principal, request)
 
+    def _request_exception(self, principal: Any, request: ExceptionRequest) -> ServiceResponse:
         now = utc_now()
 
         # An approval that has run out is expired, whatever the record still
@@ -357,7 +375,12 @@ class ComplianceService:
             authorize(principal, "exception:approve", tenant_id)
         except AuthorizationError as exc:
             return ServiceResponse.failure(str(exc), kind="authorization")
+        with self._locked():
+            return self._approve_exception(principal, tenant_id, exception_id)
 
+    def _approve_exception(
+        self, principal: Any, tenant_id: str, exception_id: str
+    ) -> ServiceResponse:
         exception = self._find_exception(tenant_id, exception_id)
         if exception is None:
             return ServiceResponse.failure(
@@ -390,7 +413,12 @@ class ComplianceService:
             authorize(principal, "exception:approve", tenant_id)
         except AuthorizationError as exc:
             return ServiceResponse.failure(str(exc), kind="authorization")
+        with self._locked():
+            return self._revoke_exception(principal, tenant_id, exception_id, reason)
 
+    def _revoke_exception(
+        self, principal: Any, tenant_id: str, exception_id: str, reason: str
+    ) -> ServiceResponse:
         exception = self._find_exception(tenant_id, exception_id)
         if exception is None:
             return ServiceResponse.failure(

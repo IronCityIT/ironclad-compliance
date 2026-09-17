@@ -31,7 +31,12 @@ raising from inside a persist.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +45,7 @@ from ironclad.model.exception import RiskException
 from ironclad.policy import POLICY_VERSION, policy_from_document, validate_policy
 
 AUDIT_SUFFIX = ".audit.json"
+LOCK_SUFFIX = ".lock"
 
 
 class PolicyStore:
@@ -48,6 +54,32 @@ class PolicyStore:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.audit_path = self.path.with_name(self.path.name + AUDIT_SUFFIX)
+        self.lock_path = self.path.with_name(self.path.name + LOCK_SUFFIX)
+
+    # ------------------------------------------------------------------- lock
+
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        """Hold this tenant's policy exclusively for one read-modify-write.
+
+        Twenty concurrent requests, twenty different controls: fourteen
+        answered 200 and eight landed in the file, because each request read
+        the file, appended its entry and wrote the whole thing back over the
+        others'; six more read a half-written file and answered 500. An
+        acknowledged acceptance that is not on file is the worst outcome this
+        store can produce. The service holds this around every write path.
+
+        An advisory file lock, so it holds across processes — the CLI and the
+        HTTP server can share a policy volume — and across threads, since each
+        acquisition opens its own descriptor.
+        """
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_path, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     # ------------------------------------------------------------------ policy
 
@@ -84,8 +116,7 @@ class PolicyStore:
             raise IroncladError(
                 "refusing to write a policy that would not load: " + "; ".join(errors)
             )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        _replace_atomically(self.path, json.dumps(document, indent=2) + "\n")
 
     # ------------------------------------------------------------- exceptions
 
@@ -131,8 +162,7 @@ class PolicyStore:
         stored["events"].extend(events)
         stored["event_count"] = len(stored["events"])
         stored["head"] = stored["events"][-1]["hash"] if stored["events"] else ""
-        self.audit_path.parent.mkdir(parents=True, exist_ok=True)
-        self.audit_path.write_text(json.dumps(stored, indent=2) + "\n", encoding="utf-8")
+        _replace_atomically(self.audit_path, json.dumps(stored, indent=2) + "\n")
 
     def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
         events = self._audit_document(tenant_id)["events"]
@@ -149,6 +179,29 @@ class PolicyStore:
         if not isinstance(document, dict) or not isinstance(events, list):
             raise IroncladError(f"{self.audit_path} is not an audit trail")
         return document
+
+
+def _replace_atomically(path: Path, text: str) -> None:
+    """Write the whole file or none of it.
+
+    A reader that opened the file while `write_text` was half done got "not
+    valid JSON" — and, three frames up, a 500. Written beside the target and
+    renamed over it, so every reader sees the old document or the new one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        raise
 
 
 def _policy_entry(exception: RiskException) -> dict[str, Any]:
