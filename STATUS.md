@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `3964acf`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `43c30b8`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -44,7 +44,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
 | HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
 | GitHub workflows | **DONE; `ci.yml` green; `compliance-assessment.yml` executed twice as a dry run, report stage proven, AI job red on the engine's output size (consensus-engine PR #6)** | `.github/workflows/` |
-| Jenkins pipeline | **DONE, not executed on an agent** | `Jenkinsfile` |
+| Jenkins pipeline | **DONE; passes the declarative linter; executed on a throwaway controller with the Docker agent substituted — every runnable gate green, `persistence` UNAVAILABLE as designed (§16.26)** | `Jenkinsfile` |
 | Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI** | `ironclad/store/` |
 | Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
 | Trend comparison between assessments | **DONE, tested** | `ironclad/compare.py` |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `3964acf`, run
-[35175575745](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35175575745):
+Green on `productize/ironclad-compliance` at `43c30b8`, run
+[35177982556](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35177982556):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -309,12 +309,19 @@ tenant's evidence from a volume, a real store — are exactly the steps a dry
 run skips, and they need the transport decision (HANDOFF §3.2). The framework
 update checker workflow has not been dispatched from this branch.
 
-**Not proven — needs a Jenkins agent:**
+**Partly proven — the Jenkins pipeline, on a throwaway controller (2026-09-17):**
 
-`Jenkinsfile` is syntactically balanced and its gate commands are the same ones
-run by hand above, but the pipeline has not run on an agent. The two credential
-ids it binds (`ironclad-store-results-url`, `ironclad-ingest-api-key`) do not
-exist yet.
+`Jenkinsfile` passes the declarative linter and, with only its Docker agent
+substituted by `agent any`, ran four builds on a Jenkins started in the
+scratchpad: every gate green in order, the Firestore emulator and the node
+suites included, `persistence` UNAVAILABLE without MariaDB and the build
+UNSTABLE as designed. The runs found three defects in the file — a
+plugin-only cleanup step, a description that was never set, and gate
+accumulators that never reached `post` — and one in the store: the restore
+check read a tenant's trail as one chain and broke on the second assessment
+(§16.27). Not proven: the `python:3.11-slim` Docker agent, and ICIT's own
+controller and plugin set. The two credential ids the assessment stage binds
+(`ironclad-store-results-url`, `ironclad-ingest-api-key`) do not exist yet.
 
 **Not proven — needs GCP:**
 

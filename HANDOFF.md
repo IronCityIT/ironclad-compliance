@@ -463,13 +463,22 @@ MariaDB the two that need them report UNAVAILABLE and mark the build unstable
 rather than passing; the end-to-end gate needs no service at all, because a
 directory in the workspace is a volume, so it runs everywhere.
 
+It has run (2026-09-17): on a throwaway controller with the Docker agent
+substituted, four builds, every runnable gate green and `persistence`
+UNAVAILABLE as designed. The runs found `cleanWs` to be a plugin step, the
+gate accumulators never reaching `post`, and — because the second build
+published into the same workspace volume — the restore check reading a
+tenant's trail as one chain (`PRODUCTIZE_NOTES.md` §16.26–16.27). Still
+unproven: the Docker agent and ICIT's own controller.
+
 `compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
 `workflow_call`. Its real contract — read from that repository, not assumed — is
 `findings_json` as **base64** and exactly one output, `consensus_b64`. This
 repository previously passed raw JSON and read two outputs that do not exist, so
 every assessment it ever produced analysed nothing. Fixed on this branch; the
-fix has still **never run for real**, because the workflow needs evidence
-storage and secrets.
+fix has run as a dry run three times (STATUS, "Dry runs"): the engine
+answered, and the report job folded its artifact. A real client run still
+needs evidence storage and secrets.
 
 ---
 
