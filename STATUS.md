@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 836 passed, 28 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 836 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
