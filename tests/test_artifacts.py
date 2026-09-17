@@ -168,6 +168,29 @@ class TestVerification:
         assert verdict["verified"] is False
         assert "report.html" in verdict["detail"]
 
+    def test_every_fault_is_reported_not_the_first(self, store, deliverables) -> None:
+        # A restore with one file missing, one altered and one that should not
+        # be there used to report the missing one and stop.
+        store.put(TENANT, ASSESSMENT, deliverables)
+        base = Path(store.location(TENANT, ASSESSMENT))
+        names = sorted(
+            p.relative_to(base).as_posix()
+            for p in base.rglob("*")
+            if p.is_file() and p.name != "artifacts.json"
+        )
+        (base / names[0]).unlink()
+        (base / names[1]).write_bytes((base / names[1]).read_bytes() + b"x")
+        (base / "package" / "stray.txt").write_text("not issued")
+
+        verdict = store.verify(TENANT, ASSESSMENT)
+        assert verdict["verified"] is False
+        assert verdict["faults"] == [
+            f"{names[0]} is named in the manifest and is not there",
+            f"{names[1]} does not match its recorded checksum",
+            "package/stray.txt is on the volume and not in the manifest",
+        ]
+        assert verdict["detail"] == "; ".join(verdict["faults"])
+
     def test_nothing_stored_is_not_verified(self, store) -> None:
         verdict = store.verify(TENANT, "never-published")
         assert verdict["verified"] is False

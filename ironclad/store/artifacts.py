@@ -170,25 +170,31 @@ class ArtifactStore:
         if manifest is None:
             return {"verified": False, "detail": "no manifest was stored", "checked": 0}
 
+        # Every fault, not the first: on a restore from backup the question is
+        # what is wrong, and a check that stops at the first missing file
+        # answers it one re-run at a time. The first version did exactly that.
         base = self._dir(tenant_id, assessment_id)
-        for entry in manifest.get("artifacts", []):
+        entries = manifest.get("artifacts", [])
+        faults: list[str] = []
+        for entry in entries:
             path = base / str(entry["name"])
             if not path.exists():
-                return {
-                    "verified": False,
-                    "detail": f"{entry['name']} is named in the manifest and is not there",
-                    "checked": len(manifest.get("artifacts", [])),
-                }
-            if _sha256(path) != entry["sha256"]:
-                return {
-                    "verified": False,
-                    "detail": f"{entry['name']} does not match its recorded checksum",
-                    "checked": len(manifest.get("artifacts", [])),
-                }
+                faults.append(f"{entry['name']} is named in the manifest and is not there")
+            elif _sha256(path) != entry["sha256"]:
+                faults.append(f"{entry['name']} does not match its recorded checksum")
+        recorded = {str(entry["name"]) for entry in entries}
+        strays = sorted(
+            p.relative_to(base).as_posix()
+            for p in base.rglob("*")
+            if p.is_file() and p.relative_to(base).as_posix() not in recorded | {MANIFEST}
+        )
+        for name in strays:
+            faults.append(f"{name} is on the volume and not in the manifest")
         return {
-            "verified": True,
-            "detail": "",
-            "checked": len(manifest.get("artifacts", [])),
+            "verified": not faults,
+            "detail": "; ".join(faults),
+            "faults": faults,
+            "checked": len(entries),
         }
 
     # ----------------------------------------------------------------- health

@@ -1073,7 +1073,23 @@ run it. Proven with the stock tool: the edited row reads
 `control-register.csv: FAILED`, exit 1; a test runs `sha256sum -c` where the
 binary exists and checks the digests by hand where it does not.
 
-### 16.12 Looked at and left
+### 16.12 `store verify` stopped at the first fault
+
+The volume store's verify — the check the runbook says to run on a restore
+from backup — returned on the first missing or altered file. A restore with
+one file missing, one altered and one that should not be there reported the
+missing one and nothing else, so the operator learned what was wrong one
+re-run at a time. It now reports every fault, and also names a file that is
+on the volume and not in the manifest: a deliverable set must contain only
+what was issued, and a stray beside the report is the same class of problem
+as an edited one. Nested layouts (the auditor package is a directory) are
+walked.
+
+Also exercised, and right: publishing the same assessment twice leaves one
+record; an unknown assessment id and another tenant's id both answer "no
+manifest was stored", exit 2, indistinguishably.
+
+### 16.13 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
