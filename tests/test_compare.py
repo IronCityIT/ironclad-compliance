@@ -226,6 +226,18 @@ class TestTheComparisonRefusesToMislead:
         assert result.only_later == ["CC9.10"]
         assert any("appear only in the earlier" in c for c in result.caveats)
 
+    def test_a_run_without_remediation_planning_is_not_a_remediation_trend(self, earlier) -> None:
+        # A quick-group run plans nothing; against a deep run every item reads
+        # as opened — "27 opened" with no gap having appeared.
+        quick = json.loads(json.dumps(earlier))
+        quick["modules_run"] = ["evidence_inventory", "control_mapping"]
+        quick["remediation"]["items"] = []
+        deep = revised(earlier)
+        result = compare(quick, deep)
+        assert result.remediation_opened, "the counts are still reported"
+        assert any("did not run remediation planning" in c for c in result.caveats)
+        assert any("earlier assessment" in c for c in result.caveats)
+
     def test_an_identical_pair_carries_no_caveat(self, earlier) -> None:
         assert compare(earlier, earlier).caveats == []
         assert compare(earlier, earlier).comparable is True

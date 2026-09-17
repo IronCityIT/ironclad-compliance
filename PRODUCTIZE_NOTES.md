@@ -1581,6 +1581,13 @@ the report gets a "Decisions, not movement" block with both tables and a
 "Set aside by decision" card beside "Remediation closed". The same pair now
 reads *"0 improved, 0 regressed, 0 closed, 0 opened; 27 accepted as risk"*.
 
+And its neighbour: a `--group quick` run followed by a deep one read as
+"27 remediation items opened" — quick leaves the remediation capability
+out, so it planned nothing and every item in the deep run was new against
+it. The comparison now says when either side did not run remediation
+planning and that the opened/closed counts are not a trend; the counts stay,
+the caveat sits beside them.
+
 ### 16.37 Looked at and left
 
 Examined during §16 and deliberately not changed, each with the reason:

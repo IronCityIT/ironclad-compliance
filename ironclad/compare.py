@@ -187,6 +187,15 @@ class Comparison:
         )
 
 
+def _planned_remediation(document: dict[str, Any]) -> bool:
+    """Whether the run included the remediation capability at all."""
+    modules = document.get("modules_run")
+    if isinstance(modules, list):
+        return "remediation_plan" in [str(m) for m in modules]
+    # A record with no module list: take the plan's presence as the answer.
+    return bool((document.get("remediation") or {}).get("items"))
+
+
 def _controls(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(c.get("control_id")): c for c in document.get("controls") or []}
 
@@ -340,6 +349,19 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"assessment and {len(comparison.only_later)} only in the later one. "
             f"They are named rather than dropped: a control that disappears between "
             f"two runs is either a scope change or a defect."
+        )
+
+    # A run without the remediation capability planned nothing, so every item
+    # in the other run reads as opened (or closed) against it. A quick-group
+    # run followed by a deep one: "27 opened", and no gap had appeared.
+    planned_before = _planned_remediation(earlier)
+    planned_after = _planned_remediation(later)
+    if planned_before != planned_after:
+        which = "earlier" if not planned_before else "later"
+        comparison.caveats.append(
+            f"The {which} assessment did not run remediation planning (its capability "
+            f"group left it out), so the counts of remediation items opened and closed "
+            f"are not a trend."
         )
 
     items_before, items_after = _items(earlier), _items(later)
