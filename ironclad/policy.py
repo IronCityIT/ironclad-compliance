@@ -28,7 +28,12 @@ from typing import Any
 
 from ironclad.errors import ExceptionWorkflowError, ValidationError
 from ironclad.ids import iso, slugify, utc_now
-from ironclad.model.exception import ExceptionStatus, RiskException, new_exception_id
+from ironclad.model.exception import (
+    OPEN_STATUSES,
+    ExceptionStatus,
+    RiskException,
+    new_exception_id,
+)
 
 POLICY_VERSION = "1.0"
 SUPPORTED_POLICY_VERSIONS = frozenset({"1.0"})
@@ -162,24 +167,33 @@ def validate_policy(document: Any) -> list[str]:
     if not isinstance(raw_exceptions, list):
         errors.append("'exceptions' must be an array")
     else:
-        seen_controls: set[str] = set()
+        # One *open* acceptance per control. The first version of this rule
+        # counted every entry, so once an acceptance had been revoked or had
+        # expired the control could never carry another: the renewal the
+        # engine's own "lapsed" finding tells the client to raise was refused
+        # by the file. History stays; it just does not occupy the control.
+        open_controls: set[str] = set()
+        open_statuses = {member.value for member in OPEN_STATUSES}
         for index, raw in enumerate(raw_exceptions):
             where = f"exceptions[{index}]"
             if not isinstance(raw, dict):
                 errors.append(f"{where} must be an object")
                 continue
             control_id = str(raw.get("control_id", "")).strip()
+            status = str(raw.get("status", "approved")).strip()
             if not control_id:
                 errors.append(f"{where}.control_id is required")
-            elif control_id in seen_controls:
-                errors.append(f"{where}.control_id {control_id!r} has two acceptances")
-            else:
-                seen_controls.add(control_id)
+            elif status in open_statuses:
+                if control_id in open_controls:
+                    errors.append(
+                        f"{where}.control_id {control_id!r} has two open acceptances; "
+                        f"revoke one, or let it lapse, before raising another"
+                    )
+                open_controls.add(control_id)
             for key in ("justification", "requested_by"):
                 if not str(raw.get(key, "")).strip():
                     errors.append(f"{where}({control_id}).{key} is required")
 
-            status = str(raw.get("status", "approved")).strip()
             valid_statuses = {member.value for member in ExceptionStatus}
             if status not in valid_statuses:
                 errors.append(f"{where}.status {status!r} is not one of {sorted(valid_statuses)}")

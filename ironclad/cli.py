@@ -41,7 +41,7 @@ from ironclad.frameworks.loader import (
     load_framework,
     validate_framework_document,
 )
-from ironclad.ids import slugify
+from ironclad.ids import is_safe_document_id, slugify
 from ironclad.ingest import collect_from_directory, validate_manifest
 from ironclad.model.tenant import Principal, Role
 from ironclad.policy import find_policy, load_policy, validate_policy
@@ -384,6 +384,17 @@ def cmd_assess(args: argparse.Namespace) -> int:
     evidence_dir = Path(args.evidence_dir)
     if not evidence_dir.is_dir():
         print(f"evidence directory not found: {evidence_dir}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    # The store refuses an id it cannot use as a directory or document name.
+    # Refusing it here, before the assessment and the AI stage have run, costs
+    # nothing; refusing it at publish costs the run.
+    if args.assessment_id and not is_safe_document_id(args.assessment_id):
+        print(
+            f"assessment id {args.assessment_id!r} cannot be stored: no '/', not '.' or '..', "
+            "at most 1500 characters",
+            file=sys.stderr,
+        )
         return EXIT_BAD_INPUT
 
     evidence, ingest_warnings = collect_from_directory(tenant, evidence_dir, args.framework)

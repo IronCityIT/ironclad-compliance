@@ -300,6 +300,34 @@ class TestCli:
         assert (out / "findings.b64").exists()
         assert (out / "report.html").exists()
 
+    def test_assess_refuses_an_id_the_store_would_refuse(self, tmp_path: Path, capsys) -> None:
+        # Found by passing `../../escape`: assess accepted it, the AI stage
+        # would have run, and the volume store refused it at publish. Same
+        # rule, applied before anything has been paid for.
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir()
+        (evidence_dir / "policy.md").write_text("access control policy")
+        out = tmp_path / "out"
+        for bad in ("../../escape", "x/y", "..", "__proto__"):
+            code = main(
+                [
+                    "assess",
+                    "--client",
+                    "acme",
+                    "--framework",
+                    "soc2",
+                    "--evidence-dir",
+                    str(evidence_dir),
+                    "--assessment-id",
+                    bad,
+                    "--out",
+                    str(out),
+                ]
+            )
+            assert code == 2, bad
+            assert "cannot be stored" in capsys.readouterr().err
+            assert not out.exists()
+
     def test_assess_refuses_a_missing_evidence_directory(self, tmp_path: Path) -> None:
         assert (
             main(

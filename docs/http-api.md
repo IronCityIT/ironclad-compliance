@@ -111,6 +111,13 @@ and 503 when there is no authenticator or it cannot read its file.
   flag; over HTTP, honouring it would let one person raise an acceptance "for"
   a colleague and then approve it themselves. The test that found this is
   `test_the_body_cannot_name_a_different_requester`.
+- A control carries **one open acceptance at a time** — draft, pending or
+  approved. A second request while one is open is refused with 400 naming the
+  acceptance in the way. A rejected, expired or revoked one is history: it stays
+  on the record and does not stop the next request, which is how an acceptance
+  is renewed after it lapses.
+- `expires_in_days` is a whole number from 1 to 365; `control_id` is a string.
+  Anything else is 400, never a coerced value on the record.
 
 ## What is not here
 

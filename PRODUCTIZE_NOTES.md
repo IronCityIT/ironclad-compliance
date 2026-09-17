@@ -919,7 +919,61 @@ including the CLI's exit code and that the output directory is not created.
 `docs/ingestion-contract.md` now states the rule under *Rules*. The clean
 sample evidence assesses to the same 46.5% it did before.
 
-### 16.4 Looked at and left
+### 16.4 An acceptance could never be renewed
+
+Same session, same method, pointed at `ironclad serve` with curl and a
+handful of bodies a browser would never send. Most were handled as the tests
+promised. Four were not:
+
+- **Request, approve, revoke, request again — 500.** `validate_policy`'s
+  one-acceptance-per-control rule counted every entry regardless of status,
+  so once a control had carried an acceptance it could never carry another.
+  Acceptances expire by design — 90 days by default, 365 at most — and the
+  engine's own "Risk acceptance has lapsed" finding tells the client to
+  *renew* it; the policy file refused the renewal, and the refusal surfaced
+  as `refusing to write a policy that would not load` with a 500. The CLI
+  path shares the service and had the same wall. The rule now counts open
+  acceptances — draft, pending, approved — and history stays on the record
+  without occupying the control. A second *open* request is refused before
+  anything is created, naming the acceptance in the way, as a 400.
+  Writing that test exposed the next layer: the engine sweeps lapsed
+  approvals before every assessment, but nothing swept the *policy store*,
+  so an acceptance past its expiry sat on file as "approved" — and under the
+  corrected rule would have blocked the very renewal it was meant to invite.
+  The request path now sweeps first, persists the expiry and chains an
+  `exception.expired` event, then applies the rule.
+- **`expires_in_days: 99999999999` — 500 "internal error".** The model caps
+  an acceptance at 365 days, but only after computing the expiry, and the date
+  arithmetic overflowed first. The request validator now applies the model's
+  own ceiling before any date is computed.
+- **`control_id: {"a": 1}` — 200**, and an acceptance recorded on the control
+  `"{'a': 1}"`. `str()` on an untrusted body is a coercion, not a check. A
+  non-string control id is 400.
+- **`expires_in_days: 30.5` — 200**, recorded as 30. A whole number of days is
+  accepted as an int, a whole float or a digit string; anything else is 400.
+
+Verified by replaying the same curl sequence against the restarted server:
+400, 400, 400, then request → approve → revoke → request again lands
+`[revoked, pending_approval]` in the policy file. Tests in `tests/test_http.py::
+TestAcceptanceWorkflow` and `tests/test_policy.py`; `docs/http-api.md` states
+the rule.
+
+Seen and left: an acceptance may name a control that exists in no shipped
+framework (`ZZ9.9` was accepted). It is inert — the engine warns at assessment
+time that the control is not in the framework — and a tenant policy is
+deliberately not bound to one framework, nor to the shipped set, because the
+CLI takes a framework file by path. Refusing it in the service would break
+that; recorded here rather than guessed at.
+
+### 16.5 An id the store would refuse was accepted by `assess`
+
+`assess --assessment-id ../../escape` ran to completion; `store publish`
+then refused the id. In the workflow the id is generated, so nothing reaches
+this — but a manual run would have paid for the assessment and the AI stage
+before finding out. The same `is_safe_document_id` rule is applied at the
+start of `assess`, exit 2, nothing written.
+
+### 16.6 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

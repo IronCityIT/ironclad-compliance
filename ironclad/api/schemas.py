@@ -13,6 +13,7 @@ from typing import Any
 
 from ironclad.frameworks.loader import FRAMEWORK_ALIASES
 from ironclad.ids import slugify
+from ironclad.model.exception import MAX_EXCEPTION_DAYS
 
 # An assessment type is only meaningful because a report view implements it, so
 # the views module is where the list lives; re-exported here for callers that
@@ -95,13 +96,19 @@ class ExceptionRequest:
         compensating = payload.get("compensating_controls") or []
         if isinstance(compensating, str):
             compensating = [c.strip() for c in compensating.split(",") if c.strip()]
+        # A body is untrusted input, and str() on it is a coercion rather than
+        # a check: `{"control_id": {"a": 1}}` was recorded as an acceptance on
+        # the control "{'a': 1}", and 30.5 days became 30 without a word.
+        control_id = payload.get("control_id", "")
+        if not isinstance(control_id, str):
+            raise ValueError("control_id must be a string")
         return cls(
             tenant_id=slugify(str(payload.get("tenant_id") or payload.get("client_id") or "")),
-            control_id=str(payload.get("control_id", "")).strip(),
+            control_id=control_id.strip(),
             justification=str(payload.get("justification", "")).strip(),
             requested_by=str(payload.get("requested_by", "")).strip(),
             compensating_controls=[str(c) for c in compensating],
-            expires_in_days=int(payload.get("expires_in_days", 90) or 90),
+            expires_in_days=_whole_days(payload.get("expires_in_days", 90)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,7 +136,27 @@ def validate_exception_request(request: ExceptionRequest) -> list[str]:
         errors.append("requested_by is required")
     if request.expires_in_days < 1:
         errors.append("expires_in_days must be at least 1")
+    elif request.expires_in_days > MAX_EXCEPTION_DAYS:
+        # The model enforces the same ceiling, but only after computing the
+        # expiry; a large enough number overflowed the date arithmetic first
+        # and came back as an internal error instead of a refusal.
+        errors.append(f"expires_in_days must be at most {MAX_EXCEPTION_DAYS}")
     return errors
+
+
+def _whole_days(value: Any) -> int:
+    """A count of days from an untrusted value, or ValueError."""
+    if value in (None, ""):
+        return 90
+    if isinstance(value, bool):
+        raise ValueError("expires_in_days must be a whole number of days")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    raise ValueError("expires_in_days must be a whole number of days")
 
 
 # Why a call was refused, in one word. The service reports errors as text a

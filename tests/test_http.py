@@ -495,6 +495,107 @@ class TestAcceptanceWorkflow:
         assert status == 400
         assert "malformed request" in body["errors"][0]
 
+    def test_a_revoked_acceptance_can_be_raised_again(self, as_, server) -> None:
+        # Request, approve, revoke, request again used to be a 500: the policy
+        # file's one-per-control rule counted history, so no control could
+        # ever carry a second acceptance — including the renewal the engine's
+        # own "lapsed" finding tells the client to raise.
+        _, _, policy_root = server
+        first = self._raise(as_)
+        as_("acme-manager").post(f"/api/v1/tenants/acme/exceptions/{first}/approve")
+        status, _, _ = as_("acme-manager").post(
+            f"/api/v1/tenants/acme/exceptions/{first}/revoke", {"reason": "withdrawn"}
+        )
+        assert status == 200
+
+        second = self._raise(as_)
+        assert second != first
+        policy = json.loads((policy_root / "acme" / "policy.json").read_text())
+        assert [e["status"] for e in policy["exceptions"]] == ["revoked", "pending_approval"]
+
+    def test_a_lapsed_approval_on_file_does_not_block_its_renewal(self, as_, server) -> None:
+        # The engine sweeps lapsed approvals before an assessment; nothing
+        # swept the policy store. An acceptance past its expiry sat there as
+        # "approved" and, under the open-acceptance rule, would have blocked
+        # the renewal it was supposed to invite.
+        _, _, policy_root = server
+        (policy_root / "acme").mkdir()
+        (policy_root / "acme" / "policy.json").write_text(
+            json.dumps(
+                {
+                    "policy_version": "1.0",
+                    "tenant_id": "acme",
+                    "scope_exclusions": [],
+                    "owners": {},
+                    "exceptions": [
+                        {
+                            "exception_id": "ex-old",
+                            "control_id": "CC1.1",
+                            "justification": "last quarter's argument",
+                            "requested_by": "carol@acme.example",
+                            "approved_by": "alice@acme.example",
+                            "requested_at": "2026-01-10T00:00:00+00:00",
+                            "approved_at": "2026-01-15T00:00:00+00:00",
+                            "expires_at": "2026-04-15T00:00:00+00:00",
+                            "status": "approved",
+                        }
+                    ],
+                }
+            )
+        )
+
+        renewed = self._raise(as_)
+
+        policy = json.loads((policy_root / "acme" / "policy.json").read_text())
+        by_id = {e["exception_id"]: e["status"] for e in policy["exceptions"]}
+        assert by_id == {"ex-old": "expired", renewed: "pending_approval"}
+        status, body, _ = as_("acme-manager").get("/api/v1/tenants/acme/audit")
+        assert status == 200
+        actions = [e["action"] for e in body["data"]["events"]]
+        assert actions == ["exception.expired", "exception.requested"]
+
+    def test_a_second_open_acceptance_is_refused_by_name_not_by_500(self, as_) -> None:
+        first = self._raise(as_)
+        status, body, _ = as_("acme-contributor").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": "CC1.1", "justification": "again", "expires_in_days": 30},
+        )
+        assert status == 400, body
+        assert first in body["errors"][0]
+        assert "pending_approval" in body["errors"][0]
+
+    @pytest.mark.parametrize(
+        "days",
+        [99999999999, 30.5, True, 366, -1, 0],
+        ids=["overflow", "fractional", "bool", "over-max", "negative", "zero"],
+    )
+    def test_an_unusable_expiry_is_400_not_500(self, as_, days) -> None:
+        status, body, _ = as_("acme-contributor").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": "CC1.1", "justification": "scheduled", "expires_in_days": days},
+        )
+        assert status == 400, (days, body)
+        assert "internal" not in body["errors"][0]
+
+    @pytest.mark.parametrize("days", ["30", 30.0, 365], ids=["digits", "whole-float", "max"])
+    def test_a_whole_number_of_days_is_accepted_however_spelled(self, as_, days) -> None:
+        status, body, _ = as_("acme-contributor").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": "CC1.1", "justification": "scheduled", "expires_in_days": days},
+        )
+        assert status == 200, (days, body)
+
+    def test_a_control_id_that_is_not_a_string_is_400(self, as_, server) -> None:
+        # str() on the body recorded an acceptance on the control "{'a': 1}".
+        _, _, policy_root = server
+        status, body, _ = as_("acme-contributor").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": {"a": 1}, "justification": "scheduled", "expires_in_days": 30},
+        )
+        assert status == 400, body
+        assert "control_id must be a string" in body["errors"][0]
+        assert not (policy_root / "acme").exists()
+
 
 # ---------------------------------------------------------------- transport
 

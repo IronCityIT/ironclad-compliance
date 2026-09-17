@@ -50,6 +50,15 @@ ALLOWED_TRANSITIONS: dict[ExceptionStatus, frozenset[ExceptionStatus]] = {
     ExceptionStatus.REVOKED: frozenset(),
 }
 
+# The statuses in which an acceptance is still a live claim on its control: it
+# is being drafted, awaiting a decision, or in force. A control may carry one
+# of these at a time. A rejected, expired or revoked acceptance is history —
+# it stays on the record and it stops nobody raising the next one, which is
+# the whole point of an acceptance that expires.
+OPEN_STATUSES: frozenset[ExceptionStatus] = frozenset(
+    {ExceptionStatus.DRAFT, ExceptionStatus.PENDING_APPROVAL, ExceptionStatus.APPROVED}
+)
+
 
 @dataclass
 class RiskException:

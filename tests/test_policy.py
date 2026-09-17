@@ -92,9 +92,33 @@ class TestPolicyValidation:
         errors = validate_policy(policy_doc(scope_exclusions=[exclusion(), exclusion()]))
         assert any("excluded twice" in e for e in errors)
 
-    def test_a_control_cannot_have_two_acceptances(self) -> None:
+    def test_a_control_cannot_have_two_open_acceptances(self) -> None:
         errors = validate_policy(policy_doc(exceptions=[acceptance(), acceptance()]))
-        assert any("two acceptances" in e for e in errors)
+        assert any("two open acceptances" in e for e in errors)
+
+        pending = acceptance(status="pending_approval", approved_by="", approved_at=None)
+        errors = validate_policy(policy_doc(exceptions=[acceptance(), pending]))
+        assert any("two open acceptances" in e for e in errors)
+
+    def test_a_closed_acceptance_does_not_occupy_the_control(self) -> None:
+        # Found over HTTP: request, approve, revoke, request again — 500. The
+        # rule counted every entry, so a revoked or expired acceptance blocked
+        # the renewal that the engine's own "lapsed" finding asks for.
+        history = [
+            acceptance(status="revoked"),
+            acceptance(
+                status="expired",
+                requested_at="2026-01-10T00:00:00+00:00",
+                approved_at="2026-01-15T00:00:00+00:00",
+                expires_at="2026-06-01T00:00:00+00:00",
+            ),
+            acceptance(status="rejected", approved_by="", approved_at=None),
+        ]
+        assert validate_policy(policy_doc(exceptions=[*history, acceptance()])) == []
+        # and the file that validates also loads, with every state intact
+        loaded = policy_from_document(policy_doc(exceptions=[*history, acceptance()]))
+        statuses = sorted(str(e.status) for e in loaded.exceptions)
+        assert statuses == ["approved", "expired", "rejected", "revoked"]
 
     def test_an_approved_acceptance_must_name_its_approver(self) -> None:
         errors = validate_policy(policy_doc(exceptions=[acceptance(approved_by="")]))

@@ -30,7 +30,13 @@ from ironclad.frameworks.crosswalk import Crosswalk
 from ironclad.ids import utc_now
 from ironclad.model.audit import AuditLog
 from ironclad.model.evidence import EvidenceSet
-from ironclad.model.exception import ExceptionStatus, RiskException, new_exception_id
+from ironclad.model.exception import (
+    OPEN_STATUSES,
+    ExceptionStatus,
+    RiskException,
+    new_exception_id,
+    sweep_expired,
+)
 from ironclad.model.tenant import authorize
 
 
@@ -281,6 +287,38 @@ class ComplianceService:
             return ServiceResponse.failure(str(exc), kind="authorization")
 
         now = utc_now()
+
+        # An approval that has run out is expired, whatever the record still
+        # says: the engine sweeps these before every assessment, but nothing
+        # swept the policy store, so a lapsed acceptance would sit there as
+        # "approved" and block its own renewal. Moved and recorded here, on the
+        # write path, where the answer depends on it.
+        on_file = self.store.list_exceptions(request.tenant_id)
+        for lapsed in sweep_expired(on_file, now):
+            self.store.save_exception(request.tenant_id, lapsed)
+            self._audit(
+                request.tenant_id,
+                actor="system:service",
+                action="exception.expired",
+                object_id=lapsed.exception_id,
+                metadata={
+                    "control_id": lapsed.control_id,
+                    "expired_at": lapsed.expires_at.isoformat() if lapsed.expires_at else None,
+                },
+            )
+
+        # One open acceptance per control. Checked here, before anything is
+        # created, so the answer is a refusal that names the acceptance in the
+        # way rather than the policy store declining to write the file — which
+        # is what a second request used to get, as a 500.
+        for existing in on_file:
+            if existing.control_id == request.control_id and existing.status in OPEN_STATUSES:
+                return ServiceResponse.failure(
+                    f"{request.control_id} already has an open acceptance "
+                    f"{existing.exception_id} ({existing.status}); revoke it, or let it "
+                    f"lapse, before raising another"
+                )
+
         try:
             exception = RiskException(
                 exception_id=new_exception_id(request.tenant_id, request.control_id, now),
