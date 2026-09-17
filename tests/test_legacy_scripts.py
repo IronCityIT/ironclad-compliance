@@ -249,6 +249,28 @@ class TestTheAssessmentWrapperAgreesWithTheEngine:
         assert code == 2
         assert "evidence directory not found" in capsys.readouterr().err
 
+    def test_a_client_id_that_would_be_reinterpreted_is_refused(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # slugify("../beta") is "beta" — a different tenant's record. The
+        # wrapper applies the same refusal as `ironclad assess`.
+        (tmp_path / "policy.md").write_text("access control policy")
+        code = assess_controls.main(
+            [
+                "--client-id",
+                "../beta",
+                "--framework",
+                "soc2",
+                "--evidence-dir",
+                str(tmp_path),
+                "--output",
+                str(tmp_path / "out.json"),
+            ]
+        )
+        assert code == 2
+        assert "refused rather than reinterpreted" in capsys.readouterr().err
+        assert not (tmp_path / "out.json").exists()
+
 
 class TestTheReportWrapper:
     def _assessment(self, evidence_dir: Path, tmp_path: Path) -> Path:

@@ -25,6 +25,27 @@ def slugify(value: str) -> str:
     return _SLUG_STRIP.sub("-", str(value or "").strip().lower()).strip("-")
 
 
+def client_slug(value: str) -> str:
+    """The tenant slug for an operator-supplied client identifier, or ValueError.
+
+    `slugify` quietly turns "../beta" into "beta" — a *different valid tenant*.
+    That is not a traversal, but it is a silent reinterpretation of what was
+    asked for, and everywhere a client id chooses whose record is written it is
+    refused rather than guessed at. `ironclad evidence stage` applies the same
+    rule to the prefix it reads; this is the rule for the record it produces.
+    """
+    raw = str(value or "")
+    if "/" in raw or "\\" in raw or ".." in raw:
+        raise ValueError(
+            f"{raw!r} is not a client identifier; a path separator or '..' in one names "
+            f"a different tenant once normalised, so it is refused rather than reinterpreted"
+        )
+    slug = slugify(raw)
+    if not slug:
+        raise ValueError(f"{raw!r} does not name a tenant")
+    return slug
+
+
 # A control id becomes a Firestore document id when a large framework's control
 # detail is stored in its own subcollection. "/" would address a different
 # collection path, and "." / ".." / "__x__" are rejected by Firestore outright,

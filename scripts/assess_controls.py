@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ironclad.engine import run_assessment  # noqa: E402
 from ironclad.errors import IroncladError  # noqa: E402
 from ironclad.frameworks.crosswalk import load_crosswalks  # noqa: E402
-from ironclad.ids import slugify  # noqa: E402
+from ironclad.ids import client_slug  # noqa: E402
 from ironclad.ingest import collect_from_directory  # noqa: E402
 from ironclad.policy import find_policy, load_policy  # noqa: E402
 from ironclad.report.export import export_json  # noqa: E402
@@ -49,7 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args(argv)
 
-    tenant = slugify(args.client_id)
+    try:
+        tenant = client_slug(args.client_id)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     evidence_dir = Path(args.evidence_dir)
     if not evidence_dir.is_dir():
         print(f"evidence directory not found: {evidence_dir}", file=sys.stderr)

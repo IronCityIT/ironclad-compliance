@@ -300,6 +300,35 @@ class TestCli:
         assert (out / "findings.b64").exists()
         assert (out / "report.html").exists()
 
+    @pytest.mark.parametrize("client", ["../beta", "acme/../beta", "a\\b", "acme..", "", "  "])
+    def test_assess_refuses_a_client_that_would_be_reinterpreted(
+        self, tmp_path: Path, capsys, client: str
+    ) -> None:
+        # `--client ../beta` assessed, and filed the record, as tenant "beta":
+        # slugify strips what it does not like and what is left is a different
+        # valid tenant. Staging already refused this; the record now does too.
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir()
+        (evidence_dir / "policy.md").write_text("access control policy")
+        out = tmp_path / "out"
+        code = main(
+            [
+                "assess",
+                "--client",
+                client,
+                "--framework",
+                "soc2",
+                "--evidence-dir",
+                str(evidence_dir),
+                "--out",
+                str(out),
+            ]
+        )
+        assert code == 2, client
+        err = capsys.readouterr().err
+        assert "refused rather than reinterpreted" in err or "does not name a tenant" in err
+        assert not out.exists()
+
     def test_assess_refuses_an_id_the_store_would_refuse(self, tmp_path: Path, capsys) -> None:
         # Found by passing `../../escape`: assess accepted it, the AI stage
         # would have run, and the volume store refused it at publish. Same

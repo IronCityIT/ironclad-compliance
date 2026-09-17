@@ -41,7 +41,7 @@ from ironclad.frameworks.loader import (
     load_framework,
     validate_framework_document,
 )
-from ironclad.ids import is_safe_document_id, slugify
+from ironclad.ids import client_slug, is_safe_document_id
 from ironclad.ingest import collect_from_directory, validate_manifest
 from ironclad.model.tenant import Principal, Role
 from ironclad.policy import find_policy, load_policy, validate_policy
@@ -380,7 +380,11 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 
 def cmd_assess(args: argparse.Namespace) -> int:
-    tenant = slugify(args.client)
+    try:
+        tenant = client_slug(args.client)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_BAD_INPUT
     evidence_dir = Path(args.evidence_dir)
     if not evidence_dir.is_dir():
         print(f"evidence directory not found: {evidence_dir}", file=sys.stderr)

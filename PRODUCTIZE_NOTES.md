@@ -973,7 +973,19 @@ this — but a manual run would have paid for the assessment and the AI stage
 before finding out. The same `is_safe_document_id` rule is applied at the
 start of `assess`, exit 2, nothing written.
 
-### 16.6 Looked at and left
+### 16.6 `--client ../beta` assessed tenant "beta"
+
+`slugify` strips what it does not like, and what was left of `../beta` was a
+different valid tenant, so the record was minted for `beta`. `ironclad
+evidence stage` has refused exactly this since §11, with a comment explaining
+why — "a silent reinterpretation of what was asked for" — and the workflow's
+`prepare` job constrains `client_id` to letters, digits, space, hyphen and
+underscore before anything runs, so neither the pipeline nor a staged run
+was exposed. The local CLI and the legacy wrapper were. `ids.client_slug`
+now carries the rule, and both entry points refuse with exit 2 before
+reading any evidence.
+
+### 16.7 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
