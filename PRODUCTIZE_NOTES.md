@@ -1432,7 +1432,27 @@ record and twelve deliverables on the volume, and `ironclad store verify`
 green on both the deliverables and the chain. That is the Jenkins route
 from evidence to a store, end to end, for the first time.
 
-### 16.29 Looked at and left
+### 16.29 The trend did not work against the target store
+
+MariaDB 10.11 turned out to be installed on this machine, so a scratch
+server with its own data directory went up on a loopback port: the 73 store
+tests pass against it (CI's is 10.5.29, the NAS's 10.5.8), the end-to-end
+round trip ran twice into it, and twenty concurrent publishes of different
+assessments plus ten of the same one landed clean — one record, 33 controls,
+21 chains verifying, no deadlock.
+
+Then `ironclad compare --client acme --store mariadb://…`: *"this store
+keeps the projected rows, not the whole document, so it cannot be compared
+from"*. The feature the README leads with — "a compliance programme is a
+trend, not a snapshot" — was unavailable against the store the architecture
+is moving to. Everything the comparison reads is in the rows: the summary
+and framework on `assessments`, each control's status and points on
+`assessment_controls`, the queue on `remediation_items`. The MariaDB store
+now rebuilds a comparable document from them, claiming nothing it does not
+hold, and a contract test on both stores asserts the comparison read out of
+the store is identical to the one built from the documents that went in.
+
+### 16.30 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

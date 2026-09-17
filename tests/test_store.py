@@ -342,6 +342,39 @@ class StoreContract:
         assert verdict["chains"] == 2
         assert verdict["events"] == 2 * len(document["audit"]["events"])
 
+    def test_a_trend_can_be_read_out_of_the_store(self, tmp_path: Path, document) -> None:
+        # `ironclad compare --client` refused the MariaDB store: it keeps the
+        # rows, not the document. Everything the comparison reads is in the
+        # rows, and the comparison built from what the store hands back must
+        # be the comparison built from the documents that went in.
+        from ironclad.compare import compare
+
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        second = json.loads(json.dumps(document))
+        second["assessment_id"] = "acme-store-2"
+        second["started_at"] = "2026-12-01T00:00:00+00:00"
+        second["remediation"]["assessment_id"] = "acme-store-2"
+        for event in second["audit"]["events"]:
+            event["object_id"] = "acme-store-2"
+        moved = second["controls"][0]
+        moved["status"] = "compliant" if moved["status"] != "compliant" else "gap"
+        second["remediation"]["items"] = second["remediation"]["items"][1:]
+        second["summary"]["readiness_score"] = 61.2
+        store.put_assessment(second)
+
+        from_documents = compare(document, second).to_dict()
+        earlier = store.get_document("acme", "acme-store-1")
+        later = store.get_document("acme", "acme-store-2")
+        assert earlier is not None and later is not None
+        from_store = compare(earlier, later).to_dict()
+        assert from_store == from_documents
+        assert from_store["readiness"]["after"] == 61.2
+        assert from_store["controls"]["improved"] or from_store["controls"]["regressed"]
+        assert len(from_store["remediation"]["closed"]) == 1
+        # and the store never answers for another tenant
+        assert store.get_document("beta", "acme-store-1") is None
+
     def test_the_queue_is_the_latest_assessment_not_every_run(
         self, tmp_path: Path, document
     ) -> None:

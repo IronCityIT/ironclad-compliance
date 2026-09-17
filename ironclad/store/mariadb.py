@@ -238,6 +238,89 @@ class MariaDBResultStore:
             (tenant_id, int(limit)),
         )
 
+    def get_document(self, tenant_id: str, assessment_id: str) -> dict[str, Any] | None:
+        """Enough of the stored assessment to compare against another.
+
+        This store keeps the projected rows, not the document, and `ironclad
+        compare --client` refused it for that reason — which left the trend,
+        the feature that makes a programme more than a snapshot, unavailable
+        against the target store. Everything the comparison reads is in the
+        rows: the summary and framework on `assessments`, each control's
+        status and points on `assessment_controls`, the queue on
+        `remediation_items`. Rebuilt here in the document's shape, and
+        nothing else is claimed for it: the evidence, the findings and the
+        module output are not in it, and a caller that wants them has the
+        artifact store's `assessment.json`.
+        """
+        summary = self.get_assessment(tenant_id, assessment_id)
+        if summary is None:
+            return None
+        remediation = self._query(
+            "SELECT * FROM remediation_items WHERE tenant_id = %s AND assessment_id = %s "
+            "ORDER BY priority, due_date, item_id",
+            (tenant_id, assessment_id),
+        )
+        return {
+            "assessment_id": assessment_id,
+            "tenant_id": tenant_id,
+            "client_id": tenant_id,
+            "started_at": str(summary.get("started_at") or ""),
+            "completed_at": str(summary.get("completed_at") or ""),
+            "assessment_type": summary.get("assessment_type", "full"),
+            "framework": {
+                "id": summary.get("framework_id", ""),
+                "name": summary.get("framework_name", ""),
+                "version": summary.get("framework_version", ""),
+            },
+            "summary": {
+                key: (float(summary[key]) if key == "readiness_score" else summary[key])
+                for key in (
+                    "readiness_score",
+                    "total_controls",
+                    "compliant",
+                    "partial",
+                    "gap",
+                    "accepted_risk",
+                    "not_applicable",
+                    "pending",
+                    "evidence_artifacts",
+                    "stale_artifacts",
+                )
+                if key in summary
+            },
+            "controls": [
+                {
+                    "control_id": row.get("control_id", ""),
+                    "control_name": row.get("control_name", ""),
+                    "status": row.get("status", ""),
+                    "points_covered": int(row.get("points_covered") or 0),
+                    "points_total": int(row.get("points_total") or 0),
+                    "coverage": float(row.get("coverage") or 0.0),
+                    "confidence": float(row.get("confidence") or 0.0),
+                    "exception_id": row.get("exception_id", ""),
+                }
+                for row in self.list_controls(tenant_id, assessment_id)
+            ],
+            "remediation": {
+                "assessment_id": assessment_id,
+                "tenant_id": tenant_id,
+                "items": [
+                    {
+                        "item_id": row.get("item_id", ""),
+                        "control_id": row.get("control_id", ""),
+                        "control_name": row.get("control_name", ""),
+                        "title": row.get("title", ""),
+                        "severity": row.get("severity", ""),
+                        "priority": int(row.get("priority") or 0),
+                        "status": row.get("status", ""),
+                        "owner": row.get("owner", ""),
+                        "due_date": row.get("due_date", ""),
+                    }
+                    for row in remediation
+                ],
+            },
+        }
+
     def list_controls(self, tenant_id: str, assessment_id: str) -> list[dict[str, Any]]:
         return self._query(
             "SELECT * FROM assessment_controls WHERE tenant_id = %s AND assessment_id = %s "
