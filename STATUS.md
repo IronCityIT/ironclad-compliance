@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `07db1a2`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `d3a372d`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 819 passed, 25 skipped locally (2026-09-17); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 825 passed, 26 skipped locally (2026-09-17; 832 passed, 19 skipped with the extraction extras in a venv); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `07db1a2`, run
-[35173614381](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35173614381):
+Green on `productize/ironclad-compliance` at `d3a372d`, run
+[35174801144](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35174801144):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,15 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **What a file costs to open (2026-09-17).** With the extraction extras in
+  a venv for the first time on this machine: a 0.57 MB `.docx` expanding to
+  143 MB took 19 s and 545 MB to yield 20,000 characters — four of them and
+  the assess job is out of memory. The zip's own table of contents is read
+  first and a member past 50 MB is refused unopened; text files are read only
+  as far as the clip; `pypdf` already refuses a stream bomb on its own. The
+  models' advice is white-labelled at merge time, since it is the one text
+  the gate cannot scan. consensus-engine PR #6 measured against the real
+  artifact: 707 KB → 87 KB, folds clean. §16.22–16.24.
 - **The record store under load (2026-09-17).** Twenty concurrent acceptance
   requests: fourteen answered 200, eight were on file, six read a half-written
   policy and got a 500. The policy store now holds a file lock across each
