@@ -29,6 +29,7 @@ silently omitting it from both lists hides which.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from ironclad.model.assessment import ControlStatus
@@ -183,6 +184,18 @@ def _brief(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _started(document: dict[str, Any]) -> datetime | None:
+    """When a stored assessment started, or None if the record does not say."""
+    raw = str(document.get("started_at") or "")
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
     """What changed between two assessments of the same tenant.
 
@@ -197,6 +210,18 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         raise ValueError(
             f"cannot compare assessments of different tenants: "
             f"{earlier_tenant!r} and {later_tenant!r}"
+        )
+
+    # The flags are trusted for which is which, so a swapped pair would read
+    # every improvement as a regression. Where both records say when they
+    # started, a "later" that started before the "earlier" is refused.
+    earlier_started = _started(earlier)
+    later_started = _started(later)
+    if earlier_started and later_started and earlier_started > later_started:
+        raise ValueError(
+            f"the earlier assessment ({earlier.get('assessment_id', '')}, {earlier_started}) "
+            f"started after the later one ({later.get('assessment_id', '')}, {later_started}); "
+            f"swap them, or the trend reads backwards"
         )
 
     earlier_framework = (earlier.get("framework") or {}).get("id", "")

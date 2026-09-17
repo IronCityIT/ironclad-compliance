@@ -329,6 +329,67 @@ class TestCli:
         assert "refused rather than reinterpreted" in err or "does not name a tenant" in err
         assert not out.exists()
 
+    def test_report_and_compare_refuse_a_file_that_is_not_an_assessment(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # `report --input findings.b64` and `--compare-to README.md` were both
+        # JSONDecodeError tracebacks; a JSON file of the wrong shape was worse,
+        # a KeyError somewhere inside the renderer.
+        not_json = tmp_path / "notes.md"
+        not_json.write_text("# not an assessment")
+        wrong_shape = tmp_path / "versions.json"
+        wrong_shape.write_text(json.dumps({"frameworks": []}))
+        out = tmp_path / "report.html"
+
+        for bad, reason in ((not_json, "not valid JSON"), (wrong_shape, "expected the assessment")):
+            assert main(["report", "--input", str(bad), "--out", str(out)]) == 2
+            assert reason in capsys.readouterr().err
+            assert main(["compare", "--from", str(bad), "--to", str(bad)]) == 2
+            assert reason in capsys.readouterr().err
+            assert main(["export", "--input", str(bad), "--out", str(tmp_path / "x")]) == 2
+            capsys.readouterr()
+        assert not out.exists()
+
+        assert main(["report", "--input", str(tmp_path / "absent.json"), "--out", str(out)]) == 2
+        assert "not found" in capsys.readouterr().err
+
+    def test_compare_across_tenants_is_a_refusal_not_a_traceback(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        evidence_dir = tmp_path / "evidence"
+        evidence_dir.mkdir()
+        (evidence_dir / "policy.md").write_text("access control policy")
+        for client in ("acme", "beta"):
+            assert (
+                main(
+                    [
+                        "assess",
+                        "--client",
+                        client,
+                        "--framework",
+                        "soc2",
+                        "--evidence-dir",
+                        str(evidence_dir),
+                        "--group",
+                        "quick",
+                        "--out",
+                        str(tmp_path / client),
+                    ]
+                )
+                == 0
+            )
+        acme = str(tmp_path / "acme" / "assessment.json")
+        beta = str(tmp_path / "beta" / "assessment.json")
+        assert main(["compare", "--from", acme, "--to", beta]) == 2
+        assert "different tenants" in capsys.readouterr().err
+        assert (
+            main(
+                ["report", "--input", beta, "--out", str(tmp_path / "r.html"), "--compare-to", acme]
+            )
+            == 2
+        )
+        assert "different tenants" in capsys.readouterr().err
+
     def test_assess_refuses_an_id_the_store_would_refuse(self, tmp_path: Path, capsys) -> None:
         # Found by passing `../../escape`: assess accepted it, the AI stage
         # would have run, and the volume store refused it at publish. Same

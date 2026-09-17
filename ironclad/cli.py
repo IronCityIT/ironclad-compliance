@@ -464,8 +464,29 @@ def cmd_assess(args: argparse.Namespace) -> int:
     return EXIT_OK if result.ok else EXIT_PARTIAL
 
 
+def _stored_document(path_text: str, what: str = "assessment") -> dict:
+    """Read a stored assessment document, or raise ValidationError naming the file.
+
+    `report --input findings.b64` and `--compare-to README.md` each produced a
+    JSONDecodeError traceback. A file that is not JSON, or is JSON that is not
+    an assessment, is refused with the path and the reason, exit 2.
+    """
+    path = Path(path_text)
+    if not path.is_file():
+        raise ValidationError(f"{what} file not found: {path}")
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"{path} is not a stored {what}: not valid JSON ({exc})") from exc
+    if not isinstance(document, dict) or "assessment_id" not in document:
+        raise ValidationError(
+            f"{path} is not a stored {what}: expected the assessment.json a run writes"
+        )
+    return document
+
+
 def cmd_report(args: argparse.Namespace) -> int:
-    result = _StoredResult(json.loads(Path(args.input).read_text(encoding="utf-8")))
+    result = _StoredResult(_stored_document(args.input))
     output = Path(args.out)
     output.parent.mkdir(parents=True, exist_ok=True)
     # A stored result carries the type it was run as; --view re-issues the same
@@ -474,8 +495,11 @@ def cmd_report(args: argparse.Namespace) -> int:
 
     comparison = None
     if args.compare_to:
-        earlier = json.loads(Path(args.compare_to).read_text(encoding="utf-8"))
-        comparison = compare_assessments(earlier, result.to_dict())
+        earlier = _stored_document(args.compare_to, "earlier assessment")
+        try:
+            comparison = compare_assessments(earlier, result.to_dict())
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
 
     output.write_text(
         render_html(result, args.client_name, view=view, comparison=comparison),
@@ -488,7 +512,7 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    result = _StoredResult(json.loads(Path(args.input).read_text(encoding="utf-8")))
+    result = _StoredResult(_stored_document(args.input))
     output = Path(args.out)
 
     if args.format == "json":
@@ -538,8 +562,8 @@ def cmd_evidence(args: argparse.Namespace) -> int:
 def cmd_compare(args: argparse.Namespace) -> int:
     """Compare two assessments: two files, or a tenant's two most recent."""
     if args.earlier and args.later:
-        earlier = json.loads(Path(args.earlier).read_text(encoding="utf-8"))
-        later = json.loads(Path(args.later).read_text(encoding="utf-8"))
+        earlier = _stored_document(args.earlier, "earlier assessment")
+        later = _stored_document(args.later, "later assessment")
     elif args.client:
         target = args.store or os.environ.get(STORE_ENV, "")
         if not target:
@@ -568,7 +592,10 @@ def cmd_compare(args: argparse.Namespace) -> int:
         print("give --from and --to, or --client", file=sys.stderr)
         return EXIT_BAD_INPUT
 
-    comparison = compare_assessments(earlier, later)
+    try:
+        comparison = compare_assessments(earlier, later)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     _emit(comparison.to_dict())
     print(comparison.headline(), file=sys.stderr)
     for caveat in comparison.caveats:

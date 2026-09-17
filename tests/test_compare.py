@@ -148,6 +148,21 @@ class TestTheComparisonRefusesToMislead:
         with pytest.raises(ValueError, match="different tenants"):
             compare(earlier, other)
 
+    def test_a_swapped_pair_is_refused_rather_than_read_backwards(self, earlier) -> None:
+        # The flags say which is which. Passed the wrong way round, every
+        # improvement would have been reported as a regression.
+        later = revised(earlier, **{"CC9.9": "partial"})
+        with pytest.raises(ValueError, match="started after the later one"):
+            compare(later, earlier)
+        # the right way round still works, and the same moment is not "after"
+        assert compare(earlier, later).improved
+        assert compare(earlier, earlier).comparable
+
+    def test_a_record_without_a_start_time_is_not_ordered(self, earlier) -> None:
+        later = revised(earlier)
+        del later["started_at"]
+        assert compare(later, earlier).comparable
+
     def test_two_frameworks_are_marked_not_comparable(self, earlier) -> None:
         later = revised(earlier)
         later["framework"]["id"] = "hipaa"

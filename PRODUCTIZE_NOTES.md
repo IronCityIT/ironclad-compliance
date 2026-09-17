@@ -985,7 +985,25 @@ was exposed. The local CLI and the legacy wrapper were. `ids.client_slug`
 now carries the rule, and both entry points refuse with exit 2 before
 reading any evidence.
 
-### 16.7 Looked at and left
+### 16.7 `compare` and `report` on the wrong files
+
+- Two tenants' assessments: `compare` raised the right `ValueError` and the
+  CLI let it through as a traceback. Exit 2 now, same message.
+- `--from` and `--to` the wrong way round: trusted, so every improvement
+  would have read as a regression. Where both records say when they started,
+  a pair in the wrong order is refused with both ids and times named; the
+  same record twice is a level trend, not an error.
+- `report --input findings.b64`, `--compare-to README.md`, and a JSON file
+  that is not an assessment: two `JSONDecodeError` tracebacks and a
+  `KeyError` from inside the renderer. One reader for `report`, `export` and
+  `compare` now refuses a missing file, a non-JSON file and JSON of the wrong
+  shape, naming the file and the reason.
+- Checked and already right: an earlier assessment against a *different
+  framework* produces a "Since the last assessment" section that states the
+  reason and shows no numbers. The CLI's stderr headline still prints the
+  movement figure for that case; the report a client sees does not.
+
+### 16.8 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
