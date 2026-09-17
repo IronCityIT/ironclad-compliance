@@ -1263,7 +1263,32 @@ leave nothing named for the tenant (§13.2 — the test for that failed on the
 first attempt and pointed at the ordering). Replayed: 20 of 20 answered 200,
 20 on file, 20 audit events, chain intact.
 
-### 16.22 Looked at and left
+### 16.22 A 0.57 MB document that cost 545 MB to read
+
+The extraction extras do not install on this machine (PEP 668), so the
+binary formats had only ever been exercised in CI. A venv in the scratchpad
+fixed that: 825 passed, 19 skipped (the MariaDB ones). Then the formats a
+client actually sends were handed something unfriendly.
+
+A `.docx` is a zip, and its `document.xml` is parsed in full by
+`python-docx` before the first paragraph comes back. One built with 143 MB
+of `<w:t>` inside — 0.57 MB on disk — took **19 s and 545 MB of RSS** to
+yield the 20,000 characters the clip keeps. Four of those in an evidence
+folder and the assess job is out of memory on a 7 GB runner, which is the
+one failure the ingest contract promises never to allow: "an assessment must
+not die because one artifact in a hundred is corrupt". `openpyxl` in
+read-only mode streams rows but loads the shared-strings table whole, so an
+`.xlsx` has the same door. And `_extract_text_file` read a 62 MB file whole
+to keep 20,000 characters of it.
+
+Now the zip's central directory — free to read — is consulted first, and a
+member that would expand past 50 MB is refused unopened; any non-text file
+over 200 MB is not parsed; a text file is read only as far as the clip. Each
+refusal is catalogued and worded like every other unreadable item. The same
+document: 0.08 s, 26 MB, "expands to 136 MB, over the 50 MB a document may
+expand to; too large to read safely", and the assessment runs on.
+
+### 16.23 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

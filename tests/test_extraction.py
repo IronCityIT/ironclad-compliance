@@ -352,3 +352,88 @@ class TestSpreadsheets:
         result = extract_text(path)
         assert result.ok, result.error
         assert f"marker{MAX_SHEETS + 2}" not in result.text
+
+
+class TestWhatAFileMayCostToOpen:
+    """A 0.57 MB .docx whose document.xml expanded to 143 MB took 19 s and
+    545 MB to yield 20,000 characters. The clip bounds the text; nothing bounded
+    the parse. The zip's table of contents says what each member expands to."""
+
+    def _zip_with_a_large_member(self, path: Path, member: str, size: int) -> Path:
+        import zipfile
+
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr(member, b"a" * size)  # compresses to almost nothing
+        return path
+
+    @pytest.mark.skipif(not HAS_DOCX, reason="python-docx is not installed")
+    def test_a_docx_that_would_expand_past_the_cap_is_refused_unopened(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import ironclad.ingest.extractors as extractors
+
+        monkeypatch.setattr(extractors, "MAX_ZIP_MEMBER_BYTES", 1024 * 1024)
+        path = self._zip_with_a_large_member(
+            tmp_path / "policy.docx", "word/document.xml", 2 * 1024 * 1024
+        )
+        result = extract_text(path)
+        assert not result.ok
+        assert "word/document.xml expands to 2 MB" in result.error
+        assert "too large to read safely" in result.error
+
+    @pytest.mark.skipif(not HAS_XLSX, reason="openpyxl is not installed")
+    def test_a_workbook_whose_shared_strings_would_expand_past_the_cap_is_refused(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import ironclad.ingest.extractors as extractors
+
+        monkeypatch.setattr(extractors, "MAX_ZIP_MEMBER_BYTES", 1024 * 1024)
+        path = self._zip_with_a_large_member(
+            tmp_path / "review.xlsx", "xl/sharedStrings.xml", 3 * 1024 * 1024
+        )
+        result = extract_text(path)
+        assert not result.ok
+        assert "xl/sharedStrings.xml expands to 3 MB" in result.error
+
+    def test_a_file_over_the_size_cap_is_not_parsed(self, tmp_path: Path, monkeypatch) -> None:
+        import ironclad.ingest.extractors as extractors
+
+        monkeypatch.setattr(extractors, "MAX_FILE_BYTES", 1024)
+        path = tmp_path / "scan.pdf"
+        path.write_bytes(b"%PDF-1.4\n" + b"x" * 4096)
+        result = extract_text(path)
+        assert not result.ok
+        assert "too large to read safely" in result.error
+
+    def test_a_text_file_is_read_only_as_far_as_the_clip(self, tmp_path: Path) -> None:
+        # A 62 MB single-line file was read whole to keep 20,000 characters.
+        from ironclad.ingest.extractors import MAX_CHARS
+
+        path = tmp_path / "huge.md"
+        with path.open("w") as handle:
+            handle.write("access control ")
+            for _ in range(200):
+                handle.write("x" * MAX_CHARS)
+        reads: list[int] = []
+        original = Path.open
+
+        def counting_open(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            handle = original(self, *args, **kwargs)
+            if self == path and "b" in (args[0] if args else kwargs.get("mode", "")):
+                real_read = handle.read
+
+                def read(n: int = -1) -> bytes:
+                    reads.append(n)
+                    return real_read(n)
+
+                handle.read = read  # type: ignore[method-assign]
+            return handle
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(Path, "open", counting_open)
+            result = extract_text(path)
+        assert result.ok and result.truncated
+        assert len(result.text) == MAX_CHARS
+        assert result.text.startswith("access control")
+        assert reads and max(reads) <= MAX_CHARS * 4 + 1

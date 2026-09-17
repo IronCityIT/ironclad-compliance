@@ -22,6 +22,7 @@ fallback.
 
 from __future__ import annotations
 
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,17 @@ MAX_CHARS = 20_000
 MAX_PDF_PAGES = 20
 MAX_SHEETS = 5
 MAX_SHEET_ROWS = 200
+
+# What an evidence file may cost to open. Both formats built on a zip — .docx
+# and .xlsx — are parsed in full by their libraries before the first character
+# comes back, so the clip above does nothing for memory: a 0.57 MB .docx whose
+# document.xml expands to 143 MB took 19 s and 545 MB to yield 20,000
+# characters (PRODUCTIZE_NOTES §16.22). The zip's own table of contents says
+# what each member expands to, so the answer is known before anything is
+# inflated. A member over the cap, or a file over the cap, is reported as too
+# large to read safely and catalogued without text, like any other unreadable.
+MAX_FILE_BYTES = 200 * 1024 * 1024
+MAX_ZIP_MEMBER_BYTES = 50 * 1024 * 1024
 
 TEXT_SUFFIXES = frozenset({".txt", ".md", ".csv", ".json", ".log", ".yaml", ".yml", ".html"})
 
@@ -97,11 +109,45 @@ def _extract_pdf(path: Path) -> Extraction:
         return Extraction(error=f"could not read PDF: {exc}")
 
 
+def _too_large_to_inflate(path: Path) -> str:
+    """Why a zip-based document should not be opened, or "" if it may be.
+
+    Read from the central directory, which costs nothing: the declared
+    uncompressed size of each member. A member that expands past the cap is
+    refused before a byte of it is inflated.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for member in archive.infolist():
+                if member.file_size > MAX_ZIP_MEMBER_BYTES:
+                    return (
+                        f"{member.filename} expands to {member.file_size // (1024 * 1024)} MB, "
+                        f"over the {MAX_ZIP_MEMBER_BYTES // (1024 * 1024)} MB a document "
+                        f"may expand to; too large to read safely"
+                    )
+    except (zipfile.BadZipFile, OSError):
+        # Not a zip at all: the format parser will say so in its own words.
+        return ""
+    return ""
+
+
+def _too_large(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    if size > MAX_FILE_BYTES:
+        return f"{size // (1024 * 1024)} MB is over the {MAX_FILE_BYTES // (1024 * 1024)} MB an evidence file may be; too large to read safely"
+    return ""
+
+
 def _extract_docx(path: Path) -> Extraction:
     try:
         from docx import Document  # noqa: PLC0415 — optional dependency
     except ImportError:
         return Extraction(error="DOCX support is not installed (python-docx)")
+    if reason := _too_large_to_inflate(path):
+        return Extraction(error=f"could not read DOCX: {reason}")
 
     try:
         document = Document(str(path))
@@ -121,6 +167,9 @@ def _extract_xlsx(path: Path) -> Extraction:
         import openpyxl  # noqa: PLC0415 — optional dependency
     except ImportError:
         return Extraction(error="spreadsheet support is not installed (openpyxl)")
+    # read_only streams the rows, but the shared-strings table is loaded whole.
+    if reason := _too_large_to_inflate(path):
+        return Extraction(error=f"could not read spreadsheet: {reason}")
 
     try:
         workbook = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
@@ -136,10 +185,18 @@ def _extract_xlsx(path: Path) -> Extraction:
 
 
 def _extract_text_file(path: Path) -> Extraction:
+    # Only as much as the clip can use is read: a 62 MB text file was read
+    # whole to keep 20,000 characters of it. Four bytes per character covers
+    # any UTF-8 sequence, and a file with more is truncated by definition.
     try:
-        return _clip(path.read_text(encoding="utf-8", errors="replace"))
+        with path.open("rb") as handle:
+            head = handle.read(MAX_CHARS * 4 + 1)
     except OSError as exc:
         return Extraction(error=f"could not read file: {exc}")
+    text = head.decode("utf-8", errors="replace")
+    if len(head) > MAX_CHARS * 4:
+        return Extraction(text=text[:MAX_CHARS], truncated=True)
+    return _clip(text)
 
 
 def extract_text(path: Path) -> Extraction:
@@ -157,6 +214,8 @@ def extract_text(path: Path) -> Extraction:
     suffix = path.suffix.lower()
     if suffix in TEXT_SUFFIXES:
         return _extract_text_file(path)
+    if reason := _too_large(path):
+        return Extraction(error=f"could not read {suffix}: {reason}")
     if suffix == ".pdf":
         return _extract_pdf(path)
     if suffix == ".docx":

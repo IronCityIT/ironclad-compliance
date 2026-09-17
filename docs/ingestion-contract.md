@@ -155,6 +155,14 @@ PDF is catalogued and reported as unreadable at `info` severity. It never
 silently becomes "no relevant content", which is the same thing as a control gap
 from the report's point of view.
 
+**A file has a price to open, and the engine reads the label first.** Only the
+first 20,000 characters of any item are matched. A text file is read only that
+far. A `.docx` or `.xlsx` is a zip whose members are parsed in full before the
+first character comes back, so a member that would expand past 50 MB — the
+zip's own table of contents says so — is refused unopened, and any other file
+over 200 MB is not parsed. Each is catalogued and reported as too large to read
+safely, in the same words as any other unreadable item.
+
 ## Validating
 
 ```sh
