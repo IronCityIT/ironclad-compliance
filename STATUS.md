@@ -7,8 +7,8 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-12
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c6abebb`, all six jobs. The product workflow has run twice as a dry run — see "Dry runs".**
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-16
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `e4c4f78`, all six jobs, on every commit of 2026-09-16. The product workflow has run twice as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 727 passed, 25 skipped locally (2026-09-12), 93% coverage |
+| Test | `pytest` | **PASS** — 783 passed, 25 skipped locally (2026-09-16); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -222,6 +222,24 @@ decides which tenant a write lands in.
   scans the directories, in CI, `gates.sh` and Jenkins (which had no such
   check), and it is red on the working tree for exactly the reason it should
   be.
+
+- **The evidence directory is a boundary (2026-09-16).** A tenant's own
+  `manifest.json` could name `../other-client/policy.pdf` or `/etc/passwd`
+  and the engine read it, matched it and linked it to the tenant's controls
+  with the path on their record; staging confined the prefix but not what the
+  prefix's manifest pointed at. Every local URI must now resolve inside the
+  directory, symlinks are refused rather than followed, and `.DS_Store`,
+  `.git/` and `__MACOSX` are not evidence. Reproduced, fixed, re-run:
+  `PRODUCTIZE_NOTES.md` §16.1–16.2, 16.8.
+- **A risk acceptance can be renewed (2026-09-16).** Request → approve →
+  revoke → request again was a 500 over HTTP and the CLI alike: the policy
+  file's one-per-control rule counted history, so a lapsed acceptance blocked
+  the renewal the engine's own "lapsed" finding asks for — and nothing swept
+  lapsed approvals on file. Replayed against the restarted server: the
+  renewal lands `[revoked, pending_approval]`. Nine more inputs a browser
+  would not send, a swapped `compare`, and non-JSON files to `report`,
+  `export`, `compare` and `validate` each get a named refusal instead of a
+  traceback or a coerced value. §16.4–16.9.
 
 ## Dry runs — the product workflow has now executed
 
