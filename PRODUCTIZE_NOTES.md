@@ -1003,7 +1003,25 @@ reading any evidence.
   reason and shows no numbers. The CLI's stderr headline still prints the
   movement figure for that case; the report a client sees does not.
 
-### 16.8 Looked at and left
+### 16.8 Hostile and incidental content
+
+A 62 MB single-line Markdown file, a text file with NUL bytes and invalid
+UTF-8, a Latin-1 file, an empty file, a file with no suffix, an upper-case
+suffix, a dotfile: all handled in 0.6 s, each catalogued or warned about as
+the contract says, the truncation named. Two things were not right:
+
+- **A folder's `manifest.json` that belongs to something else.** A browser
+  extension's manifest in an evidence dump is picked up as the evidence
+  manifest and the assessment is refused — with the three contract faults
+  named, so the operator knows which file and why. Left as is: a fail-closed
+  refusal with the reason is the right answer, and renaming the file is the
+  fix.
+- **`.DS_Store`, `.git/objects/*` and `__MACOSX/._policy.pdf` were evidence
+  items.** Counted in "N evidence items" on the report, and — unreadable —
+  reported as facts about the pipeline. Skipped now, with one warning naming
+  them; a file that really is evidence can still be declared in a manifest.
+
+### 16.9 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

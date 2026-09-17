@@ -52,6 +52,19 @@ SUPPORTED_CONTRACT_VERSIONS = frozenset({"1.0"})
 
 MANIFEST_FILENAMES = ("evidence-manifest.json", "manifest.json")
 
+# Files a folder carries that nobody meant as evidence: a `.git` directory, a
+# `.DS_Store`, the `__MACOSX/._policy.pdf` resource forks a Mac zip leaves
+# behind. Each would otherwise be catalogued, counted in "N evidence items" on
+# the report, and — being unreadable — reported as a fact about the pipeline.
+# They are skipped, and the skip is said out loud rather than silent.
+_INCIDENTAL_DIRS = frozenset({"__MACOSX"})
+
+
+def is_incidental(relative: Path) -> bool:
+    """True for a path with a hidden or resource-fork component."""
+    return any(part.startswith(".") or part in _INCIDENTAL_DIRS for part in relative.parts)
+
+
 REQUIRED_ITEM_FIELDS = ("name", "uri")
 VALID_CLASSIFICATIONS = frozenset({"public", "internal", "confidential", "restricted"})
 
@@ -221,6 +234,8 @@ def manifest_from_directory(
         )
     for path in sorted(directory.rglob("*")):
         if not path.is_file() or path.name in MANIFEST_FILENAMES:
+            continue
+        if is_incidental(path.relative_to(directory)):
             continue
         stat = path.stat()
         items.append(

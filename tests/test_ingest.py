@@ -244,6 +244,23 @@ class TestCollection:
         assert len(evidence) == 1
         assert any("broken.pdf" in w for w in warnings)
 
+    def test_hidden_and_resource_fork_files_are_skipped_and_said(self, tmp_path: Path) -> None:
+        # A client's zip arrives with .DS_Store, a .git directory and the
+        # __MACOSX resource forks. Each used to be an evidence item — counted
+        # on the report, and reported as unreadable when it could not be read.
+        (tmp_path / "policy.md").write_text("least privilege access control")
+        (tmp_path / ".DS_Store").write_bytes(b"\x00\x01")
+        (tmp_path / ".git" / "objects").mkdir(parents=True)
+        (tmp_path / ".git" / "objects" / "ab").write_bytes(b"x")
+        (tmp_path / "__MACOSX").mkdir()
+        (tmp_path / "__MACOSX" / "._policy.pdf").write_bytes(b"\x00\x05\x16\x07")
+
+        evidence, warnings = collect_from_directory("acme", tmp_path)
+        assert [a.name for a in evidence] == ["policy.md"]
+        assert len(warnings) == 1
+        assert "3 hidden or resource-fork file(s)" in warnings[0]
+        assert ".DS_Store" in warnings[0] and "__MACOSX/._policy.pdf" in warnings[0]
+
     def test_the_same_file_under_a_new_path_keeps_its_identity(self, tmp_path: Path) -> None:
         # Keyed on the checksum, so reorganising a folder does not present the
         # same evidence as something new.

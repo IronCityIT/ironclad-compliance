@@ -8,7 +8,12 @@ from typing import Any
 
 from ironclad.errors import ValidationError
 from ironclad.ids import artifact_id, slugify, utc_now
-from ironclad.ingest.contract import find_manifest, load_manifest, manifest_from_directory
+from ironclad.ingest.contract import (
+    find_manifest,
+    is_incidental,
+    load_manifest,
+    manifest_from_directory,
+)
 from ironclad.ingest.extractors import extract_text
 from ironclad.model.evidence import EvidenceArtifact, EvidenceSet
 
@@ -139,4 +144,16 @@ def collect_from_directory(
         return collect_from_manifest(manifest, base_dir=directory)
 
     manifest = manifest_from_directory(tenant_id, directory, framework=framework)
-    return collect_from_manifest(manifest, base_dir=directory)
+    evidence, warnings = collect_from_manifest(manifest, base_dir=directory)
+    incidental = sorted(
+        str(p.relative_to(directory))
+        for p in directory.rglob("*")
+        if p.is_file() and is_incidental(p.relative_to(directory))
+    )
+    if incidental:
+        shown = ", ".join(incidental[:5]) + (", …" if len(incidental) > 5 else "")
+        warnings.append(
+            f"{len(incidental)} hidden or resource-fork file(s) were not treated as "
+            f"evidence: {shown}"
+        )
+    return evidence, warnings

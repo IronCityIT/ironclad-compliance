@@ -86,6 +86,11 @@ Set `valid_until` explicitly to override. With no manifest at all the file's own
 name is used as the evidence type, so `Q3 access review.xlsx` still ages on the
 90-day clock rather than the annual one.
 
+With no manifest, hidden files and directories (`.DS_Store`, `.git/`) and the
+`__MACOSX` resource forks a Mac zip leaves behind are not treated as evidence.
+The skip is reported as a warning naming them, never silent; declare such a file
+in a manifest if it really is evidence.
+
 ## `control_hints`
 
 How a human asserts a link the automatic matcher would miss — a scanned policy
