@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `b33f738`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `07db1a2`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 816 passed, 25 skipped locally (2026-09-17); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 819 passed, 25 skipped locally (2026-09-17); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 38 passed |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `b33f738`, run
-[35173127879](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35173127879):
+Green on `productize/ironclad-compliance` at `07db1a2`, run
+[35173614381](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35173614381):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
