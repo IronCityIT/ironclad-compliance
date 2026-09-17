@@ -1,0 +1,474 @@
+// Ironclad Compliance — quality gates and assessment runner.
+//
+// Two jobs in one pipeline, selected by the RUN_ASSESSMENT parameter:
+//
+//   default            the gate pipeline: format, lint, typecheck, test,
+//                      artifact validation, build, security. Every gate runs
+//                      even after one fails, so a single run reports every
+//                      problem rather than one at a time; the build is marked
+//                      FAILURE at the end if any gate failed.
+//
+//   RUN_ASSESSMENT     run a real assessment for a client against a framework
+//                      and archive the report and the auditor package.
+//
+// Nothing here echoes a secret. Credentials are bound only inside the step that
+// needs them, and the assessment stage passes the client id through the
+// environment rather than interpolating it into a shell command.
+
+pipeline {
+  agent {
+    docker {
+      image 'python:3.11-slim'
+      // The agent needs no privileged access; the engine core is stdlib-only.
+      args '-u root:root'
+    }
+  }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    timeout(time: 30, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '10'))
+    disableConcurrentBuilds()
+  }
+
+  parameters {
+    booleanParam(
+      name: 'RUN_ASSESSMENT',
+      defaultValue: false,
+      description: 'Run a compliance assessment instead of the gate pipeline'
+    )
+    string(
+      name: 'CLIENT_ID',
+      defaultValue: '',
+      description: 'Client identifier (assessment runs only)'
+    )
+    choice(
+      name: 'FRAMEWORK',
+      choices: ['soc2', 'nist-csf', 'pci-dss', 'hipaa'],
+      description: 'Framework to assess against'
+    )
+    choice(
+      name: 'GROUP',
+      choices: ['deep', 'standard', 'quick'],
+      description: 'Capability group to run'
+    )
+    string(
+      name: 'EVIDENCE_DIR',
+      defaultValue: 'evidence',
+      description: 'Directory of collected evidence, relative to the workspace'
+    )
+  }
+
+  environment {
+    PIP_DISABLE_PIP_VERSION_CHECK = '1'
+    PIP_NO_CACHE_DIR = '1'
+    PYTHONDONTWRITEBYTECODE = '1'
+    // GATE_FAILURES and GATE_UNAVAILABLE are set by the Gates stage with
+    // `env.X = ...` and read by the post section. They are deliberately NOT
+    // declared here: a variable declared in this block is scoped to the
+    // stages it wraps, and an assignment inside a stage did not reach `post`
+    // — a failed build's description read "build failed" and an unstable
+    // one's read "a gate could not run", with the gate names lost. Seen on
+    // builds 4 and 5 of the throwaway controller (PRODUCTIZE_NOTES §16.26).
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout scm
+        sh 'git --no-pager log -1 --pretty="%h %an %s"'
+      }
+    }
+
+    stage('Setup') {
+      steps {
+        sh '''
+          set -eu
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet -r requirements-dev.txt
+          pip install --quiet build
+          python --version
+          ruff --version
+          mypy --version
+          pytest --version
+        '''
+      }
+    }
+
+    stage('Gates') {
+      when { expression { !params.RUN_ASSESSMENT } }
+      steps {
+        script {
+          // Each gate runs regardless of the ones before it. A pipeline that
+          // stops at the first red gate makes a developer discover the next
+          // failure only after fixing this one.
+          def gates = [
+            [name: 'format',   cmd: 'ruff format --check .'],
+            [name: 'lint',     cmd: 'ruff check --output-format=concise .'],
+            [name: 'typecheck', cmd: 'mypy'],
+            [name: 'test',     cmd: 'pytest --cov=ironclad --cov-report=xml --cov-report=term-missing --junitxml=junit.xml'],
+            [name: 'artifacts', cmd: 'python scripts/validate_artifacts.py'],
+            // The committed dashboard catalog must be what the registry says.
+            [name: 'catalog',  cmd: 'python tools/build_catalog.py --check'],
+            // The whole path against a real store: ingest the sample evidence,
+            // assess, render the deliverables, publish, read the record back and
+            // re-checksum it. Needs no service — a directory in the workspace is
+            // a volume — so unlike the two gates below this one always runs.
+            [name: 'end-to-end', cmd: 'python scripts/end_to_end.py --store "$WORKSPACE/.ironclad-volume"'],
+            [name: 'build',    cmd: 'python -m build'],
+          ]
+
+          def failed = []
+          def unavailable = []
+          for (gate in gates) {
+            echo "── gate: ${gate.name}"
+            def status = sh(script: gate.cmd, returnStatus: true)
+            if (status != 0) {
+              failed << gate.name
+              echo "── gate ${gate.name} FAILED (exit ${status})"
+            } else {
+              echo "── gate ${gate.name} passed"
+            }
+          }
+
+          // Two gates below need a service this agent image does not carry, and
+          // one needs a runtime it does not have. Each reports UNAVAILABLE and
+          // marks the build unstable rather than passing: `ci.yml` runs all
+          // three, and a pipeline that silently does not know a gate exists has
+          // drifted from the one that does.
+
+          // firestore.rules against the emulator. Needs node and a JVM.
+          def rulesStatus = sh(
+            script: '''
+              set -eu
+              command -v npm >/dev/null 2>&1 || {
+                echo "node/npm unavailable on this agent"; exit 66; }
+              command -v java >/dev/null 2>&1 || {
+                echo "no JVM on this agent; the Firestore emulator needs one"; exit 66; }
+              npm --prefix tests/rules ci
+              npm --prefix tests/rules test
+            ''',
+            returnStatus: true
+          )
+          if (rulesStatus == 66) {
+            echo '── gate rules UNAVAILABLE — reported, not passed'
+            unavailable << 'rules'
+            unstable('firestore.rules gate could not run on this agent')
+          } else if (rulesStatus != 0) {
+            failed << 'rules'
+            echo '── gate rules FAILED'
+          } else {
+            echo '── gate rules passed'
+          }
+
+          // The store against a real MariaDB. Needs one bound to IRONCLAD_TEST_DSN;
+          // the DSN carries a password, so it comes from a credential and is
+          // never echoed.
+          def persistenceStatus = sh(
+            script: '''
+              set -eu
+              [ -n "${IRONCLAD_TEST_DSN:-}" ] || {
+                echo "IRONCLAD_TEST_DSN is not bound; no MariaDB to test against"; exit 66; }
+              pip install --quiet PyMySQL
+              python -m ironclad.cli store init --to "$IRONCLAD_TEST_DSN"
+              pytest tests/test_store.py -q
+              python scripts/end_to_end.py --store "$IRONCLAD_TEST_DSN" \
+                --artifacts "$WORKSPACE/.ironclad-artifacts"
+            ''',
+            returnStatus: true
+          )
+          if (persistenceStatus == 66) {
+            echo '── gate persistence UNAVAILABLE — reported, not passed'
+            unavailable << 'persistence'
+            unstable('persistence gate could not run on this agent')
+          } else if (persistenceStatus != 0) {
+            failed << 'persistence'
+            echo '── gate persistence FAILED'
+          } else {
+            echo '── gate persistence passed'
+          }
+
+          // The Cloud Functions and dashboard gates need a runtime this agent
+          // image does not carry. Same contract as the security gate below: an
+          // agent that cannot run them says so rather than reporting a pass it
+          // did not earn.
+          def functionsStatus = sh(
+            script: '''
+              set -eu
+              command -v npm >/dev/null 2>&1 || {
+                echo "node/npm unavailable on this agent"; exit 66; }
+              npm --prefix functions run lint
+              npm --prefix functions test
+              npm --prefix dashboard test
+            ''',
+            returnStatus: true
+          )
+          if (functionsStatus == 66) {
+            echo '── gate functions UNAVAILABLE — reported, not passed'
+            unavailable << 'functions'
+            unstable('cloud functions gate could not run on this agent')
+          } else if (functionsStatus != 0) {
+            failed << 'functions'
+            echo '── gate functions FAILED'
+          } else {
+            echo '── gate functions passed'
+          }
+
+          // Security scanning is best-effort: the tools are not pinned into the
+          // dev requirements, so an agent without them reports the gate as
+          // unavailable rather than silently passing it.
+          def securityStatus = sh(
+            script: '''
+              set -eu
+              pip install --quiet pip-audit bandit 2>/dev/null || {
+                echo "security tooling unavailable on this agent"; exit 66; }
+              pip-audit --strict --desc --requirement requirements.txt --requirement requirements-dev.txt || exit 1
+              bandit -q -r ironclad scripts tools -x tests || exit 1
+              sh scripts/check_white_label.sh || exit 1
+              sh scripts/check_secret_literals.sh || exit 1
+            ''',
+            returnStatus: true
+          )
+          if (securityStatus == 66) {
+            echo '── gate security UNAVAILABLE — reported, not passed'
+            unavailable << 'security'
+            unstable('security gate could not run on this agent')
+          } else if (securityStatus != 0) {
+            failed << 'security'
+            echo '── gate security FAILED'
+          } else {
+            echo '── gate security passed'
+          }
+
+          env.GATE_FAILURES = failed.join(', ')
+          env.GATE_UNAVAILABLE = unavailable.join(', ')
+          if (failed) {
+            // A red gate blocks the change. It is reported in full above and
+            // named in the build description; it is never papered over.
+            error("quality gates failed: ${env.GATE_FAILURES}")
+          }
+        }
+      }
+      post {
+        always {
+          junit testResults: 'junit.xml', allowEmptyResults: true
+          archiveArtifacts artifacts: 'junit.xml,coverage.xml,dist/*', allowEmptyArchive: true, fingerprint: true
+        }
+      }
+    }
+
+    stage('Smoke') {
+      when { expression { !params.RUN_ASSESSMENT } }
+      steps {
+        sh '''
+          set -eu
+          python -m ironclad.cli list-modules > /dev/null
+          python -m ironclad.cli list-frameworks > /dev/null
+          for framework in soc2 nist-csf pci-dss hipaa; do
+            python -m ironclad.cli validate --framework "$framework"
+          done
+          echo "smoke checks passed"
+        '''
+      }
+    }
+
+    stage('Assessment') {
+      when { expression { params.RUN_ASSESSMENT } }
+      steps {
+        script {
+          if (!params.CLIENT_ID?.trim()) {
+            error('CLIENT_ID is required when RUN_ASSESSMENT is set')
+          }
+        }
+        sh 'pip install --quiet pypdf python-docx openpyxl'
+        // The tenant's previous assessment against this framework, out of the
+        // store when there is one, the same way the GitHub workflow gets it.
+        // Remediation planning keeps an open item's first-raised and target
+        // dates from it, and the report says what moved since. No credential,
+        // or a first assessment, leaves both out.
+        script {
+          try {
+            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
+              withEnv(["CLIENT_ID=${params.CLIENT_ID}", "FRAMEWORK=${params.FRAMEWORK}"]) {
+                sh '''
+                  set -eu
+                  status=0
+                  python -m ironclad.cli store latest \
+                    --client "$CLIENT_ID" --framework "$FRAMEWORK" \
+                    --out previous/assessment.json || status=$?
+                  if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+                '''
+              }
+            }
+          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+            echo 'no ironclad-store credential on this controller — no previous assessment'
+          }
+        }
+        withEnv([
+          "CLIENT_ID=${params.CLIENT_ID}",
+          "FRAMEWORK=${params.FRAMEWORK}",
+          "GROUP=${params.GROUP}",
+          "EVIDENCE_DIR=${params.EVIDENCE_DIR}",
+        ]) {
+          sh '''
+            set -eu
+            if [ ! -d "$EVIDENCE_DIR" ]; then
+              echo "evidence directory not found: $EVIDENCE_DIR" >&2
+              exit 2
+            fi
+            previous=""
+            if [ -f previous/assessment.json ]; then
+              previous="--previous previous/assessment.json"
+            fi
+            # shellcheck disable=SC2086 — $previous is either empty or two words
+            python -m ironclad.cli assess \
+              --client "$CLIENT_ID" \
+              --framework "$FRAMEWORK" \
+              --evidence-dir "$EVIDENCE_DIR" \
+              --group "$GROUP" \
+              $previous \
+              --out out/
+            if [ -f previous/assessment.json ]; then
+              python -m ironclad.cli report \
+                --input out/assessment.json --out out/report.html \
+                --client-name "$CLIENT_ID" --compare-to previous/assessment.json
+            fi
+          '''
+        }
+        withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
+          sh '''
+            set -eu
+            python -m ironclad.cli export \
+              --input out/assessment.json --format package \
+              --report out/report.html --out out/package/
+            python scripts/validate_artifacts.py out/assessment.json out/package/package.json
+          '''
+        }
+      }
+      post {
+        always {
+          // Archived for audit: the report, the machine record and the
+          // hash-chained trail are the evidence that this assessment ran.
+          archiveArtifacts(
+            artifacts: 'out/assessment.json,out/report.html,out/package/**',
+            allowEmptyArchive: true,
+            fingerprint: true
+          )
+        }
+      }
+    }
+
+    stage('Publish') {
+      when {
+        allOf {
+          expression { params.RUN_ASSESSMENT }
+          expression { currentBuild.currentResult == 'SUCCESS' }
+        }
+      }
+      steps {
+        // The same three-way choice the GitHub workflow makes, in the same
+        // order: the target store when its credential exists, the retired
+        // ingest when only that one does, otherwise a note. This stage used
+        // to bind the two retired-ingest credentials unconditionally, so a
+        // controller without them — every controller, today — failed the
+        // publish of an assessment that had run; and it knew nothing of the
+        // store the workflow has published to since the architecture change.
+        // Credentials are bound only inside the step that uses them.
+        script {
+          def published = false
+          try {
+            withCredentials([string(credentialsId: 'ironclad-store', variable: 'IRONCLAD_STORE')]) {
+              sh '''
+                set -eu
+                python -m ironclad.cli store health
+                python -m ironclad.cli store publish \
+                  --input out/assessment.json \
+                  --artifacts out/
+              '''
+            }
+            published = true
+            env.PUBLISH_NOTE = 'published to the store'
+          } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+            echo 'no ironclad-store credential on this controller — not publishing to the store'
+          }
+          if (!published) {
+            try {
+              withCredentials([
+                string(credentialsId: 'ironclad-store-results-url', variable: 'STORE_RESULTS_URL'),
+                string(credentialsId: 'ironclad-ingest-api-key', variable: 'INGEST_API_KEY'),
+              ]) {
+                withEnv(["CLIENT_ID=${params.CLIENT_ID}"]) {
+                  // RETIRED PATH: the Cloud Function ingest. Goes with functions/.
+                  sh '''
+                    set -eu
+                    python scripts/store_results.py \
+                      --client-id "$CLIENT_ID" \
+                      --results-dir out/ \
+                      --report-dir out/
+                  '''
+                }
+              }
+              published = true
+              env.PUBLISH_NOTE = 'published to the legacy ingest'
+            } catch (org.jenkinsci.plugins.credentialsbinding.impl.CredentialNotFoundException ignored) {
+              echo 'no legacy ingest credentials on this controller either'
+            }
+          }
+          if (!published) {
+            env.PUBLISH_NOTE = 'not published: no store is configured on this controller'
+            unstable('no store is configured — the assessment is in this build\'s archived artifacts only (HANDOFF.md §3.2)')
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      script {
+        currentBuild.description = params.RUN_ASSESSMENT
+          ? "assessment: ${params.CLIENT_ID} / ${params.FRAMEWORK} — ${env.PUBLISH_NOTE ?: 'published'}"
+          : 'all gates green'
+      }
+      echo "BUILD OK — ${currentBuild.description}"
+    }
+    unstable {
+      // Named in the build description, so the build list says which gate
+      // this agent could not run — or that an assessment ran and was not
+      // published — rather than leaving a blank beside UNSTABLE (the first
+      // real run left it blank; the first assessment run said "a gate could
+      // not run" about a publish).
+      script {
+        if (params.RUN_ASSESSMENT) {
+          currentBuild.description = "assessment: ${params.CLIENT_ID} / ${params.FRAMEWORK} — ${env.PUBLISH_NOTE ?: 'a step could not run'}"
+        } else {
+          currentBuild.description = env.GATE_UNAVAILABLE
+            ? "gates unavailable on this agent: ${env.GATE_UNAVAILABLE}"
+            : 'a gate could not run'
+        }
+      }
+      echo "BUILD UNSTABLE — ${currentBuild.description}. See the log above."
+    }
+    failure {
+      script {
+        currentBuild.description = env.GATE_FAILURES
+          ? "failed gates: ${env.GATE_FAILURES}"
+          : 'build failed'
+      }
+      echo "BUILD FAILED — ${currentBuild.description}"
+    }
+    always {
+      // Idempotent: a re-run starts from a clean workspace, so a stale report
+      // from a previous build can never be archived as this build's output.
+      // Core steps only. This was `cleanWs(...)`, which is the ws-cleanup
+      // plugin: on a controller without it the whole post section threw
+      // "No such DSL method 'cleanWs'" — found on the first real run
+      // (PRODUCTIZE_NOTES §16.26), not by reading.
+      dir('out') { deleteDir() }
+      dir('dist') { deleteDir() }
+      dir('previous') { deleteDir() }
+    }
+  }
+}

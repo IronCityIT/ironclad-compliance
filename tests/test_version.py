@@ -1,0 +1,494 @@
+"""Guards that stop the repository from disagreeing with itself."""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_the_package_version_matches_the_project_metadata() -> None:
+    from ironclad.version import __version__
+
+    declared = re.search(
+        r'^version\s*=\s*"([^"]+)"', (REPO_ROOT / "pyproject.toml").read_text(), re.MULTILINE
+    )
+    assert declared, "pyproject.toml declares no version"
+    assert declared.group(1) == __version__
+
+
+def test_the_dashboard_catalog_matches_the_registry() -> None:
+    # The dashboard renders its capability checkboxes from catalog.json. If it
+    # drifts from the registry, a UI selection stops mapping onto --modules.
+    completed = subprocess.run(
+        [sys.executable, "tools/build_catalog.py", "--check"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_the_workflow_framework_choices_match_the_loader_aliases() -> None:
+    from ironclad.frameworks.loader import FRAMEWORK_ALIASES
+
+    workflow = (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
+    for alias in FRAMEWORK_ALIASES:
+        assert f"- {alias}\n" in workflow, f"{alias} is missing from the workflow choices"
+
+
+def test_every_declared_framework_file_exists() -> None:
+    versions = json.loads((REPO_ROOT / "frameworks/framework-versions.json").read_text())
+    for entry in versions["frameworks"]:
+        assert (REPO_ROOT / "frameworks" / entry["local_file"]).exists(), entry["local_file"]
+    for entry in versions["crosswalks"]:
+        assert (REPO_ROOT / "frameworks" / entry["local_file"]).exists(), entry["local_file"]
+
+
+def test_the_loader_aliases_match_the_version_register() -> None:
+    from ironclad.frameworks.loader import FRAMEWORK_ALIASES
+
+    versions = json.loads((REPO_ROOT / "frameworks/framework-versions.json").read_text())
+    registered = {entry["alias"]: entry["local_file"] for entry in versions["frameworks"]}
+    assert registered == FRAMEWORK_ALIASES
+
+
+def test_committed_artifacts_pass_the_commit_gate() -> None:
+    completed = subprocess.run(
+        [sys.executable, "scripts/validate_artifacts.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_the_control_mapping_doc_matches_the_crosswalk_data() -> None:
+    # A crosswalk document that disagrees with the engine is worse than none:
+    # it is the version a client would be shown.
+    completed = subprocess.run(
+        [sys.executable, "tools/build_control_mapping.py", "--check"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_a_dry_run_of_the_assessment_workflow_can_publish_nothing() -> None:
+    # `dry_run` exists so the pipeline can be proven on a real runner with the
+    # sample evidence. Its whole value is that it cannot touch a client's data
+    # or a store, so every step that publishes or reads client evidence must be
+    # gated on it — checked here, because nothing tests a workflow file but a
+    # dispatch, and a dispatch that publishes is the failure being prevented.
+    import yaml
+
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
+    )
+    assert workflow[True]["workflow_dispatch"]["inputs"]["dry_run"]["default"] is False
+
+    def steps(job: str) -> dict[str, dict]:
+        return {
+            s.get("name") or s.get("id") or s["uses"]: s for s in workflow["jobs"][job]["steps"]
+        }
+
+    gated = [
+        ("assess", "Stage the client evidence"),
+        ("assess", "Fetch the client evidence from storage"),
+        ("assess", "Refuse to assess with no evidence source"),
+        ("report", "Publish to the store"),
+        ("report", "Publish to the legacy ingest"),
+    ]
+    for job, name in gated:
+        condition = str(steps(job)[name].get("if", ""))
+        assert "!inputs.dry_run" in condition, (
+            f"{job}/{name} is not gated on dry_run: {condition!r}"
+        )
+
+    sample = steps("assess")["Use the bundled sample evidence"]
+    assert sample["if"] == "inputs.dry_run"
+    assert "examples/evidence" in sample["run"]
+
+
+def test_the_workflow_fold_step_runs_verbatim_against_a_stored_result(tmp_path: Path) -> None:
+    # The report job's "Fold in the AI consensus" step is inline Python in
+    # YAML, so nothing but a dispatch runs it — and the first dispatch is where
+    # the engine's list output was discovered to be rejected. Extract the
+    # script from the workflow as committed and run it against a real stored
+    # assessment with a payload in the engine's real shape.
+    import base64
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    import yaml
+
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
+    )
+    steps = {s.get("name"): s for s in workflow["jobs"]["report"]["steps"]}
+    script = steps["Fold in the AI consensus"]["run"]
+    heredoc = script.split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    heredoc = "\n".join(
+        line[10:] if line.startswith(" " * 10) else line for line in heredoc.splitlines()
+    )
+
+    out = tmp_path / "out"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ironclad.cli",
+            "assess",
+            "--client",
+            "Fold Test",
+            "--framework",
+            "soc2",
+            "--evidence-dir",
+            str(REPO_ROOT / "examples/evidence"),
+            "--group",
+            "deep",
+            "--out",
+            str(out),
+        ],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    document = json.loads((out / "assessment.json").read_text())
+    from ironclad.engine import consensus_findings
+
+    sent = consensus_findings(document["findings"])
+    answers = [
+        {
+            "consensus_severity": "High",
+            "confidence_percent": 77.0,
+            "total_models": 15,
+            "successful_models": 9,
+            "aggregated_remediation": ["do the thing"],
+            "engine_version": "5.0",
+        }
+        for _ in sent
+    ]
+    events_before = document["audit"]["event_count"]
+
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    shutil.copytree(out, workdir / "out")
+    # The artifact path wins over the job output: the artifact carries the
+    # real answers here and the env carries a decoy, so a fold that read the
+    # env would report one result, not len(sent).
+    (workdir / "consensus").mkdir()
+    (workdir / "consensus" / "result.json").write_text(json.dumps(answers))
+    decoy = base64.b64encode(json.dumps([answers[0]]).encode()).decode()
+    (workdir / "github-output").write_text("")
+    env = {
+        **os.environ,
+        "CONSENSUS_B64": decoy,
+        "GITHUB_OUTPUT": str(workdir / "github-output"),
+        "PYTHONPATH": str(REPO_ROOT),
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+        ],
+        input=heredoc,
+        cwd=workdir,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "consensus from the run artifact" in completed.stdout
+    assert f"consensus status: ok analysed: {len(sent)} of {len(sent)}" in completed.stdout
+
+    outputs = (workdir / "github-output").read_text()
+    assert "status=ok\n" in outputs and f"analysed={len(sent)}\n" in outputs
+    folded = json.loads((workdir / "out" / "assessment.json").read_text())
+    assert folded["consensus"]["status"] == "ok"
+    assert folded["consensus"]["severity"] == "high"
+    assert len(folded["consensus"]["results"]) == len(sent)
+    assert folded["warnings"] == document["warnings"], "the fold must not duplicate warnings"
+    assert folded["audit"]["event_count"] == events_before + 1
+    assert folded["audit"]["events"][-1]["action"] == "assessment.consensus_merged"
+    assert folded["audit"]["verified"] is True
+
+
+class TestThePrepareJobResolvesTheStandardInputs:
+    """`client_name` and `scan_id` are the ICIT standard dispatch inputs; this
+    workflow took `client_id`. Both are accepted now, resolved once in the
+    prepare job's shell. The shell is extracted from the workflow as committed
+    and run, because nothing else tests shell."""
+
+    @staticmethod
+    def _run(
+        step_name: str,
+        env: dict[str, str],
+        outputs_from: dict[str, str] | None = None,
+        job: str = "prepare",
+        cwd: Path | None = None,
+    ):
+        import os
+        import subprocess
+        import tempfile
+
+        import yaml
+
+        workflow = yaml.safe_load(
+            (REPO_ROOT / ".github/workflows/compliance-assessment.yml").read_text()
+        )
+        steps = {s.get("name"): s for s in workflow["jobs"][job]["steps"]}
+        with tempfile.NamedTemporaryFile("w+", delete=False) as handle:
+            output_file = handle.name
+        # The workflow says `python`, as setup-python provides it; here it is
+        # whatever interpreter runs the tests.
+        shim = Path(tempfile.mkdtemp()) / "bin"
+        shim.mkdir()
+        (shim / "python").symlink_to(sys.executable)
+        completed = subprocess.run(
+            ["bash", "-c", steps[step_name]["run"]],
+            cwd=cwd or REPO_ROOT,
+            env={
+                "PATH": f"{shim}:{os.environ['PATH']}",
+                "PYTHONPATH": str(REPO_ROOT),
+                "GITHUB_OUTPUT": output_file,
+                # the step's declared env, as GitHub would set it for an empty input
+                **{k: "" for k in ("CLIENT_NAME", "CLIENT_ID_ALIAS", "SCAN_ID", "CLIENT_ID")},
+                "FRAMEWORK": "soc2",
+                "DRY_RUN": "false",
+                **(outputs_from or {}),
+                **env,
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        outputs = dict(
+            line.split("=", 1) for line in Path(output_file).read_text().splitlines() if "=" in line
+        )
+        return completed.returncode, completed.stdout + completed.stderr, outputs
+
+    def test_client_name_is_the_standard_and_client_id_its_alias(self) -> None:
+        code, _, out = self._run("Validate the client identifier", {"CLIENT_NAME": "Acme Corp"})
+        assert (code, out["client_id"]) == (0, "Acme Corp")
+        code, _, out = self._run("Validate the client identifier", {"CLIENT_ID_ALIAS": "Acme Corp"})
+        assert (code, out["client_id"]) == (0, "Acme Corp")
+        code, _, out = self._run(
+            "Validate the client identifier",
+            {"CLIENT_NAME": "Acme Corp", "CLIENT_ID_ALIAS": "Acme Corp"},
+        )
+        assert code == 0
+
+    def test_neither_or_a_disagreement_is_refused(self) -> None:
+        code, log, _ = self._run("Validate the client identifier", {})
+        assert code == 1 and "client_name is required" in log
+        code, log, _ = self._run(
+            "Validate the client identifier", {"CLIENT_NAME": "acme", "CLIENT_ID_ALIAS": "beta"}
+        )
+        assert code == 1 and "disagree" in log
+
+    @pytest.mark.parametrize("bad", ["../x", "a/b", "x;rm -rf /", "a" * 129, "sp ace"])
+    def test_a_scan_id_that_cannot_be_an_assessment_id_is_refused(self, bad: str) -> None:
+        code, log, _ = self._run(
+            "Validate the client identifier", {"CLIENT_NAME": "acme", "SCAN_ID": bad}
+        )
+        assert code == 1, bad
+        assert "scan_id must be" in log
+
+    def test_a_scan_id_becomes_the_assessment_id_and_a_dry_run_still_says_so(self) -> None:
+        code, _, out = self._run(
+            "Plan the run",
+            {"CLIENT_ID": "Acme Corp", "SCAN_ID": "scan-2026-09-17-abc", "FRAMEWORK": "soc2"},
+        )
+        assert (code, out["assessment_id"]) == (0, "scan-2026-09-17-abc")
+        code, _, out = self._run(
+            "Plan the run",
+            {
+                "CLIENT_ID": "Acme Corp",
+                "SCAN_ID": "scan-2026-09-17-abc",
+                "FRAMEWORK": "soc2",
+                "DRY_RUN": "true",
+            },
+        )
+        assert out["assessment_id"] == "scan-2026-09-17-abc-dry-run"
+        code, _, out = self._run("Plan the run", {"CLIENT_ID": "Acme Corp", "FRAMEWORK": "soc2"})
+        assert out["assessment_id"].startswith("acme-corp-soc2-")
+
+
+def test_the_white_label_pattern_is_the_gates_pattern() -> None:
+    # One rule, two places it must run: the shell gate over the static
+    # surfaces, and the merge over the models' advice at run time.
+    from ironclad.white_label import PATTERN
+
+    script = (REPO_ROOT / "scripts/check_white_label.sh").read_text()
+    match = re.search(r"^pattern='([^']+)'", script, re.MULTILINE)
+    assert match, "the gate's pattern line moved"
+    assert match.group(1) == PATTERN
+
+
+def test_every_gate_script_is_run_by_ci_gates_sh_and_jenkins() -> None:
+    # The white-label check existed in CI and gates.sh and not in the
+    # Jenkinsfile; the secrets check existed in CI alone. A gate one pipeline
+    # runs and another does not is a gate that gets discovered by the one that
+    # runs it.
+    ci = (REPO_ROOT / ".github/workflows/ci.yml").read_text()
+    gates = (REPO_ROOT / "scripts/gates.sh").read_text()
+    jenkins = (REPO_ROOT / "Jenkinsfile").read_text()
+    for script in ("check_white_label.sh", "check_secret_literals.sh", "validate_artifacts.py"):
+        for name, text in (("ci.yml", ci), ("gates.sh", gates), ("Jenkinsfile", jenkins)):
+            assert script in text, f"{name} does not run scripts/{script}"
+    for gate in ("build_catalog.py --check",):
+        for name, text in (("ci.yml", ci), ("gates.sh", gates), ("Jenkinsfile", jenkins)):
+            assert gate in text, f"{name} does not run {gate}"
+
+
+def test_the_secret_literal_gate_catches_a_planted_credential(tmp_path: Path) -> None:
+    import shutil
+    import subprocess
+
+    # A copy of the repository's checked files, plus one planted literal; the
+    # script is run against the copy so the real tree is never touched.
+    copy = tmp_path / "repo"
+    (copy / "scripts").mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "scripts/check_secret_literals.sh", copy / "scripts")
+    (copy / "clean.py").write_text('API_KEY_NAME = "GROQ_API_KEY"  # a name, not a value\n')
+    clean = subprocess.run(
+        ["sh", "scripts/check_secret_literals.sh"], cwd=copy, capture_output=True, text=True
+    )
+    assert clean.returncode == 0, clean.stdout + clean.stderr
+    # Assembled rather than written out, or this file would trip the gate.
+    planted = "api_" + "key = " + '"' + "AKIA" + "X" * 20 + '"' + "\n"
+    (copy / "leak.py").write_text(planted)
+    leak = subprocess.run(
+        ["sh", "scripts/check_secret_literals.sh"], cwd=copy, capture_output=True, text=True
+    )
+    assert leak.returncode == 1
+    assert "leak.py" in leak.stdout
+
+
+class TestTheReportCarriesTheTrend:
+    """The report has had a "Since the last assessment" section since the
+    comparison was built, reachable only by hand: nothing in the pipeline
+    fetched the previous assessment. The report job now does, from the store,
+    and renders against it. Both steps' shell is run as committed."""
+
+    def _assess_and_publish(self, tmp_path: Path, store: Path, run: str) -> Path:
+        import subprocess
+
+        out = tmp_path / run
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ironclad.cli",
+                "assess",
+                "--client",
+                "Trend Co",
+                "--framework",
+                "soc2",
+                "--group",
+                "quick",
+                "--evidence-dir",
+                str(REPO_ROOT / "examples" / "evidence"),
+                "--assessment-id",
+                f"trend-co-soc2-tsc-{run}",
+                "--out",
+                str(out),
+            ],
+            check=True,
+            capture_output=True,
+            cwd=REPO_ROOT,
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ironclad.cli",
+                "store",
+                "publish",
+                "--to",
+                str(store),
+                "--input",
+                str(out / "assessment.json"),
+            ],
+            check=True,
+            capture_output=True,
+            cwd=REPO_ROOT,
+        )
+        return out
+
+    def test_a_first_assessment_has_no_previous_and_that_is_not_an_error(
+        self, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "store"
+        store.mkdir()
+        work = tmp_path / "work"
+        work.mkdir()
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Fetch the previous assessment from the store",
+            {
+                "IRONCLAD_STORE": str(store),
+                "CLIENT_ID": "Trend Co",
+                "FRAMEWORK": "soc2",
+                "ASSESSMENT_ID": "trend-co-soc2-tsc-first",
+            },
+            job="assess",
+            cwd=work,
+        )
+        assert code == 0, log
+        assert "no previous soc2-tsc assessment" in log
+        assert not (work / "previous" / "assessment.json").exists()
+
+    def test_the_previous_assessment_is_fetched_and_the_report_says_what_moved(
+        self, tmp_path: Path
+    ) -> None:
+        store = tmp_path / "store"
+        store.mkdir()
+        self._assess_and_publish(tmp_path, store, "0001")
+        current = self._assess_and_publish(tmp_path, store, "0002")
+        work = tmp_path / "work"
+        (work / "out").mkdir(parents=True)
+        (work / "out" / "assessment.json").write_bytes((current / "assessment.json").read_bytes())
+
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Fetch the previous assessment from the store",
+            {
+                "IRONCLAD_STORE": str(store),
+                "CLIENT_ID": "Trend Co",
+                "FRAMEWORK": "soc2",
+                "ASSESSMENT_ID": "trend-co-soc2-tsc-0002",
+            },
+            job="assess",
+            cwd=work,
+        )
+        assert code == 0, log
+        previous = json.loads((work / "previous" / "assessment.json").read_text())
+        # the one before the current, never the current itself
+        assert previous["assessment_id"] == "trend-co-soc2-tsc-0001"
+
+        code, log, _ = TestThePrepareJobResolvesTheStandardInputs._run(
+            "Render the report and the auditor package",
+            {"CLIENT_ID": "Trend Co"},
+            job="report",
+            cwd=work,
+        )
+        assert code == 0, log
+        report = (work / "out" / "report.html").read_text()
+        assert "Since the last assessment" in report
+        assert "trend-co-soc2-tsc-0001" in report
+        # and the auditor package carries that report, not a re-render without it
+        packaged = (work / "out" / "package" / "report.html").read_bytes()
+        assert packaged == (work / "out" / "report.html").read_bytes()

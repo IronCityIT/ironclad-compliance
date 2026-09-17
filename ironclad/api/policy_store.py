@@ -1,0 +1,237 @@
+"""A tenant policy file, used as the store behind the service API.
+
+`ComplianceService` implements the whole risk-acceptance workflow — request,
+approve with separation of duties, revoke, expire, every step audited — against
+a `Store`. The only implementation was `InMemoryStore`, which forgets everything
+when the process ends, so the workflow was reachable from tests and from nowhere
+else. The one way an acceptance could reach a real assessment was somebody
+hand-editing `policy.json`.
+
+This is the missing half. The policy file is already the pipeline's input for
+acceptances, so writing back to it closes the loop: request, approve, and the
+next `ironclad assess` honours it.
+
+Two decisions worth stating:
+
+**The file is the record, not a cache.** Every call re-reads it. Two people
+working on the same policy see each other's changes, and nothing is held in a
+process that might not be the only one running.
+
+**The audit trail is hash-chained and lives beside the policy**, not inside it.
+`policy.json` is an input a human edits; an append-only record of who approved
+what is not. They are separate files for the same reason a ledger is not kept in
+the margin of the document it describes.
+
+Assessments are not this store's business, and this store does not pretend they
+might be. It implements `ComplianceService`'s `PolicyRecords` and nothing else;
+results go to an `ironclad.store.ResultStore` — a volume or MariaDB. A service
+handed only this reports that plainly when asked for an assessment, rather than
+raising from inside a persist.
+"""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+from ironclad.errors import IroncladError
+from ironclad.model.exception import RiskException
+from ironclad.policy import POLICY_VERSION, policy_from_document, validate_policy
+
+AUDIT_SUFFIX = ".audit.json"
+LOCK_SUFFIX = ".lock"
+
+
+class PolicyStore:
+    """Reads and writes one tenant's policy file and its audit sidecar."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.audit_path = self.path.with_name(self.path.name + AUDIT_SUFFIX)
+        self.lock_path = self.path.with_name(self.path.name + LOCK_SUFFIX)
+
+    # ------------------------------------------------------------------- lock
+
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        """Hold this tenant's policy exclusively for one read-modify-write.
+
+        Twenty concurrent requests, twenty different controls: fourteen
+        answered 200 and eight landed in the file, because each request read
+        the file, appended its entry and wrote the whole thing back over the
+        others'; six more read a half-written file and answered 500. An
+        acknowledged acceptance that is not on file is the worst outcome this
+        store can produce. The service holds this around every write path.
+
+        An advisory file lock, so it holds across processes — the CLI and the
+        HTTP server can share a policy volume — and across threads, since each
+        acquisition opens its own descriptor.
+        """
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_path, "a+b") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    # ------------------------------------------------------------------ policy
+
+    def document(self) -> dict[str, Any]:
+        """The policy document, or an empty one if the file does not exist yet."""
+        if not self.path.exists():
+            return {
+                "policy_version": POLICY_VERSION,
+                "tenant_id": "",
+                "scope_exclusions": [],
+                "exceptions": [],
+                "owners": {},
+            }
+        try:
+            document = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            # The engine's own error, not the decoder's: a caller three frames
+            # up — the CLI, the HTTP surface — handles IroncladError and
+            # nothing else, and a hand-edited file is an ordinary fault.
+            raise IroncladError(f"{self.path} is not valid JSON: {exc}") from exc
+        if not isinstance(document, dict):
+            raise IroncladError(f"{self.path} is not a policy document")
+        return document
+
+    def tenant_id(self) -> str:
+        return str(self.document().get("tenant_id", "")).strip()
+
+    def _write(self, document: dict[str, Any]) -> None:
+        # Validated before it lands. A store that can write a policy the loader
+        # will later refuse turns one bad command into an assessment that cannot
+        # run at all.
+        errors = validate_policy(document)
+        if errors:
+            raise IroncladError(
+                "refusing to write a policy that would not load: " + "; ".join(errors)
+            )
+        _replace_atomically(self.path, json.dumps(document, indent=2) + "\n")
+
+    # ------------------------------------------------------------- exceptions
+
+    def list_exceptions(self, tenant_id: str) -> list[RiskException]:
+        document = self.document()
+        if str(document.get("tenant_id", "")).strip() != tenant_id:
+            return []
+        return policy_from_document(document).exceptions
+
+    def get_exception(self, tenant_id: str, exception_id: str) -> RiskException | None:
+        for exception in self.list_exceptions(tenant_id):
+            if exception.exception_id == exception_id:
+                return exception
+        return None
+
+    def save_exception(self, tenant_id: str, exception: RiskException) -> None:
+        document = self.document()
+        if not str(document.get("tenant_id", "")).strip():
+            document["tenant_id"] = tenant_id
+        if str(document["tenant_id"]).strip() != tenant_id:
+            raise IroncladError(
+                f"{self.path} belongs to tenant {document['tenant_id']!r}, not {tenant_id!r}"
+            )
+
+        record = _policy_entry(exception)
+        entries = list(document.get("exceptions", []))
+        for index, existing in enumerate(entries):
+            if str(existing.get("exception_id", "")) == exception.exception_id:
+                entries[index] = record
+                break
+        else:
+            entries.append(record)
+        document["exceptions"] = entries
+        document.setdefault("policy_version", POLICY_VERSION)
+        document.setdefault("scope_exclusions", [])
+        document.setdefault("owners", {})
+        self._write(document)
+
+    # ------------------------------------------------------------------ audit
+
+    def append_audit(self, tenant_id: str, events: list[dict[str, Any]]) -> None:
+        stored = self._audit_document(tenant_id)
+        stored["events"].extend(events)
+        stored["event_count"] = len(stored["events"])
+        stored["head"] = stored["events"][-1]["hash"] if stored["events"] else ""
+        _replace_atomically(self.audit_path, json.dumps(stored, indent=2) + "\n")
+
+    def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        events = self._audit_document(tenant_id)["events"]
+        return events[-limit:] if limit else events
+
+    def _audit_document(self, tenant_id: str) -> dict[str, Any]:
+        if not self.audit_path.exists():
+            return {"tenant_id": tenant_id, "event_count": 0, "head": "", "events": []}
+        try:
+            document = json.loads(self.audit_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise IroncladError(f"{self.audit_path} is not valid JSON: {exc}") from exc
+        events = document.get("events") if isinstance(document, dict) else None
+        if not isinstance(document, dict) or not isinstance(events, list):
+            raise IroncladError(f"{self.audit_path} is not an audit trail")
+        return document
+
+
+def _replace_atomically(path: Path, text: str) -> None:
+    """Write the whole file or none of it.
+
+    A reader that opened the file while `write_text` was half done got "not
+    valid JSON" — and, three frames up, a 500. Written beside the target and
+    renamed over it, so every reader sees the old document or the new one.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except BaseException:
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        raise
+
+
+def _policy_entry(exception: RiskException) -> dict[str, Any]:
+    """One acceptance in the shape `policy.json` carries.
+
+    `RiskException.to_dict()` is the API shape and includes derived fields —
+    `active`, `days_remaining` — that are computed at read time and would be
+    stale the moment they were written to a file.
+    """
+    entry: dict[str, Any] = {
+        "exception_id": exception.exception_id,
+        "control_id": exception.control_id,
+        "justification": exception.justification,
+        "requested_by": exception.requested_by,
+        "requested_at": _iso(exception.requested_at),
+        "compensating_controls": list(exception.compensating_controls),
+        "status": str(exception.status),
+    }
+    if exception.approved_by:
+        entry["approved_by"] = exception.approved_by
+    if exception.approved_at:
+        entry["approved_at"] = _iso(exception.approved_at)
+    if exception.expires_at:
+        entry["expires_at"] = _iso(exception.expires_at)
+    if exception.review_notes:
+        entry["note"] = exception.review_notes[-1]
+    return entry
+
+
+def _iso(moment: Any) -> str:
+    from ironclad.ids import iso  # noqa: PLC0415 — keeps this module import-light
+
+    return iso(moment)
