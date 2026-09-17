@@ -64,9 +64,13 @@ pipeline {
     PIP_DISABLE_PIP_VERSION_CHECK = '1'
     PIP_NO_CACHE_DIR = '1'
     PYTHONDONTWRITEBYTECODE = '1'
-    // Gate results accumulate here so the summary can name every failure.
-    GATE_FAILURES = ''
-    GATE_UNAVAILABLE = ''
+    // GATE_FAILURES and GATE_UNAVAILABLE are set by the Gates stage with
+    // `env.X = ...` and read by the post section. They are deliberately NOT
+    // declared here: a variable declared in this block is scoped to the
+    // stages it wraps, and an assignment inside a stage did not reach `post`
+    // — a failed build's description read "build failed" and an unstable
+    // one's read "a gate could not run", with the gate names lost. Seen on
+    // builds 4 and 5 of the throwaway controller (PRODUCTIZE_NOTES §16.26).
   }
 
   stages {

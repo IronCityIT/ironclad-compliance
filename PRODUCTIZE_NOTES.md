@@ -1376,8 +1376,9 @@ Two defects, both found by the run and neither by the linter:
   build list blank. The unavailable gates are now accumulated beside the
   failed ones and named in the description.
 
-Not proven: the Docker agent itself, and the pipeline on ICIT's own
-controller with its plugin set. The `junit` step is the JUnit plugin, which
+Builds 3 through 6 on the throwaway controller: 775 s the first time (the
+venv installing), ~220–275 s after. Not proven: the Docker agent itself, and
+the pipeline on ICIT's own controller with its plugin set. The `junit` step is the JUnit plugin, which
 is in the setup wizard's recommended set and was installed here to match a
 normal controller; it is the one plugin the file still assumes.
 
