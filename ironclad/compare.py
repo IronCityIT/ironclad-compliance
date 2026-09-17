@@ -56,6 +56,14 @@ REGRESSED = "regressed"
 UNCHANGED = "unchanged"
 SCOPED_OUT = "scoped_out"
 SCOPED_IN = "scoped_in"
+# A risk acceptance is a decision about a control, not a change to it. Into
+# acceptance from a gap read as "improved" and closed the item as if it had
+# been fixed: accepting every gap in the sample read as "11 improved, 27
+# remediation items closed" (PRODUCTIZE_NOTES §16.36). Out of acceptance —
+# lapsed, revoked — reopens a gap that was never fixed, and is not a
+# regression either. Both are reported under their own names.
+RISK_ACCEPTED = "risk_accepted"
+ACCEPTANCE_LAPSED = "acceptance_lapsed"
 
 
 def _rank(status: str) -> int | None:
@@ -109,11 +117,16 @@ class Comparison:
     unchanged: list[ControlChange] = field(default_factory=list)
     scoped_out: list[ControlChange] = field(default_factory=list)
     scoped_in: list[ControlChange] = field(default_factory=list)
+    risk_accepted: list[ControlChange] = field(default_factory=list)
+    acceptance_lapsed: list[ControlChange] = field(default_factory=list)
     only_earlier: list[str] = field(default_factory=list)
     only_later: list[str] = field(default_factory=list)
     remediation_closed: list[dict[str, Any]] = field(default_factory=list)
     remediation_opened: list[dict[str, Any]] = field(default_factory=list)
     remediation_carried: list[dict[str, Any]] = field(default_factory=list)
+    # Items that left the plan without the control being fixed: the control
+    # was accepted, or scoped out. Not "closed".
+    remediation_set_aside: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def readiness_change(self) -> float:
@@ -138,12 +151,15 @@ class Comparison:
                 "unchanged": len(self.unchanged),
                 "scoped_out": [c.to_dict() for c in self.scoped_out],
                 "scoped_in": [c.to_dict() for c in self.scoped_in],
+                "risk_accepted": [c.to_dict() for c in self.risk_accepted],
+                "acceptance_lapsed": [c.to_dict() for c in self.acceptance_lapsed],
                 "only_in_earlier": list(self.only_earlier),
                 "only_in_later": list(self.only_later),
             },
             "remediation": {
                 "closed": self.remediation_closed,
                 "opened": self.remediation_opened,
+                "set_aside": self.remediation_set_aside,
                 "still_open": len(self.remediation_carried),
             },
         }
@@ -155,12 +171,19 @@ class Comparison:
             if self.readiness_change > 0
             else ("down" if self.readiness_change < 0 else "level")
         )
+        decided = ""
+        if self.risk_accepted or self.acceptance_lapsed or self.scoped_out:
+            decided = (
+                f"; {len(self.risk_accepted)} accepted as risk, "
+                f"{len(self.acceptance_lapsed)} acceptance(s) lapsed, "
+                f"{len(self.scoped_out)} scoped out"
+            )
         return (
             f"readiness {self.readiness_before}% → {self.readiness_after}% "
             f"({direction} {abs(self.readiness_change)}), "
             f"{len(self.improved)} improved, {len(self.regressed)} regressed, "
             f"{len(self.remediation_closed)} remediation item(s) closed, "
-            f"{len(self.remediation_opened)} opened"
+            f"{len(self.remediation_opened)} opened{decided}"
         )
 
 
@@ -282,6 +305,21 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             comparison.scoped_in.append(change)
             continue
 
+        accepted = str(ControlStatus.ACCEPTED_RISK)
+        if now_status == accepted and was_status != accepted:
+            change.movement = RISK_ACCEPTED
+            comparison.risk_accepted.append(change)
+            continue
+        if was_status == accepted and now_status != accepted:
+            if now_status == str(ControlStatus.COMPLIANT):
+                # Accepted, then actually fixed: that is an improvement.
+                change.movement = IMPROVED
+                comparison.improved.append(change)
+            else:
+                change.movement = ACCEPTANCE_LAPSED
+                comparison.acceptance_lapsed.append(change)
+            continue
+
         was_rank, now_rank = _rank(was_status), _rank(now_status)
         if was_rank is None or now_rank is None or was_rank == now_rank:
             # Same rank still counts as unchanged movement even when the status
@@ -305,8 +343,30 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         )
 
     items_before, items_after = _items(earlier), _items(later)
+    # An item that left the plan is closed only if its control is not now
+    # sitting under a risk acceptance or out of scope — those items were set
+    # aside by a decision, and "27 closed" after a mass acceptance is the
+    # number that looks like progress and is not.
+    set_aside_controls = (
+        {c.control_id for c in comparison.risk_accepted}
+        | {c.control_id for c in comparison.scoped_out}
+        | {
+            str(cid)
+            for cid, now in after.items()
+            if str(now.get("status"))
+            in (str(ControlStatus.ACCEPTED_RISK), str(ControlStatus.NOT_APPLICABLE))
+        }
+    )
+    gone = sorted(set(items_before) - set(items_after))
     comparison.remediation_closed = [
-        _brief(items_before[i]) for i in sorted(set(items_before) - set(items_after))
+        _brief(items_before[i])
+        for i in gone
+        if str(items_before[i].get("control_id", "")) not in set_aside_controls
+    ]
+    comparison.remediation_set_aside = [
+        _brief(items_before[i])
+        for i in gone
+        if str(items_before[i].get("control_id", "")) in set_aside_controls
     ]
     comparison.remediation_opened = [
         _brief(items_after[i]) for i in sorted(set(items_after) - set(items_before))

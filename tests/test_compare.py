@@ -21,12 +21,13 @@ import pytest
 
 from ironclad.cli import main
 from ironclad.compare import (
+    ACCEPTANCE_LAPSED,
     IMPROVED,
     MOVEMENT_RANK,
     REGRESSED,
+    RISK_ACCEPTED,
     SCOPED_IN,
     SCOPED_OUT,
-    UNCHANGED,
     compare,
 )
 from ironclad.engine import run_assessment
@@ -96,8 +97,43 @@ class TestMovement:
         result = compare(earlier, later)
         assert result.improved == []
         assert result.regressed == []
-        moved = {c.control_id: c.movement for c in result.unchanged}
-        assert moved["CC1.1"] == UNCHANGED
+        # Named for what it is, not folded into "unchanged": a reader should
+        # see that a decision was taken, and that it was not progress.
+        assert [c.control_id for c in result.risk_accepted] == ["CC1.1"]
+        assert result.risk_accepted[0].movement == RISK_ACCEPTED
+
+    def test_a_gap_accepted_as_risk_is_a_decision_not_an_improvement(self, earlier) -> None:
+        # The first version ranked accepted_risk with partial, so gap → accepted
+        # read as "improved" and closed the remediation item as if fixed.
+        # Accepting every gap in the sample read as "11 improved, 27 closed".
+        later = revised(earlier, **{"CC9.9": "accepted_risk"})
+        later["remediation"]["items"] = [
+            i for i in later["remediation"]["items"] if i["control_id"] != "CC9.9"
+        ]
+        result = compare(earlier, later)
+        assert result.improved == []
+        assert [c.control_id for c in result.risk_accepted] == ["CC9.9"]
+        assert result.remediation_closed == []
+        assert [i["control_id"] for i in result.remediation_set_aside] == ["CC9.9"]
+        assert "1 accepted as risk" in result.headline()
+        assert "0 remediation item(s) closed" in result.headline()
+
+    def test_a_lapsed_acceptance_is_not_a_regression_but_is_named(self, earlier) -> None:
+        accepted = revised(earlier, assessment_id="acme-q2", **{"CC9.9": "accepted_risk"})
+        accepted["started_at"] = "2026-06-01T00:00:00+00:00"
+        lapsed = revised(earlier, **{"CC9.9": "gap"})
+        result = compare(accepted, lapsed)
+        assert result.regressed == []
+        assert [c.control_id for c in result.acceptance_lapsed] == ["CC9.9"]
+        assert result.acceptance_lapsed[0].movement == ACCEPTANCE_LAPSED
+
+    def test_an_accepted_control_that_is_then_fixed_is_an_improvement(self, earlier) -> None:
+        accepted = revised(earlier, assessment_id="acme-q2", **{"CC9.9": "accepted_risk"})
+        accepted["started_at"] = "2026-06-01T00:00:00+00:00"
+        fixed = revised(earlier, **{"CC9.9": "compliant"})
+        result = compare(accepted, fixed)
+        assert [c.control_id for c in result.improved] == ["CC9.9"]
+        assert result.acceptance_lapsed == []
 
     def test_every_change_records_both_ends(self, earlier) -> None:
         later = revised(earlier, **{"CC9.9": "compliant"})

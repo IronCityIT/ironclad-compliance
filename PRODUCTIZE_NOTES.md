@@ -1560,7 +1560,28 @@ assessment (it needed the store read there) and hands it to the report job
 as an artifact, so the plan and the trend see the same one; the Jenkins
 stage fetches first and assesses second.
 
-### 16.36 Looked at and left
+### 16.36 Accepting every gap read as eleven improvements and 27 items closed
+
+`compare` between the sample baseline and the same evidence with all 27
+gaps under approved acceptances (§16.20's file): *"readiness 46.5% → 61.2%
+(up 14.7), 11 improved, 0 regressed, 27 remediation item(s) closed"*. The
+movement rank put `accepted_risk` beside `partial`, so partial → accepted
+was "unchanged" (there was a test for that) but gap → accepted was
+"improved", and an item that left the plan for any reason was "closed".
+A trend section saying 27 items closed after a mass acceptance is the
+number that looks like progress and is not — exactly what §16.19–16.20
+added caveats about, and the comparison was contradicting them.
+
+A risk acceptance is a decision about a control, not a change to it, in
+either direction. Into acceptance is `risk_accepted`; out of it without a
+fix is `acceptance_lapsed`; accepted and then actually met is an
+improvement. An item that left the plan because its control is now accepted
+or scoped out is `set_aside`, not closed. The headline names the decisions,
+the report gets a "Decisions, not movement" block with both tables and a
+"Set aside by decision" card beside "Remediation closed". The same pair now
+reads *"0 improved, 0 regressed, 0 closed, 0 opened; 27 accepted as risk"*.
+
+### 16.37 Looked at and left
 
 Examined during §16 and deliberately not changed, each with the reason:
 

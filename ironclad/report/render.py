@@ -296,6 +296,21 @@ def _comparison_section(comparison: Any) -> str:
         {table("Brought back into scope", comparison.scoped_in, "scoped")}
         """
 
+    decided = ""
+    if comparison.risk_accepted or comparison.acceptance_lapsed:
+        decided = f"""
+        <div class="callout">
+          <strong>Decisions, not movement</strong> — {len(comparison.risk_accepted)} control(s)
+          were placed under an approved risk acceptance and {len(comparison.acceptance_lapsed)}
+          acceptance(s) lapsed or were withdrawn since the last assessment. An acceptance
+          changes who owns the risk, not whether the control is met: it is not counted as
+          an improvement, and the {len(comparison.remediation_set_aside)} remediation item(s)
+          it set aside are not counted as closed.
+        </div>
+        {table("Accepted as risk", comparison.risk_accepted, "scoped")}
+        {table("Acceptance lapsed", comparison.acceptance_lapsed, "regressed")}
+        """
+
     return f"""
     <h2>Since the last assessment</h2>
     <p>Compared with {escape(comparison.earlier_id)}.</p>
@@ -311,9 +326,12 @@ def _comparison_section(comparison: Any) -> str:
         <div class="label">Remediation closed</div></div>
       <div class="card"><div class="value">{len(comparison.remediation_opened)}</div>
         <div class="label">Newly raised</div></div>
+      <div class="card"><div class="value">{len(comparison.remediation_set_aside)}</div>
+        <div class="label">Set aside by decision</div></div>
     </div>
     {table("Improved", comparison.improved, "improved")}
     {table("Regressed", comparison.regressed, "regressed")}
+    {decided}
     {scope}
     """
 
