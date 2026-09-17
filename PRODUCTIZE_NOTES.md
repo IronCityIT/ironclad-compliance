@@ -1288,6 +1288,11 @@ refusal is catalogued and worded like every other unreadable item. The same
 document: 0.08 s, 26 MB, "expands to 136 MB, over the 50 MB a document may
 expand to; too large to read safely", and the assessment runs on.
 
+PDF, checked the same way: a 0.9 MB file whose one page carries a 310 MB
+FlateDecode content stream. `pypdf` 6 refuses it on its own — "Limit reached
+while decompressing" — in 0.4 s and 171 MB, and the extractor reports that
+in the usual words. Nothing to add there; recorded so nobody adds it twice.
+
 ### 16.23 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
