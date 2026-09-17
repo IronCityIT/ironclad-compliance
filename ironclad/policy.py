@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from ironclad.errors import ExceptionWorkflowError, ValidationError
-from ironclad.ids import iso, slugify, utc_now
+from ironclad.ids import is_safe_document_id, iso, slugify, utc_now
 from ironclad.model.exception import (
     OPEN_STATUSES,
     ExceptionStatus,
@@ -144,6 +144,8 @@ def validate_policy(document: Any) -> list[str]:
             control_id = str(raw.get("control_id", "")).strip()
             if not control_id:
                 errors.append(f"{where}.control_id is required")
+            elif not is_safe_document_id(control_id):
+                errors.append(f"{where}.control_id {control_id!r} is not a control identifier")
             elif control_id in seen:
                 errors.append(f"{where}.control_id {control_id!r} is excluded twice")
             else:
@@ -183,6 +185,8 @@ def validate_policy(document: Any) -> list[str]:
             status = str(raw.get("status", "approved")).strip()
             if not control_id:
                 errors.append(f"{where}.control_id is required")
+            elif not is_safe_document_id(control_id):
+                errors.append(f"{where}.control_id {control_id!r} is not a control identifier")
             elif status in open_statuses:
                 if control_id in open_controls:
                     errors.append(

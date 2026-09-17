@@ -100,6 +100,16 @@ class TestPolicyValidation:
         errors = validate_policy(policy_doc(exceptions=[acceptance(), pending]))
         assert any("two open acceptances" in e for e in errors)
 
+    @pytest.mark.parametrize("control_id", ["../x", "a/b", "..", "__proto__"])
+    def test_a_control_id_that_is_not_an_identifier_is_refused(self, control_id: str) -> None:
+        # `ironclad exception request --control ../x` was accepted and sat in
+        # the register as an acceptance of nothing. Every shipped framework's
+        # ids pass the document-id rule; one that does not can never match.
+        errors = validate_policy(policy_doc(exceptions=[acceptance(control_id=control_id)]))
+        assert any("is not a control identifier" in e for e in errors), errors
+        errors = validate_policy(policy_doc(scope_exclusions=[exclusion(control_id=control_id)]))
+        assert any("is not a control identifier" in e for e in errors), errors
+
     def test_a_closed_acceptance_does_not_occupy_the_control(self) -> None:
         # Found over HTTP: request, approve, revoke, request again — 500. The
         # rule counted every entry, so a revoked or expired acceptance blocked

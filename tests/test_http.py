@@ -585,6 +585,16 @@ class TestAcceptanceWorkflow:
         )
         assert status == 200, (days, body)
 
+    def test_a_control_id_that_is_not_an_identifier_is_400(self, as_, server) -> None:
+        _, _, policy_root = server
+        status, body, _ = as_("acme-contributor").post(
+            "/api/v1/tenants/acme/exceptions",
+            {"control_id": "../x", "justification": "scheduled", "expires_in_days": 30},
+        )
+        assert status == 400, body
+        assert "is not a control identifier" in body["errors"][0]
+        assert not (policy_root / "acme").exists()
+
     def test_a_control_id_that_is_not_a_string_is_400(self, as_, server) -> None:
         # str() on the body recorded an acceptance on the control "{'a': 1}".
         _, _, policy_root = server

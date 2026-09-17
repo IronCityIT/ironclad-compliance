@@ -1089,7 +1089,20 @@ Also exercised, and right: publishing the same assessment twice leaves one
 record; an unknown assessment id and another tenant's id both answer "no
 manifest was stored", exit 2, indistinguishably.
 
-### 16.13 Looked at and left
+### 16.13 The CLI acceptance workflow, and `--control ../x`
+
+The same lifecycle as §16.4 through `ironclad exception`: request, the
+requester's own approval refused ("needs a second person"), a second
+person's approval, revocation, and the renewal — which lands, since the CLI
+shares the service. 400 days and 99999999999 days both refused at 365; a
+viewer and an actor with no role refused by name. One thing got through:
+`--control ../x`, accepted and written to the register as an acceptance of
+nothing. Every shipped framework's control ids satisfy the document-id rule
+(the loader enforces it), so an id that does not can never match a control.
+Refused now, in a request and in a hand-edited policy file, for acceptances
+and scope exclusions alike.
+
+### 16.14 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

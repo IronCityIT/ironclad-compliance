@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ironclad.frameworks.loader import FRAMEWORK_ALIASES
-from ironclad.ids import slugify
+from ironclad.ids import is_safe_document_id, slugify
 from ironclad.model.exception import MAX_EXCEPTION_DAYS
 
 # An assessment type is only meaningful because a report view implements it, so
@@ -128,6 +128,11 @@ def validate_exception_request(request: ExceptionRequest) -> list[str]:
         errors.append("tenant_id is required")
     if not request.control_id:
         errors.append("control_id is required")
+    elif not is_safe_document_id(request.control_id):
+        # Every shipped framework's ids pass this (the loader enforces it), so
+        # an id that does not can never match a control; it would sit in the
+        # register as an acceptance of nothing, and `../x` is not a control.
+        errors.append(f"control_id {request.control_id!r} is not a control identifier")
     if not request.justification:
         errors.append("justification is required — an acceptance with no reason is just a gap")
     elif len(request.justification) > MAX_JUSTIFICATION:
