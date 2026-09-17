@@ -1058,7 +1058,22 @@ machine ten local connects took a second, by which time the handler threads
 were already timing out. The peak was the wrong thing to measure; the EOF is
 the fact.
 
-### 16.11 Looked at and left
+### 16.11 The auditor package could not prove it was the package issued
+
+`package.json` listed the files by name. No digests. The README told the
+auditor the audit trail was hash-chained — true, and the trail is one of
+seven files; `control-register.csv`, the one that carries the verdicts, was
+covered by nothing. Change `partial` to `compliant` on one row and the
+package still read as issued.
+
+Every file is now checksummed twice: `sha256` in `package.json`, and a
+`SHA256SUMS` in the format `sha256sum -c` reads, written last, over
+everything including `package.json` and the README. The README says how to
+run it. Proven with the stock tool: the edited row reads
+`control-register.csv: FAILED`, exit 1; a test runs `sha256sum -c` where the
+binary exists and checks the digests by hand where it does not.
+
+### 16.12 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted

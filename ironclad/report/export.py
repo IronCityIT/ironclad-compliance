@@ -21,6 +21,7 @@ must not be handed a file that omitted it.
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -210,6 +211,15 @@ def export_audit_package(result: Any, evidence: Any, destination: Path) -> list[
     write("audit-trail.csv", export_audit_trail_csv(result))
     write("report.html", _render(result))
 
+    # Every file the package carries, checksummed, so the auditor who receives
+    # it can tell whether it is the package that was issued. The audit chain
+    # already protects the trail; it says nothing about control-register.csv,
+    # which is the file that carries the verdicts. The first version of this
+    # package listed the file names and nothing else.
+    checksums = {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(written)
+    }
+
     manifest = {
         "package_version": "1.0",
         "engine_version": __version__,
@@ -222,7 +232,8 @@ def export_audit_package(result: Any, evidence: Any, destination: Path) -> list[
         "report_view": view_for(assessment.assessment_type).to_dict(),
         "audit_chain_head": result.audit.head,
         "audit_chain_verified": result.audit.is_valid(),
-        "files": sorted(p.name for p in written) + ["package.json"],
+        "files": sorted(checksums) + ["package.json", "README.txt", "SHA256SUMS"],
+        "sha256": checksums,
     }
     write("package.json", json.dumps(manifest, indent=2) + "\n")
 
@@ -240,6 +251,13 @@ Assessment {assessment.assessment_id} — generated {iso(utc_now())}
   evidence-index.csv    which evidence item supported which control, and how
   audit-trail.csv       the hash-chained record of this assessment
   package.json          package manifest, including the audit chain head
+  SHA256SUMS            a checksum for every other file in this package
+
+IS THIS THE PACKAGE THAT WAS ISSUED?
+Run `sha256sum -c SHA256SUMS` in this directory (or `shasum -a 256 -c` on
+macOS, or `Get-FileHash` on Windows and compare). Every line must read OK. A
+file that has been altered since export, or is missing, is named. package.json
+carries the same digests under "sha256".
 
 THE CSV FILES ARE COMPLETE
 report.html is the deliverable as issued and may be abridged — a gap analysis
@@ -258,6 +276,17 @@ removing an entry breaks every digest that follows it.
 
 Prepared by Iron City IT Advisors. Confidential.
 """,
+    )
+
+    # Last, over everything else, in the format `sha256sum -c` reads. The file
+    # cannot contain its own digest, which is why package.json carries the
+    # others as well: two records of the same facts, each checkable.
+    write(
+        "SHA256SUMS",
+        "".join(
+            f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+            for path in sorted(written)
+        ),
     )
     return written
 

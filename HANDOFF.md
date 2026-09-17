@@ -688,10 +688,15 @@ A second person must approve. The trail is `policy.json.audit.json`, hash-chaine
 
 ### Verify an auditor package
 
-`package.json` records the chain head. Re-verify by checking each event's
-`prev_hash` against the previous event's `hash`; any edit breaks every digest
-after it. Evidence bytes are not in the package — verify an artifact by its
-SHA-256 against `evidence-index.csv`.
+First the files: `sha256sum -c SHA256SUMS` in the package directory. Every
+line must read OK; an altered or missing file is named. (Added 2026-09-17 —
+before it, `package.json` listed the file names and nothing else, so an edited
+`control-register.csv` was indistinguishable from the one issued.)
+
+Then the trail: `package.json` records the chain head. Re-verify by checking
+each event's `prev_hash` against the previous event's `hash`; any edit breaks
+every digest after it. Evidence bytes are not in the package — verify an
+artifact by its SHA-256 against `evidence-index.csv`.
 
 ### When a capability fails mid-run
 

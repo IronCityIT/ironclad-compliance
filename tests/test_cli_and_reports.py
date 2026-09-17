@@ -144,6 +144,15 @@ class TestReportRendering:
         assert "freshness_check" in html
 
 
+def _sha256sums(path: Path) -> dict[str, str]:
+    """Parse a `sha256sum -c` file into {name: digest}."""
+    sums: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        sums[name] = digest
+    return sums
+
+
 class TestExports:
     def test_the_json_export_satisfies_the_commit_gate(self, result) -> None:
         text = export_json(result)
@@ -188,6 +197,52 @@ class TestExports:
         manifest = json.loads((tmp_path / "package" / "package.json").read_text())
         assert manifest["audit_chain_verified"] is True
         assert manifest["audit_chain_head"] == result.audit.head
+
+    def test_the_package_carries_a_checksum_for_every_file_it_ships(
+        self, result, evidence, tmp_path: Path
+    ) -> None:
+        # package.json used to list the file names and nothing else, so an
+        # auditor had no way to tell the package they received from one with
+        # a verdict edited in control-register.csv. The audit chain protects
+        # the trail, not the CSVs.
+        import hashlib
+
+        package = tmp_path / "package"
+        export_audit_package(result, evidence, package)
+        manifest = json.loads((package / "package.json").read_text())
+        sums = _sha256sums(package / "SHA256SUMS")
+        on_disk = {p.name for p in package.iterdir()}
+
+        assert set(manifest["files"]) == on_disk
+        assert set(sums) == on_disk - {"SHA256SUMS"}
+        for name, digest in sums.items():
+            assert hashlib.sha256((package / name).read_bytes()).hexdigest() == digest, name
+        # package.json carries the same digests for the files written before it
+        for name, digest in manifest["sha256"].items():
+            assert sums[name] == digest, name
+        assert "control-register.csv" in manifest["sha256"]
+
+    def test_an_edited_verdict_no_longer_matches_the_package(
+        self, result, evidence, tmp_path: Path
+    ) -> None:
+        import hashlib
+        import shutil
+        import subprocess
+
+        package = tmp_path / "package"
+        export_audit_package(result, evidence, package)
+        register = package / "control-register.csv"
+        register.write_text(register.read_text().replace("partial", "compliant", 1))
+
+        sums = _sha256sums(package / "SHA256SUMS")
+        assert hashlib.sha256(register.read_bytes()).hexdigest() != sums["control-register.csv"]
+        # and the stock tool the README tells the auditor to run agrees
+        if shutil.which("sha256sum"):
+            check = subprocess.run(
+                ["sha256sum", "-c", "SHA256SUMS"], cwd=package, capture_output=True, text=True
+            )
+            assert check.returncode != 0
+            assert "control-register.csv: FAILED" in check.stdout
 
     def test_the_package_states_that_it_excludes_the_evidence_itself(
         self, result, evidence, tmp_path: Path

@@ -272,11 +272,14 @@ ironclad export --input out/assessment.json --format package --out package/
 | `evidence-index.csv` | the auditor: which item supported which control |
 | `audit-trail.csv` | the auditor: what happened and when |
 | `assessment.json` | machine record |
-| `package.json` | manifest, including the audit chain head |
+| `package.json` | manifest, including the audit chain head and a SHA-256 for every file |
+| `SHA256SUMS` | the same digests, in the format `sha256sum -c` reads |
 
 The package carries **references and checksums, never the evidence bytes**. The
 artifacts stay in the client's own storage; `README.txt` in the package says so
-explicitly, so nobody assumes otherwise.
+explicitly, so nobody assumes otherwise. It also says how to check that the
+package is the one that was issued: `sha256sum -c SHA256SUMS` — an edited
+verdict in `control-register.csv` is named, not missed.
 
 ## Multi-tenancy
 
