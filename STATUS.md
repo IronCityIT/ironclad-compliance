@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `14f4728`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `04af6fb`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run three times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree carries uncommitted work that is not this branch's.**
@@ -35,7 +35,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Crosswalks, 94 mappings | **DONE, every edge verified against real controls** | `frameworks/crosswalks/` |
 | Ingestion contract v1.0 | **DONE, tested** | `ironclad/ingest/`, `docs/ingestion-contract.md` |
 | Modular capabilities + registry | **DONE, tested** | `ironclad/modules/`, `ironclad/registry.py` |
-| Remediation planning | **DONE, tested** | `ironclad/model/remediation.py` |
+| Remediation planning | **DONE, tested; an open item keeps its first-raised and target dates across assessments, so overdue is real (§16.35)** | `ironclad/model/remediation.py` |
 | Exceptions / risk acceptance | **DONE, tested** | `ironclad/model/exception.py` |
 | Audit trail (hash-chained) | **DONE, tested** | `ironclad/model/audit.py` |
 | Reports, exports, auditor package | **DONE, tested** | `ironclad/report/` |
@@ -62,7 +62,7 @@ Run on this branch, this machine, 2026-09-06.
 | Format | `ruff format --check .` | **PASS** — 90 files |
 | Lint | `ruff check .` | **PASS** |
 | Typecheck | `mypy` | **PASS** — 81 source files |
-| Test | `pytest` | **PASS** — 836 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
+| Test | `pytest` | **PASS** — 840 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 46 passed (on the committed tree) |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
@@ -97,8 +97,8 @@ locally-installed package had been aborting the whole-environment scan.
 
 ## CI
 
-Green on `productize/ironclad-compliance` at `14f4728`, run
-[35181839444](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35181839444):
+Green on `productize/ironclad-compliance` at `04af6fb`, run
+[35182491288](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35182491288):
 Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
 Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
 
@@ -251,6 +251,13 @@ decides which tenant a write lands in.
   document that *is* the framework's wording still scores 100% — keyword
   matching cannot tell a quoting policy from a copy — and is now named as
   such in the caveats rather than believed quietly. §16.15–16.18.
+- **Nothing could ever be overdue (2026-09-17).** Every run re-dated its
+  remediation items to today, so a control outstanding for six months read
+  "due in 30 days" in every report. With the previous assessment — which
+  both pipelines now fetch — an open item keeps its first-raised and target
+  dates, the caveats name the overdue controls and the report marks the rows.
+  Proven on the throwaway controller: 27 items carried from the earlier
+  stored plan, dates unchanged. §16.35.
 - **The dashboard card says how far to trust the number (2026-09-17).**
   Every caveat the engine raises reached the report and the record and the
   card showed the bare figure; it now shows the scoped-out count, names a
