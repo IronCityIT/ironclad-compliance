@@ -1293,7 +1293,19 @@ FlateDecode content stream. `pypdf` 6 refuses it on its own — "Limit reached
 while decompressing" — in 0.4 s and 171 MB, and the extractor reports that
 in the usual words. Nothing to add there; recorded so nobody adds it twice.
 
-### 16.23 Looked at and left
+### 16.23 consensus-engine PR #6, validated against the real artifact
+
+The fix that unblocks the red AI job sits in another repo, unmerged since
+2026-09-12, and had been argued from arithmetic. The artifact from run
+34723682288 is still downloadable, so the argument became a measurement:
+707,453 bytes as written; 86,669 after the PR's `jq`; 115,560 as base64 —
+under the 1 MB cap with room for roughly 200 findings. Every field the merge
+reads survives. Fed to `ironclad assess --consensus-b64`, the stripped list
+folds as `ok, 25 of 25, critical, 81.7%, 338 of 375`, with the commentary
+block rendered — the same result the report job got from the artifact.
+Posted as a comment on PR #6 for the reviewer; nothing merged.
+
+### 16.24 Looked at and left
 
 `frameworks/pci-dss-4.0.json` is still a revision behind (§15, STATUS). The
 PCI SSC's own announcement, read this session, says v4.0.1 added and deleted
