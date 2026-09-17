@@ -592,6 +592,25 @@ Ordered by value, non-blocked first.
    evidence of a bug. `store/mariadb.py` reads as 40% locally and is covered in
    CI against a real server; that number is an artefact of the skip, not a gap.
 7. ~~Retire the legacy `scripts/*.py` wrappers~~ — **decided: kept and tested.**
+8. ~~The trend reaching the client report~~ — **done** (2026-09-17): both
+   pipelines fetch the previous assessment from the store, plan remediation
+   against it (open items keep their first-raised and target dates) and
+   render "Since the last assessment"; the package carries the report as
+   issued. `PRODUCTIZE_NOTES.md` §16.30–16.36.
+9. **What is left needs a decision or a machine this one is not:**
+   - B6 — how the browser signs in to `ironclad serve` (a dependency for
+     RS256, a hand-written verifier, or HS256 with a shared secret). Every
+     field the dashboard card now shows is in the record both stores hand
+     back, so once a token reaches the browser the switch is a data-source
+     change in `dashboard/public/app.js`.
+   - B1/B2/B3 — the transport and credential to the NAS MariaDB. The store
+     is proven against 10.5 in CI and 10.11 here; the schema's assessment key
+     is `(tenant_id, assessment_id)` and nothing has been initialised from
+     the old one outside throwaways.
+   - The `python:3.11-slim` Docker agent in the Jenkinsfile, on ICIT's own
+     controller with its plugin set; the file itself has run thirteen builds
+     on a throwaway controller with the agent substituted.
+   - PCI DSS 4.0.1 — someone with the standard (§16.36's list).
    Nothing inside this repository calls them — `assess_controls.py` and
    `generate_report.py` are referenced only by documentation, and the workflow
    calls `python -m ironclad.cli` directly. They are kept rather than deleted
