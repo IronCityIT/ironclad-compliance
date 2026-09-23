@@ -1906,3 +1906,35 @@ both stores:
 All 87 store tests pass against the volume and the scratch MariaDB. The live
 reproduction now keeps 27 of 27. `sh scripts/gates.sh`: every gate green
 except white-label, which fails only on the foreign `sage-demo.json` (§14).
+
+### 16.46 The dashboard's due date could be a day earlier than the report's
+
+**Failure.** The plan reaches a client four ways, and they were checked
+against each other on 2026-09-23:
+- **Order:** the engine's plan, the HTML report, and both CSVs (plain export
+  and package) agree, as does the control register's status for all 33
+  controls.
+- **Dates:** the dashboard disagreed. The report and CSV print a due date as
+  its **UTC** day (`due_date.date()`). The card printed
+  `toLocaleDateString()`, the **browser's** day. A due date of
+  `2026-10-07T02:00Z` is 7 Oct in the report and 6 Oct on a New York screen.
+  Due dates are the run time plus an SLA, so a pipeline run between 00:00 and
+  04:00 UTC (evening on the US east coast) moves every date on the card a day
+  earlier than the deliverable the client holds.
+- **Overdue:** the card exempted only `complete`. The engine's
+  `RemediationPlan.overdue` also exempts `risk_accepted`. Nothing sets that
+  status on an item today, so this one is latent; it was aligned while the
+  function was open.
+
+**Fix.** The card formats the due date with `timeZone: "UTC"` and exempts
+the same statuses as the engine. The overdue test itself still compares
+against now, deliberately: the card is live, and the report is as of its
+issue.
+
+**Validation.** Two `render.test.js` cases fail first and pass after the
+fix. One pins the timezone to America/New_York and asserts the report's day
+appears and the local day does not; the other covers `risk_accepted`. The
+dashboard suite passes under the default timezone, Pacific/Auckland and
+America/Los_Angeles, apart from the two foreign `sage-demo.json` failures.
+`sh scripts/gates.sh`: every gate green except white-label, which fails
+only on `sage-demo.json` (§14).

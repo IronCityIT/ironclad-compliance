@@ -239,7 +239,16 @@ function count(kind, value) {
   )}</span>`;
 }
 
-/** The remediation queue, worst first. */
+/** Item statuses the engine never counts as overdue. */
+const SETTLED = new Set(["complete", "risk_accepted"]);
+
+/**
+ * The remediation queue, worst first.
+ *
+ * A due date is shown as its UTC day, the day the report and the CSV print
+ * (`due_date.date()`); the browser's own zone would move it a day for anyone
+ * west of UTC when a run lands early in the UTC day (PRODUCTIZE_NOTES §16.46).
+ */
 export function renderRemediation(items) {
   if (!items.length) {
     return `<p class="empty">Nothing outstanding.</p>`;
@@ -249,14 +258,16 @@ export function renderRemediation(items) {
   return items
     .map((item) => {
       const due = item.due_date ? new Date(item.due_date) : null;
-      const overdue = due && due.getTime() < now && item.status !== "complete";
+      // The engine's rule (RemediationPlan.overdue): done and accepted work
+      // is never overdue.
+      const overdue = due && due.getTime() < now && !SETTLED.has(item.status);
       return `
       <tr class="${overdue ? "overdue" : ""}">
         <td class="cid">${escapeHtml(item.control_id)}</td>
         <td>${escapeHtml(item.control_name)}
           <div class="note">${escapeHtml(item.guidance || "")}</div></td>
         <td><span class="pill ${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span></td>
-        <td>${due ? escapeHtml(due.toLocaleDateString()) : "—"}${overdue ? " <em>overdue</em>" : ""}</td>
+        <td>${due ? escapeHtml(due.toLocaleDateString(undefined, { timeZone: "UTC" })) : "—"}${overdue ? " <em>overdue</em>" : ""}</td>
         <td>${escapeHtml((item.evidence_gap || []).slice(0, 3).join(", ") || "—")}</td>
       </tr>`;
     })

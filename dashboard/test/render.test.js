@@ -194,6 +194,39 @@ test("the remediation queue escapes every field it takes from a record", async (
     assert.ok(!html.includes("overdue"));
   });
 
+  await t.test("an accepted risk is not overdue, as the engine rules", () => {
+    // RemediationPlan.overdue exempts complete and risk_accepted; the card
+    // exempted only complete, so the two surfaces could disagree.
+    const html = renderRemediation([
+      { control_id: "CC6.1", due_date: "2000-01-01T00:00:00+00:00", status: "risk_accepted" },
+    ]);
+    assert.ok(!html.includes("overdue"));
+  });
+
+  await t.test("the due date is the report's day, wherever the browser is", () => {
+    // The report and the CSV print the due date's UTC day. The card printed
+    // the browser's local day, so a run early in the UTC day — evening in the
+    // US — showed every due date a day earlier than the client's report
+    // (PRODUCTIZE_NOTES §16.46).
+    const before = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const html = renderRemediation([
+        { control_id: "CC6.1", due_date: "2026-10-07T02:00:00+00:00", status: "open" },
+      ]);
+      const reportDay = new Date(Date.UTC(2026, 9, 7)).toLocaleDateString(undefined, {
+        timeZone: "UTC",
+      });
+      const localDay = new Date("2026-10-07T02:00:00+00:00").toLocaleDateString();
+      assert.notEqual(reportDay, localDay, "the test must straddle a day boundary");
+      assert.ok(html.includes(reportDay), html);
+      assert.ok(!html.includes(localDay), html);
+    } finally {
+      if (before === undefined) delete process.env.TZ;
+      else process.env.TZ = before;
+    }
+  });
+
   await t.test("an empty queue says so", () => {
     assert.match(renderRemediation([]), /Nothing outstanding/);
   });
