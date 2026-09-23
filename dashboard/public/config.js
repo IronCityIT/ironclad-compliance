@@ -1,12 +1,14 @@
 /**
  * Runtime configuration — REPLACED AT DEPLOY TIME.
  *
- * These are placeholders on purpose. Real values are injected by
- * .github/workflows/deploy.yml from repository secrets, because the Firebase web
- * config and the Auth0 SPA client id are environment facts, not source.
+ * These are placeholders on purpose: the Firebase web config and the Auth0 SPA
+ * client id are environment facts, not source. No workflow injects them yet —
+ * the deploy.yml this comment once named does not exist, and Firebase Hosting
+ * is being retired (HANDOFF.md §13) — so whoever deploys fills them in.
  *
- * The dashboard detects the placeholders and renders an explicit
- * "not configured" state rather than failing with a console error.
+ * The dashboard detects the placeholders the sign-in path reads (app.js
+ * isConfigured) and renders an explicit "not configured" state rather than
+ * failing with a console error. api.baseUrl is not one of them until B6.
  */
 window.ICIT_CONFIG = {
   auth0: {

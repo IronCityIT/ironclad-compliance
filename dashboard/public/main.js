@@ -8,7 +8,7 @@
  * As a file of its own it is 'self'.
  */
 
-import { renderCatalog } from "/app.js";
+import { isConfigured, renderCatalog } from "/app.js";
 
 const config = window.ICIT_CONFIG;
 
@@ -24,7 +24,7 @@ document.getElementById("assessment-type-select").innerHTML = parts.assessmentTy
 
 // Placeholders survive when the deploy step has not run. Say so plainly
 // rather than failing with a console error nobody sees.
-const configured = !JSON.stringify(config).includes("__");
+const configured = isConfigured(config);
 if (!configured) {
   document.getElementById("not-configured").hidden = false;
 } else {

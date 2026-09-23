@@ -11,7 +11,11 @@
  * pulling the SDKs, and the network, into a test.
  */
 
-import { createAuth0Client } from "https://cdn.jsdelivr.net/npm/@auth0/auth0-spa-js@2.1.3/+esm";
+// From Auth0's own CDN, which the page's script-src admits. cdn.jsdelivr.net
+// was refused, so sign-in never started, and admitting it would admit every
+// package on npm (PRODUCTIZE_NOTES §16.51). Auth0 publishes this build per
+// minor version only; 2.1 is the line the jsdelivr pin (2.1.3) was on.
+import { createAuth0Client } from "https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.esm.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth,

@@ -23,6 +23,7 @@ import path from "node:path";
 import {
   STATUS_LABEL,
   escapeHtml,
+  isConfigured,
   renderAssessments,
   renderCatalog,
   renderRemediation,
@@ -440,4 +441,87 @@ test("the page runs under its own Content-Security-Policy", async (t) => {
     assert.doesNotMatch(html, /\son[a-z]+\s*=/i);
     assert.doesNotMatch(html, /javascript:/i);
   });
+});
+
+test("the page's configuration is judged by what the page uses", async (t) => {
+  // main.js called the page unconfigured if any value still read "__…__".
+  // config.api.baseUrl is documented to stay a placeholder until B6, so a
+  // correctly configured Firestore deploy showed "not configured" for ever —
+  // seen in headless Chrome (PRODUCTIZE_NOTES §16.51).
+  const configured = {
+    auth0: { domain: "tenant.us.auth0.com", clientId: "abc", audience: "https://api" },
+    firebase: { apiKey: "k", authDomain: "d", projectId: "p" },
+    exchangeUrl: "https://exchange.example/x",
+    api: { baseUrl: "__API_BASE_URL__", pollMs: 30000 },
+  };
+
+  await t.test("the api placeholder does not make a configured page unconfigured", () => {
+    assert.equal(isConfigured(configured), true);
+  });
+
+  await t.test("any placeholder the sign-in path reads still does", () => {
+    for (const [section, key] of [
+      ["auth0", "domain"],
+      ["auth0", "clientId"],
+      ["firebase", "apiKey"],
+      ["firebase", "projectId"],
+    ]) {
+      const broken = structuredClone(configured);
+      broken[section][key] = `__${key.toUpperCase()}__`;
+      assert.equal(isConfigured(broken), false, `${section}.${key}`);
+    }
+    assert.equal(isConfigured({ ...configured, exchangeUrl: "__EXCHANGE_URL__" }), false);
+    assert.equal(isConfigured({ ...configured, exchangeUrl: "" }), false);
+  });
+
+  await t.test("no configuration at all is unconfigured, not an exception", () => {
+    assert.equal(isConfigured(undefined), false);
+    assert.equal(isConfigured({}), false);
+  });
+});
+
+test("every script the page imports is on a host its policy admits", () => {
+  // auth.js imported the Auth0 SDK from cdn.jsdelivr.net, which script-src
+  // does not admit: headless Chrome refused it and sign-in never started
+  // (PRODUCTIZE_NOTES §16.51). Read from firebase.json, which ironclad serve
+  // is held equal to.
+  const hosting = JSON.parse(readFileSync(path.join(REPO_ROOT, "firebase.json"), "utf8")).hosting;
+  const csp = hosting.headers
+    .flatMap((block) => block.headers)
+    .find((h) => h.key === "Content-Security-Policy").value;
+  const scriptSrc = csp
+    .split(";")
+    .map((d) => d.trim().split(/\s+/))
+    .find(([name]) => name === "script-src")
+    .slice(1);
+  const served = path.join(REPO_ROOT, "dashboard", "public");
+  const imports = readdirSync(served)
+    .filter((file) => file.endsWith(".js"))
+    .flatMap((file) =>
+      [...readFileSync(path.join(served, file), "utf8").matchAll(/from\s+"(https?:\/\/[^"]+)"|import\(\s*"(https?:\/\/[^"]+)"/g)].map(
+        (m) => [file, m[1] || m[2]]
+      )
+    );
+  assert.ok(imports.length > 0, "the check must see the SDK imports");
+  for (const [file, url] of imports) {
+    const origin = new URL(url).origin;
+    assert.ok(scriptSrc.includes(origin), `${file} imports ${url}; script-src admits ${scriptSrc.join(" ")}`);
+  }
+});
+
+test("the policy lets the Auth0 SDK renew a session", () => {
+  // getTokenSilently renews in a hidden iframe on the tenant's domain. The
+  // policy had no frame-src, so default-src 'self' applied: headless Chrome
+  // refused the frame and the call timed out — a signed-in user's session
+  // could not outlive its first access token (PRODUCTIZE_NOTES §16.51).
+  const hosting = JSON.parse(readFileSync(path.join(REPO_ROOT, "firebase.json"), "utf8")).hosting;
+  const csp = hosting.headers
+    .flatMap((block) => block.headers)
+    .find((h) => h.key === "Content-Security-Policy").value;
+  const frameSrc = csp
+    .split(";")
+    .map((d) => d.trim().split(/\s+/))
+    .find(([name]) => name === "frame-src");
+  assert.ok(frameSrc, "no frame-src: default-src 'self' refuses the Auth0 frame");
+  assert.ok(frameSrc.includes("https://*.auth0.com"), frameSrc.join(" "));
 });

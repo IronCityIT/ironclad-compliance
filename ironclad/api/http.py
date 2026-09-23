@@ -85,6 +85,9 @@ STATIC_HEADERS = {
         "connect-src 'self' https://*.googleapis.com https://*.auth0.com "
         "https://*.cloudfunctions.net; "
         "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        # The Auth0 SDK renews a session in a hidden frame on the tenant's
+        # domain; without this, default-src 'self' refused it (§16.51).
+        "frame-src https://*.auth0.com; "
         "frame-ancestors 'none'; base-uri 'self'"
     ),
 }

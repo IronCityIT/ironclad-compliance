@@ -2114,3 +2114,60 @@ inline module with `<script type="module" src="/main.js"></script>`. Its
 own additional inline scripts need the same treatment. Locally, the new
 render test fails on that copy, alongside the existing white-label failures
 it causes.
+
+### 16.51 Configured, the dashboard still could not sign anyone in
+
+**Method.** After §16.50, the committed dashboard was served by `ironclad
+serve` under its full policy and loaded in headless Chrome with a filled-in
+`config.js` of fake values: an Auth0 tenant name that does not exist, and
+`.invalid` hosts. No real tenant, project or credential was contacted.
+
+**Failure 1: a configured page said it was not configured.** `main.js`
+treated the page as unconfigured if *any* value still read `__…__`.
+`config.api.baseUrl` is documented to stay a placeholder until B6. With
+Auth0, Firebase and the exchange URL all filled in, Chrome showed "This
+dashboard is not configured yet."
+
+**Failure 2: sign-in could not load.** Fully configured, `auth.js` failed
+("Failed to fetch dynamically imported module"). It imported the Auth0 SDK
+from `cdn.jsdelivr.net`, which `script-src` does not admit. Admitting
+jsdelivr was not an option: it serves every npm package, a known CSP bypass.
+
+**Failure 3: a session could not be renewed.** `getTokenSilently` renews
+in a hidden iframe on the tenant's domain, since `auth.js` uses no refresh
+tokens. With no `frame-src`, `default-src 'self'` applied, and a probe page
+under the same policy logged "Framing 'https://…auth0.com/' violates …
+Content Security Policy". A signed-in user's session could not outlive its
+first access token.
+
+**Root cause.** The same as §16.50: the page had never run under its own
+headers, and the tests that exist run in node. The `config.js` header named
+a `deploy.yml` that does not exist; nothing injects configuration.
+
+**Fix.**
+- `isConfigured()` in `app.js` checks only what the sign-in path reads.
+- `auth.js` imports the SDK from `cdn.auth0.com`, which the policy already
+  trusts. The ES-module build there was checked: it exports
+  `createAuth0Client` and imports nothing further. Auth0 publishes it per
+  minor (2.1, currently 2.1.2), not per patch like the old 2.1.3 pin. That
+  is a looser pin, accepted over admitting all of jsdelivr.
+- `frame-src https://*.auth0.com` is added to the CSP in `firebase.json`
+  and `STATIC_HEADERS`, together; §16.50's parity test holds them equal.
+  The alternative, `useRefreshTokens`, needs refresh-token rotation on the
+  tenant, a setting that cannot be seen from here.
+- The `config.js` header says what is true.
+
+**Validation.** Three new `render.test.js` cases fail first and pass now:
+`isConfigured` in both directions, every absolute import on a host the CSP
+admits (read from `firebase.json`), and `frame-src` admits Auth0. In
+headless Chrome, fully configured, the page now loads the SDK, reports no
+errors and shows its sign-in section. The iframe probe logs **0** CSP
+violations. It still times out, which is the fake tenant never answering,
+not the policy. A clean worktree of `HEAD` with these changes: dashboard
+72/72, `sh scripts/gates.sh` all gates passed.
+
+**Not verifiable from here.** A real sign-in needs the real tenant and a
+user. The exchange function's host must match `connect-src`
+(`*.cloudfunctions.net`): a second-generation function in us-east5 is
+served from `*.run.app`, which the policy does not admit. The stack is being
+retired, so this is recorded, not changed.

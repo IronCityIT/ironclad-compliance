@@ -31,7 +31,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' https://cdn.auth0.com https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.auth0.com https://*.cloudfunctions.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'"
+            "value": "default-src 'self'; script-src 'self' https://cdn.auth0.com https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.auth0.com https://*.cloudfunctions.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https://*.auth0.com; frame-ancestors 'none'; base-uri 'self'"
           }
         ]
       }

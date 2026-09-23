@@ -239,6 +239,28 @@ function count(kind, value) {
   )}</span>`;
 }
 
+const PLACEHOLDER = /^__[A-Z0-9_]+__$/;
+
+/**
+ * Whether the sign-in path has what it reads.
+ *
+ * Only the values that path uses: config.api.baseUrl is documented to stay a
+ * placeholder until B6 is decided, and a check for any "__" anywhere called a
+ * correctly configured page unconfigured for ever (PRODUCTIZE_NOTES §16.51).
+ */
+export function isConfigured(config) {
+  const set = (value) => typeof value === "string" && value !== "" && !PLACEHOLDER.test(value);
+  const c = config || {};
+  return (
+    set(c.auth0?.domain) &&
+    set(c.auth0?.clientId) &&
+    set(c.firebase?.apiKey) &&
+    set(c.firebase?.authDomain) &&
+    set(c.firebase?.projectId) &&
+    set(c.exchangeUrl)
+  );
+}
+
 /** Item statuses the engine never counts as overdue. */
 const SETTLED = new Set(["complete", "risk_accepted"]);
 
