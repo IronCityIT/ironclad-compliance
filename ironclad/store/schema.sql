@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS remediation_items (
   control_name   VARCHAR(255) NOT NULL DEFAULT '',
   title          VARCHAR(255) NOT NULL DEFAULT '',
   severity       VARCHAR(32)  NOT NULL DEFAULT '',
-  priority       INT NOT NULL DEFAULT 0,
+  priority       DECIMAL(8,3) NOT NULL DEFAULT 0,  -- the engine's score, higher is more urgent
   status         VARCHAR(32)  NOT NULL DEFAULT '',
   owner          VARCHAR(128) NOT NULL DEFAULT '',
   due_date       VARCHAR(64)  NOT NULL DEFAULT '',

@@ -253,7 +253,7 @@ def rows_from_document(document: dict[str, Any]) -> RowSet:
                 "control_name": _text(item.get("control_name")),
                 "title": _text(item.get("title")),
                 "severity": _text(item.get("severity")),
-                "priority": int(item.get("priority") or 0),
+                "priority": round(float(item.get("priority") or 0.0), 3),
                 "status": _text(item.get("status")),
                 "owner": _text(item.get("owner")),
                 "due_date": _text(item.get("due_date")),

@@ -259,7 +259,7 @@ class MariaDBResultStore:
             return None
         remediation = self._query(
             "SELECT * FROM remediation_items WHERE tenant_id = %s AND assessment_id = %s "
-            "ORDER BY priority, due_date, item_id",
+            "ORDER BY priority DESC, control_id",
             (tenant_id, assessment_id),
         )
         return {
@@ -313,7 +313,7 @@ class MariaDBResultStore:
                         "control_name": row.get("control_name", ""),
                         "title": row.get("title", ""),
                         "severity": row.get("severity", ""),
-                        "priority": int(row.get("priority") or 0),
+                        "priority": float(row.get("priority") or 0.0),
                         "status": row.get("status", ""),
                         "owner": row.get("owner", ""),
                         "due_date": row.get("due_date", ""),
@@ -343,7 +343,7 @@ class MariaDBResultStore:
             "WHERE r.tenant_id = %s AND a.assessment_id = ("
             "  SELECT assessment_id FROM assessments WHERE tenant_id = %s "
             "  ORDER BY started_at DESC, assessment_id DESC LIMIT 1"
-            ") ORDER BY r.priority ASC, r.due_date ASC LIMIT %s",
+            ") ORDER BY r.priority DESC, r.control_id LIMIT %s",
             (tenant_id, tenant_id, int(limit)),
         )
 

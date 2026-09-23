@@ -446,6 +446,25 @@ class StoreContract:
         assert len(queue) == expected
         assert {row["assessment_id"] for row in queue} == {"acme-store-2"}
 
+    def test_the_queue_comes_back_in_the_plans_order(self, tmp_path: Path, document) -> None:
+        # The plan is ordered most urgent first (RemediationPlan.ordered: higher
+        # priority first, ties by control id). Both stores truncated the score
+        # to an int and sorted it ascending, so the dashboard led with the
+        # least urgent item and put the one critical control last — and
+        # `?limit=5` returned the five least urgent. Measured 2026-09-23.
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        planned = document["remediation"]["items"]
+        assert len({i["priority"] for i in planned}) > 1, "the fixture must rank"
+
+        queue = store.list_remediation("acme")
+        assert [r["control_id"] for r in queue] == [i["control_id"] for i in planned]
+        assert [float(r["priority"]) for r in queue] == pytest.approx(
+            [i["priority"] for i in planned]
+        )
+        top = store.list_remediation("acme", limit=2)
+        assert [r["control_id"] for r in top] == [i["control_id"] for i in planned[:2]]
+
     def test_no_read_crosses_a_tenant(self, tmp_path: Path, document, other_document) -> None:
         store = self.store(tmp_path)
         store.put_assessment(document)

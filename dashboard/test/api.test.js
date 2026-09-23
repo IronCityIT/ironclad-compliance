@@ -128,6 +128,18 @@ test("the API data source, against a real ironclad serve", async (t) => {
     assert.ok(items[0].control_id);
   });
 
+  await t.test("the queue leads with the most urgent item", async () => {
+    // Both stores once sorted the score ascending, after truncating it to an
+    // int: the one critical control came last (PRODUCTIZE_NOTES §16.43).
+    const items = await source.listRemediation("acme-corp");
+    const scores = items.map((item) => Number(item.priority));
+    assert.ok(new Set(scores).size > 1, "the example evidence must rank");
+    assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
+    assert.ok(scores.some((s) => !Number.isInteger(s)), "the score arrived truncated");
+    const top = await source.listRemediation("acme-corp", 1);
+    assert.equal(top[0].control_id, items[0].control_id);
+  });
+
   await t.test("another tenant's data is refused with the server's own words", async () => {
     await assert.rejects(source.listAssessments("beta"), /may not act on another tenant/);
   });

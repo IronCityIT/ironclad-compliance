@@ -1764,3 +1764,53 @@ all pass. The live probe now answers every malformed form with a single
 answers, which is ordinary pipelining. `sh scripts/gates.sh`: every gate
 green except white-label, which fails only on the foreign `sage-demo.json`
 (§14).
+
+### 16.43 The remediation queue was upside down on both new stores
+
+**Failure.** The dashboard's `api.js` was read against a MariaDB-backed
+`ironclad serve` (a scratch 10.11 server) and against a volume, then diffed.
+The cards matched but the remediation queue did not. The engine's plan, for
+the example evidence, leads with **CC6.7, critical, score 7.5**. Both
+stores put it **last** and led with medium items scoring 2.0–2.8. The two
+stores also disagreed with each other on the order within a tie. `api.js`
+asks for 50 items, so on a larger plan the critical items would not have
+reached the page at all, and `?limit=5` returned the five least urgent. The
+retired Firestore path orders `priority` descending (`auth.js`) and was right;
+this is a regression introduced by the persistence seam.
+
+**Root cause.** Two compounding faults, found by comparing stores rather than
+by reading. (1) `rows.py` projected the engine's float score
+(`priority_score`: "higher is more urgent") through `int()`, and
+`schema.sql` held it in an `INT`. 7.5 became 7 and 2.83 became 2, which
+erased most of the ranking. (2) Both `FileResultStore.list_remediation` and
+MariaDB's `list_remediation` / `get_document` sorted it **ascending**, with
+different tie-breaks (document order vs. `item_id`, a hash).
+
+**Fix.** The score is stored as the engine wrote it (`round(float, 3)`,
+`DECIMAL(8,3)`). Both stores order by the plan's own rule, `priority DESC,
+control_id` (`RemediationPlan.ordered`). The rebuild in `get_document` no
+longer truncates.
+
+**Validation.**
+- A new `StoreContract` test asserts the queue is the plan's order and
+  score, and that `limit=2` returns the plan's first two. It fails on both
+  backends first and passes after the fix: volume in the suite, MariaDB with
+  `IRONCLAD_TEST_DSN` against the scratch 10.11 server, where all store tests
+  pass.
+- A new `api.test.js` case asserts, through a real `ironclad serve`, that
+  the queue is descending, that the score is not an integer, and that
+  `limit=1` is the most urgent. It fails without the store fix.
+- `scripts/end_to_end.py` passes against both stores.
+- The dashboard's rendering of the same assessment is now byte-identical
+  from the two stores, and leads with CC6.7.
+
+**For a database initialised before this change.** `CREATE TABLE IF NOT
+EXISTS` does not alter an existing column. HANDOFF records none outside
+throwaways, but one would need:
+`ALTER TABLE remediation_items MODIFY priority DECIMAL(8,3) NOT NULL DEFAULT 0;`
+followed by a re-publish of each tenant's latest assessment.
+Without that, MariaDB rounds the score into the INT column and the order is
+coarse but no longer inverted.
+
+**On the way.** An inline comment added to `schema.sql` carried a `;`, and
+`statements_in` splits on it. The existing schema tests caught it at once.

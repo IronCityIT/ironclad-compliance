@@ -192,7 +192,11 @@ class FileResultStore:
         if not path.exists():
             return []
         items: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
-        items.sort(key=lambda row: (int(row.get("priority", 0)), str(row.get("due_date", ""))))
+        # The plan's own order: most urgent first, ties by control id
+        # (RemediationPlan.ordered). The same rule as the MariaDB query.
+        items.sort(
+            key=lambda row: (-float(row.get("priority") or 0), str(row.get("control_id", "")))
+        )
         return items[:limit]
 
     def list_audit(self, tenant_id: str, limit: int = 200) -> list[dict[str, Any]]:
