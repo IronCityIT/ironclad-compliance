@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -218,7 +219,10 @@ class FileResultStore:
         """
         try:
             self.root.mkdir(parents=True, exist_ok=True)
-            probe = self.root / ".ironclad-write-probe"
+            # One name per check: a shared name let two overlapping checks
+            # race, one unlinking the other's file, and the loser reported a
+            # writable volume as read-only (PRODUCTIZE_NOTES §16.44).
+            probe = self.root / f".ironclad-write-probe-{uuid.uuid4().hex}"
             probe.write_text("ok", encoding="utf-8")
             probe.unlink()
         except OSError as exc:

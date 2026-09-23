@@ -1814,3 +1814,52 @@ coarse but no longer inverted.
 
 **On the way.** An inline comment added to `schema.sql` carried a `;`, and
 `statements_in` splits on it. The existing schema tests caught it at once.
+
+### 16.44 A burst of connections waited for a retransmit; concurrent health checks said 503
+
+**Failure 1: the listen backlog.** Looking for the §16.41 intermittent
+failure: `serve()` built a stock `ThreadingHTTPServer`, whose
+`request_queue_size` is 5 (from `socketserver`). Measured against a live
+server on 2026-09-23, with simultaneous `GET /api/v1/health`:
+
+| backlog | 20 at once | 100 at once |
+|---|---|---|
+| 5 | 12 of 20 took ≥1 s, worst 3.1 s | 80–92 of 100 ≥1 s, worst 8 s, up to 10 timeouts at a 10 s limit |
+| 128 | worst 0.05 s | worst 0.66 s, none ≥1 s |
+
+**Root cause 1.** Connects beyond the backlog had their SYNs dropped. Each
+client waited for its own retransmit, 1 s and then 3 s later. That is
+multi-second stalls for a burst of dashboard users. It is also the probable
+cause of §16.41: the twenty-at-once test opens twenty connections with a 5 s
+client timeout, and the next retransmit step lands past it. That test was not
+caught failing in three further full runs. What was reproduced is the
+mechanism: with backlog 5, 16–17 of 40 simultaneous requests failed outright
+on the 5 s timeout.
+
+**Fix 1.** `serve()` returns `_Server`, a `ThreadingHTTPServer` with
+`request_queue_size = 128` (the kernel caps it at `net.core.somaxconn`,
+4096 here) and daemon threads, as before.
+
+**Failure 2, found by the fix's own test.** With the backlog raised, every
+request was fast, but 15 of 40 simultaneous `/health` calls answered
+**503**. A load balancer probing from several nodes would take a healthy
+server out of rotation.
+
+**Root cause 2.** `FileResultStore.health()` wrote and then unlinked one
+shared file, `.ironclad-write-probe`. When two checks overlapped, one
+unlinked the other's file, and the loser's `unlink()` raised
+`FileNotFoundError`, which was reported as "not writable". MariaDB's check
+is read-only and has no such race.
+
+**Fix 2.** One probe name per check (`uuid4`).
+
+**Validation.**
+- `test_a_burst_of_connections_is_not_made_to_wait_for_a_retry`: 40
+  simultaneous requests all answer 200, and at most 2 take ≥1 s, against
+  about 25 with backlog 5. It fails with backlog 5 (only 23 of 40 even
+  complete) and with the shared probe name (503s). It passes with both fixes.
+- The StoreContract test `test_health_asked_at_once_is_still_healthy` runs
+  8 threads × 20 checks. It fails on the volume store first and passes on
+  both stores, MariaDB against the scratch 10.11 server.
+- `sh scripts/gates.sh`: every gate green except white-label, which fails
+  only on the foreign `sage-demo.json` (§14).

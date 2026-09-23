@@ -854,6 +854,36 @@ class TestTransport:
         assert received.count(b"HTTP/1.1 ") == 1, received
         assert received.startswith(b"HTTP/1.1 200 ")
 
+    def test_a_burst_of_connections_is_not_made_to_wait_for_a_retry(self, server, port) -> None:
+        # socketserver's listen backlog is 5. Twenty connects at once overflowed
+        # it; the kernel dropped the SYNs and each client waited for its own
+        # retransmit, 1 s and then 3 s later. Measured on 2026-09-23: 12 of 20
+        # requests took over a second, and at 100 at once some ran past a 10 s
+        # timeout. It is also what made the twenty-at-once test fail
+        # intermittently (PRODUCTIZE_NOTES §16.44). A request that took a
+        # second here waited for a retransmit: loopback answers in milliseconds.
+        import time
+
+        assert server[0].request_queue_size >= 128
+        latencies: list[float] = []
+        go = threading.Event()
+
+        def one() -> None:
+            go.wait()
+            started = time.perf_counter()
+            assert Client(port).get("/api/v1/health")[0] == 200
+            latencies.append(time.perf_counter() - started)
+
+        threads = [threading.Thread(target=one) for _ in range(40)]
+        for thread in threads:
+            thread.start()
+        go.set()
+        for thread in threads:
+            thread.join()
+        assert len(latencies) == 40
+        # A backlog of 5 makes about 25 of 40 wait. A little room for a busy CI box.
+        assert sum(1 for s in latencies if s >= 1.0) <= 2, sorted(latencies)[-5:]
+
     def test_a_non_json_body_is_400(self, as_) -> None:
         status, body, _ = as_("acme-manager").post(
             "/api/v1/tenants/acme/exceptions", raw=b"control_id=CC1.1"

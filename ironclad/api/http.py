@@ -621,12 +621,20 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     return ApiHandler
 
 
+class _Server(ThreadingHTTPServer):
+    # socketserver's listen backlog is 5. A burst of connections beyond it had
+    # its SYNs dropped and waited for the client's retransmit, 1 s then 3 s
+    # later: 12 of 20 simultaneous requests took over a second, and at 100 some
+    # ran past a 10 s timeout (PRODUCTIZE_NOTES §16.44). The kernel caps this at
+    # net.core.somaxconn.
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def serve(app: App, host: str = "127.0.0.1", port: int = 8787) -> ThreadingHTTPServer:
     """Bind and return the server. The caller decides when to serve forever.
 
     Loopback by default: this speaks plain HTTP and expects a reverse proxy to
     terminate TLS in front of it. Binding wider is an explicit choice.
     """
-    server = ThreadingHTTPServer((host, port), make_handler(app))
-    server.daemon_threads = True
-    return server
+    return _Server((host, port), make_handler(app))

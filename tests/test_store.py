@@ -446,6 +446,31 @@ class StoreContract:
         assert len(queue) == expected
         assert {row["assessment_id"] for row in queue} == {"acme-store-2"}
 
+    def test_health_asked_at_once_is_still_healthy(self, tmp_path: Path) -> None:
+        # A load balancer probes from several nodes. The volume store wrote and
+        # unlinked one shared probe file, so two overlapping checks raced: one
+        # unlinked the other's file and the loser reported the volume as not
+        # writable — 15 of 40 concurrent /health calls answered 503 on
+        # 2026-09-23 (PRODUCTIZE_NOTES §16.44).
+        import threading
+
+        store = self.store(tmp_path)
+        answers: list[bool] = []
+        go = threading.Event()
+
+        def ask() -> None:
+            go.wait()
+            for _ in range(20):
+                answers.append(bool(store.health()["writable"]))
+
+        threads = [threading.Thread(target=ask) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        go.set()
+        for thread in threads:
+            thread.join()
+        assert answers == [True] * 160
+
     def test_the_queue_comes_back_in_the_plans_order(self, tmp_path: Path, document) -> None:
         # The plan is ordered most urgent first (RemediationPlan.ordered: higher
         # priority first, ties by control id). Both stores truncated the score
