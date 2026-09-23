@@ -1711,3 +1711,25 @@ green except white-label, which fails only on the foreign `sage-demo.json`
 **Looked at and left.** A token-file role outside the five (`admin`) is
 dropped and the token authenticates with no permissions. This is deliberate
 (`Principal.from_claims`: a typo must not become a grant) and fails closed.
+
+### 16.41 One unreproduced failure of the twenty-at-once test
+
+**Failure.** Once on 2026-09-23, a full local `pytest` run just after §16.40
+reported `test_twenty_people_at_once_all_land_and_the_chain_holds` failed.
+The message was lost: the run was piped to `tail -1`. The fix was committed
+before the failure was looked at. That was a process slip, and it is recorded
+here rather than hidden.
+
+**Is §16.40 the cause? No, on evidence.** The test sends `Content-Length`
+POSTs through `http.client`, never a `Transfer-Encoding` header or a HEAD,
+which are the only paths §16.40 changed. Since then it has passed 8/8 alone,
+5/5 in the full suite, and 30/30 run ten copies at once. CI at `f774081` is
+green on both Pythons.
+
+**Root cause: not established.** One gap in the test is real: a client-side
+exception in a worker thread (a 5 s timeout on this QNAP disk under load,
+for example) died with the thread and left no outcome. The first assertion
+could pass without it, and the fault would surface as a confusing mismatch
+in the policy file. The test now records every thread's exception or non-200
+body and asserts one outcome per control. If it happens again, the assertion
+names the cause.

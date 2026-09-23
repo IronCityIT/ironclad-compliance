@@ -525,14 +525,22 @@ class TestAcceptanceWorkflow:
 
         _, _, policy_root = server
         controls = [f"CC{i}.{j}" for i in range(1, 10) for j in range(1, 4)][:20]
-        outcomes: dict[str, int] = {}
+        outcomes: dict[str, int | str] = {}
 
         def raise_one(control_id: str) -> None:
-            status, _, _ = as_("acme-contributor").post(
-                "/api/v1/tenants/acme/exceptions",
-                {"control_id": control_id, "justification": "at once", "expires_in_days": 30},
-            )
-            outcomes[control_id] = status
+            # A client-side exception (a timeout on a slow disk) would otherwise
+            # die with the thread, leave no outcome, and surface later as a
+            # puzzling mismatch in the policy file. Recorded, so it fails here
+            # and says what happened. It failed once, unreproduced, on
+            # 2026-09-23 (PRODUCTIZE_NOTES §16.41).
+            try:
+                status, body, _ = as_("acme-contributor").post(
+                    "/api/v1/tenants/acme/exceptions",
+                    {"control_id": control_id, "justification": "at once", "expires_in_days": 30},
+                )
+                outcomes[control_id] = status if status == 200 else f"{status} {body}"
+            except Exception as exc:  # noqa: BLE001 — reported by the assertion below
+                outcomes[control_id] = f"{type(exc).__name__}: {exc}"
 
         threads = [threading.Thread(target=raise_one, args=(c,)) for c in controls]
         for thread in threads:
@@ -540,7 +548,7 @@ class TestAcceptanceWorkflow:
         for thread in threads:
             thread.join()
 
-        assert set(outcomes.values()) == {200}, outcomes
+        assert len(outcomes) == len(controls) and set(outcomes.values()) == {200}, outcomes
         policy = json.loads((policy_root / "acme" / "policy.json").read_text())
         assert sorted(e["control_id"] for e in policy["exceptions"]) == sorted(controls)
         status, body, _ = as_("acme-manager").get("/api/v1/tenants/acme/audit?limit=100")
