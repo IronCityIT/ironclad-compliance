@@ -39,6 +39,40 @@ def export_json(result: Any, indent: int = 2) -> str:
     return json.dumps(result.to_dict(), indent=indent, sort_keys=False) + "\n"
 
 
+# A cell a spreadsheet would evaluate. The client names its evidence files and
+# types; an evidence file named =HYPERLINK(...) reached control-register.csv
+# and evidence-index.csv as a live formula (PRODUCTIZE_NOTES §16.49).
+_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _neutralised(value: Any) -> Any:
+    """A text cell a spreadsheet would read as a formula, prefixed so it reads as text.
+
+    The OWASP rule: a leading apostrophe. Only text — a number is written as
+    itself — and the value is kept, not stripped, so nothing the client wrote
+    is lost.
+    """
+    if isinstance(value, str) and value.startswith(_FORMULA_LEADS):
+        return "'" + value
+    return value
+
+
+class _SpreadsheetSafeWriter:
+    """csv.writer for a file people open in a spreadsheet.
+
+    Not used for audit-trail.csv: an auditor recomputes the hash chain from its
+    cells, so they are written exactly as hashed. Its values are slugs,
+    timestamps, digests, JSON objects and operator-issued user ids, not text
+    a client writes.
+    """
+
+    def __init__(self, buffer: io.StringIO) -> None:
+        self._writer = csv.writer(buffer, lineterminator="\n")
+
+    def writerow(self, row: list[Any]) -> None:
+        self._writer.writerow([_neutralised(value) for value in row])
+
+
 def export_control_register_csv(result: Any, evidence: Any = None) -> str:
     """One row per control: the register a compliance team works from.
 
@@ -47,7 +81,7 @@ def export_control_register_csv(result: Any, evidence: Any = None) -> str:
     evidence-index.csv.
     """
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+    writer = _SpreadsheetSafeWriter(buffer)
     writer.writerow(
         [
             "control_id",
@@ -92,7 +126,7 @@ def export_control_register_csv(result: Any, evidence: Any = None) -> str:
 def export_remediation_csv(result: Any) -> str:
     """One row per remediation item, in priority order."""
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+    writer = _SpreadsheetSafeWriter(buffer)
     writer.writerow(
         [
             "item_id",
@@ -128,7 +162,7 @@ def export_remediation_csv(result: Any) -> str:
 def export_evidence_index_csv(result: Any, evidence: Any) -> str:
     """Which artifact supported which control, and how the link was made."""
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
+    writer = _SpreadsheetSafeWriter(buffer)
     writer.writerow(
         [
             "control_id",
@@ -316,7 +350,9 @@ THE CSV FILES ARE COMPLETE
 {report_note} — a gap analysis
 lists only the controls with outstanding work. The CSV files below are never
 abridged: control-register.csv carries every control that was assessed, whatever
-the report shows.
+the report shows. In them, a text cell that begins with =, +, -, @ or a tab is
+written with a leading apostrophe, so a spreadsheet shows it rather than
+evaluating it; audit-trail.csv is written exactly as hashed.
 
 WHAT THIS PACKAGE DOES NOT CONTAIN
 The evidence files themselves. evidence-index.csv references each item by its

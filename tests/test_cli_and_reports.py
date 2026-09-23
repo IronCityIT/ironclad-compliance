@@ -175,6 +175,54 @@ class TestExports:
         priorities = [float(row.split(",")[4]) for row in rows]
         assert priorities == sorted(priorities, reverse=True)
 
+    def test_client_text_cannot_become_a_spreadsheet_formula(
+        self, tiny_framework, tmp_path: Path
+    ) -> None:
+        # control-register.csv is "the compliance team's working spreadsheet".
+        # An evidence file named =HYPERLINK(...) arrived in it, and in
+        # evidence-index.csv, as a live formula: a link to anywhere, dressed
+        # as the client's own policy (PRODUCTIZE_NOTES §16.49). A cell that a
+        # spreadsheet would evaluate is written with a leading apostrophe.
+        import csv
+
+        from ironclad.model.evidence import EvidenceSet
+        from tests.conftest import make_artifact
+
+        payloads = [
+            '=HYPERLINK("http://evil.example","Open policy")',
+            "+1+1 access review",
+            "-2+3 access review",
+            "@SUM(1+1)",
+        ]
+        evidence = EvidenceSet(tenant_id="acme")
+        for payload in payloads:
+            evidence.add(
+                make_artifact(
+                    f"{payload}.md",
+                    "access control policy restricts logical access registers authorized users",
+                    evidence_type=payload,
+                )
+            )
+        result = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="deep",
+            as_of=NOW,
+            assessment_id="acme-test-1",
+        )
+        package = tmp_path / "package"
+        export_audit_package(result, evidence, package)
+        seen = ""
+        for name in ("control-register.csv", "remediation-plan.csv", "evidence-index.csv"):
+            with (package / name).open(newline="") as handle:
+                for row in csv.reader(handle):
+                    for cell in row:
+                        assert not (cell and cell[0] in "=+-@\t\r"), f"{name}: {cell!r}"
+                        seen += cell
+        # neutralised, not lost
+        assert "'=HYPERLINK(" in seen and "'@SUM(1+1)" in seen
+
     def test_the_audit_package_contains_every_promised_file(
         self, result, evidence, tmp_path: Path
     ) -> None:

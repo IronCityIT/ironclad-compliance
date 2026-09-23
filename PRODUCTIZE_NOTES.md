@@ -2028,3 +2028,34 @@ copied-folder assessment carries the caveat in `assessment.json` and in
 `report.html`. `scripts/end_to_end.py` passes. `sh scripts/gates.sh`:
 every gate green except white-label, which fails only on the foreign
 `sage-demo.json` (§14).
+
+### 16.49 An evidence file name reached the working spreadsheet as a live formula
+
+**Failure.** The README calls `control-register.csv` "the compliance team's
+working spreadsheet", and the package hands `evidence-index.csv` to the
+auditor. Both carry text the client controls: evidence file names and types.
+On 2026-09-23 an evidence folder held a file named
+`=HYPERLINK("http:__evil.example","Open policy").txt` (legal on Linux and
+on a NAS share). The package carried it unaltered: 3 cells of the register
+and 6 of the evidence index began with `=`. Opened in a spreadsheet, that
+is a clickable "Open policy" link to anywhere, sitting where the client's
+policy is named. This is CSV injection (OWASP), and nothing in the exporter
+handled it.
+
+**Fix.** The register, the remediation plan and the evidence index are
+written through `_SpreadsheetSafeWriter`. A text cell beginning with `=`,
+`+`, `-`, `@`, a tab or a carriage return gets a leading apostrophe, which
+is the OWASP mitigation. The value is kept, not stripped, and numbers are
+untouched. `audit-trail.csv` is deliberately **not** altered: since §16.47
+an auditor recomputes the chain from its cells, and its values are slugs,
+timestamps, digests, JSON objects and operator-issued user ids, never
+client free text. The package README says both.
+
+**Validation.** A new test builds evidence whose names and types are
+`=HYPERLINK(...)`, `+1+1`, `-2+3` and `@SUM(1+1)`, then checks every cell of
+the three CSVs. It fails first and passes now, and asserts the values
+survive as text. On the live reproduction, all four CSVs have zero
+formula-leading cells, `sha256sum -c` passes, and the audit chain still
+recomputes from the CSV to `package.json`'s head. `sh scripts/gates.sh`:
+every gate green except white-label, which fails only on the foreign
+`sage-demo.json` (§14).
