@@ -657,6 +657,7 @@ Since, and each found by measuring rather than reading:
 | MariaDB truncated silently without a strict `sql_mode`; the row projection truncated before the database saw it at all | The first CI run against a real MariaDB |
 | A client's second assessment collided on a deterministic remediation id | The same run |
 | The `scan` evidence class was undocumented in the ingestion contract | Checking the document against `VALIDITY_DAYS` |
+| **A request inside a chunked body ran as its own request.** `ironclad serve` read only `Content-Length`, so a transfer-coded body was taken as empty and its bytes parsed as the next request; HEAD likewise. Now 501 and the connection closes (`PRODUCTIZE_NOTES.md` §16.40) | A live chunked POST answered 400 and then 200 for the `/me` inside it |
 
 The pattern is worth naming for whoever picks this up: every one of these was
 found by executing something against reality — a live page, a real database, two
