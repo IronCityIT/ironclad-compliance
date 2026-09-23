@@ -17,6 +17,7 @@ Errors name the host, the port and the database, never the credential.
 
 from __future__ import annotations
 
+import json
 import urllib.parse
 from datetime import datetime
 from decimal import Decimal
@@ -269,6 +270,11 @@ class MariaDBResultStore:
             "started_at": str(summary.get("started_at") or ""),
             "completed_at": str(summary.get("completed_at") or ""),
             "assessment_type": summary.get("assessment_type", "full"),
+            # compare reads this to tell a run that planned remediation and
+            # found nothing open from one that never planned it.
+            "modules_run": _loaded(summary.get("modules_run"), []),
+            "failed_modules": _loaded(summary.get("failed_modules"), {}),
+            "warnings": _loaded(summary.get("warnings"), []),
             "framework": {
                 "id": summary.get("framework_id", ""),
                 "name": summary.get("framework_name", ""),
@@ -317,6 +323,15 @@ class MariaDBResultStore:
                         "status": row.get("status", ""),
                         "owner": row.get("owner", ""),
                         "due_date": row.get("due_date", ""),
+                        # carry_forward keeps an open item's first-raised date
+                        # from this; without it every item looked new on every
+                        # run (PRODUCTIZE_NOTES §16.45).
+                        "created_at": row.get("created_at", ""),
+                        "guidance": row.get("guidance", ""),
+                        "evidence_gap": _loaded(row.get("evidence_gap"), []),
+                        "exception_id": row.get("exception_id", ""),
+                        "source": row.get("source", ""),
+                        "tenant_id": tenant_id,
                     }
                     for row in remediation
                 ],
@@ -365,6 +380,16 @@ class MariaDBResultStore:
             "SELECT * FROM audit_events WHERE tenant_id = %s ORDER BY id", (tenant_id,)
         )
         return verify_stored_chains(events, tenant_id)
+
+
+def _loaded(value: Any, default: Any) -> Any:
+    """A column the projection stored as JSON text, as the value it was."""
+    if not isinstance(value, str) or not value.strip():
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
 
 
 def _plain(row: dict[str, Any]) -> dict[str, Any]:

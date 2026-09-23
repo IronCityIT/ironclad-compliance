@@ -426,6 +426,55 @@ class StoreContract:
         # and the store never answers for another tenant
         assert store.get_document("beta", "acme-store-1") is None
 
+    def test_the_previous_document_carries_what_remediation_carries_forward(
+        self, tmp_path: Path, document
+    ) -> None:
+        # The pipeline plans each run against the previous stored document so
+        # an open item keeps its first-raised date. MariaDB's rebuilt document
+        # had no created_at: every item looked newly raised on every run — 0
+        # of 27 kept its date against 27 of 27 from a volume, 2026-09-23
+        # (PRODUCTIZE_NOTES §16.45).
+        from datetime import datetime, timedelta
+
+        from ironclad.model.remediation import RemediationItem, Severity, carry_forward
+
+        store = self.store(tmp_path)
+        store.put_assessment(document)
+        earlier = store.get_document("acme", "acme-store-1")
+        assert earlier is not None
+        planned = {i["item_id"]: i for i in document["remediation"]["items"]}
+        rebuilt = {i["item_id"]: i for i in earlier["remediation"]["items"]}
+        assert set(rebuilt) == set(planned)
+        for item_id, previous in rebuilt.items():
+            original = planned[item_id]
+            fresh = RemediationItem(
+                item_id=item_id,
+                tenant_id="acme",
+                control_id=original["control_id"],
+                control_name=original["control_name"],
+                title=original["title"],
+                guidance="",
+                severity=Severity(original["severity"]),
+                created_at=datetime.fromisoformat(original["created_at"]) + timedelta(days=90),
+            )
+            carry_forward(fresh, previous, now=fresh.created_at)
+            assert fresh.created_at == datetime.fromisoformat(original["created_at"]), item_id
+
+    def test_a_run_with_nothing_open_still_planned_remediation(
+        self, tmp_path: Path, document
+    ) -> None:
+        # Whether a run planned remediation is read from modules_run. The
+        # rebuilt document had none, so a run that planned and found nothing
+        # open read as one that never planned.
+        store = self.store(tmp_path)
+        clean = json.loads(json.dumps(document))
+        clean["remediation"]["items"] = []
+        assert "remediation_plan" in clean["modules_run"]
+        store.put_assessment(clean)
+        rebuilt = store.get_document("acme", "acme-store-1")
+        assert rebuilt is not None
+        assert rebuilt["modules_run"] == clean["modules_run"]
+
     def test_the_queue_is_the_latest_assessment_not_every_run(
         self, tmp_path: Path, document
     ) -> None:

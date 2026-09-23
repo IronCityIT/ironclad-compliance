@@ -1866,3 +1866,43 @@ is read-only and has no such race.
   both stores, MariaDB against the scratch 10.11 server.
 - `sh scripts/gates.sh`: every gate green except white-label, which fails
   only on the foreign `sage-demo.json` (§14).
+
+### 16.45 On MariaDB, every open item looked newly raised on every run
+
+**Failure.** §16.35 made an open remediation item keep its first-raised date
+across assessments, so overdue and age are real. The pipeline does it by
+planning each run against the previous stored document (`ironclad store
+latest` → `assess --previous`). On 2026-09-23 the same first assessment was
+published to a volume and to a scratch MariaDB 10.11, and a second
+assessment was planned against each:
+
+| previous from | open items keeping their first-raised date |
+|---|---|
+| volume | 27 of 27 |
+| MariaDB | **0 of 27** |
+
+**Root cause.** `MariaDBResultStore.get_document` rebuilds the document from
+rows and returned nine fields per remediation item. `created_at` was not
+among them, and `carry_forward` reads it. The column had been stored all
+along (`rows.py`). The same rebuild also dropped `modules_run`, which
+`compare` reads to tell "planned, nothing open" from "never planned". A run
+with nothing open would therefore read as one that never planned
+remediation. Found by diffing the two stores' `get_document` output field by
+field, then checking each missing field against what its consumers read.
+
+**Fix.** `get_document` returns what the rows already hold: each item's
+`created_at`, `guidance`, `evidence_gap`, `exception_id` and `source`, and
+the run's `modules_run`, `failed_modules` and `warnings` (JSON text parsed
+back). Still not rebuilt: the audit chain, findings, and per-control
+rationale, notes and evidence links. Neither consumer reads them, and they
+are available through their own reads.
+
+**Validation.** Two StoreContract tests fail on MariaDB first and pass on
+both stores:
+- `carry_forward` over the stored document keeps every item's first-raised
+  date.
+- A run that planned remediation with nothing open keeps its `modules_run`.
+
+All 87 store tests pass against the volume and the scratch MariaDB. The live
+reproduction now keeps 27 of 27. `sh scripts/gates.sh`: every gate green
+except white-label, which fails only on the foreign `sage-demo.json` (§14).
