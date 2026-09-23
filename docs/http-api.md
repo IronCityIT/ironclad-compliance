@@ -104,7 +104,9 @@ kind rather than parsing the message:
 Plus, from the transport itself: 401 for no or an unknown token, 405 for the
 wrong verb on a known path, 413 for a body over 64 KiB (refused unread, and the
 connection is closed so the unread bytes are not parsed as a second request),
-and 503 when there is no authenticator or it cannot read its file.
+501 for any `Transfer-Encoding` — a body is framed by `Content-Length` only, and a
+chunked one is refused unread and the connection closed for the same reason — and
+503 when there is no authenticator or it cannot read its file.
 
 ## Tenant rules
 

@@ -735,6 +735,69 @@ class TestTransport:
         finally:
             handler.timeout = original
 
+    @staticmethod
+    def _exchange(port: int, raw: bytes) -> bytes:
+        """Send raw bytes on one connection and read until the server closes it."""
+        import socket
+
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        sock.sendall(raw)
+        received = b""
+        try:
+            while chunk := sock.recv(65536):
+                received += chunk
+        except TimeoutError:
+            pass
+        finally:
+            sock.close()
+        return received
+
+    # The body of each request below is itself a complete, authenticated
+    # request. A server that does not read the body leaves those bytes on the
+    # connection and runs them as the next request: two answers to one
+    # request, the second to a request no proxy in front of it ever saw.
+    # Measured on 2026-09-23: a chunked POST answered 400 and then 200 for
+    # the /me smuggled inside it.
+
+    @pytest.mark.parametrize(
+        "framing",
+        [
+            b"Transfer-Encoding: chunked\r\n",
+            b"Transfer-Encoding: chunked\r\nContent-Length: 0\r\n",
+            b"Transfer-Encoding: gzip, chunked\r\n",
+        ],
+        ids=["chunked", "chunked-and-length", "coded"],
+    )
+    def test_a_transfer_coded_body_is_refused_and_never_run(
+        self, port: int, secrets_for, framing: bytes
+    ) -> None:
+        auth = f"Authorization: Bearer {secrets_for['acme-manager']}\r\n".encode()
+        smuggled = b"GET /api/v1/me HTTP/1.1\r\nHost: x\r\n" + auth + b"\r\n"
+        received = self._exchange(
+            port,
+            b"POST /api/v1/tenants/acme/exceptions HTTP/1.1\r\nHost: x\r\n"
+            + auth
+            + framing
+            + b"\r\n"
+            + smuggled,
+        )
+        assert received.count(b"HTTP/1.1 ") == 1, received
+        assert received.startswith(b"HTTP/1.1 501 ")
+        assert b"Connection: close" in received
+        assert b"Content-Length" in received  # the refusal says what to send instead
+
+    def test_a_head_with_a_body_does_not_run_the_body(self, port: int, secrets_for) -> None:
+        auth = f"Authorization: Bearer {secrets_for['acme-manager']}\r\n".encode()
+        smuggled = b"GET /api/v1/me HTTP/1.1\r\nHost: x\r\n" + auth + b"\r\n"
+        received = self._exchange(
+            port,
+            b"HEAD /api/v1/health HTTP/1.1\r\nHost: x\r\n"
+            + f"Content-Length: {len(smuggled)}\r\n\r\n".encode()
+            + smuggled,
+        )
+        assert received.count(b"HTTP/1.1 ") == 1, received
+        assert received.startswith(b"HTTP/1.1 200 ")
+
     def test_a_non_json_body_is_400(self, as_) -> None:
         status, body, _ = as_("acme-manager").post(
             "/api/v1/tenants/acme/exceptions", raw=b"control_id=CC1.1"

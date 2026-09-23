@@ -1676,3 +1676,38 @@ file, and are correct.
 
 What remains of stage 5 is B6 alone: once a browser has a bearer token the
 server accepts, `index.html` calls `startApi` instead of `startAuth`.
+
+### 16.40 A request inside a request body ran as its own request
+
+**Failure.** `ironclad serve` only reads a body framed by `Content-Length`.
+Against a live server on 2026-09-23, a `POST .../exceptions` sent with
+`Transfer-Encoding: chunked` and a complete `GET /api/v1/me` as its body got
+**two** answers on one connection. The first was 400 for the POST, read as an
+empty body. The second was 200 for the `/me`, which no proxy in front of the
+server would have seen as a request. `HEAD` did the same with a
+`Content-Length` body, because `do_HEAD` never reads one.
+
+**Root cause.** `_read_body` read `Content-Length` bytes and ignored any
+transfer coding, so a chunked body was treated as absent and its bytes stayed
+on the kept-alive connection to be parsed as the next request line. This is
+the same class of fault as the 413 case (§ earlier, `test_an_oversize_body…`),
+arriving by a different header. It matters here because the stated deployment
+is behind a reverse proxy, and a proxy that forwards chunked bodies is exactly
+the gap request smuggling uses.
+
+**Fix.** Any `Transfer-Encoding` is refused unread with 501, which RFC 9112
+§6.1 specifies for a coding the server does not implement. The message says
+to send `Content-Length`. Because the body is refused unread, the existing
+path closes the connection. A `HEAD` that announces a body now closes the
+connection after its answer. `docs/http-api.md` lists the 501.
+
+**Validation.** Four new tests in `tests/test_http.py` (`TestTransport`) failed
+first and now pass: chunked, chunked plus `Content-Length`, `gzip, chunked`,
+and a HEAD with a body. Each asserts exactly one response on the socket. The
+live reproduction now gets a single 501. `sh scripts/gates.sh`: every gate
+green except white-label, which fails only on the foreign `sage-demo.json`
+(§14), as before.
+
+**Looked at and left.** A token-file role outside the five (`admin`) is
+dropped and the token authenticates with no permissions. This is deliberate
+(`Principal.from_claims`: a typo must not become a grant) and fails closed.

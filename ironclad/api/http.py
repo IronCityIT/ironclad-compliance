@@ -507,6 +507,16 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(raw)
 
         def _read_body(self) -> bytes:
+            # Only Content-Length framing is read. A transfer-coded body would
+            # otherwise be taken as empty and its bytes parsed as the next
+            # request on the connection — a request smuggled past whatever
+            # proxy sits in front. Refused unread (RFC 9112 §6.1: 501 for a
+            # coding the server does not implement), so the connection closes.
+            if "Transfer-Encoding" in self.headers:
+                raise HttpError(
+                    HTTPStatus.NOT_IMPLEMENTED,
+                    "Transfer-Encoding is not supported; send the body with Content-Length",
+                )
             raw_length = self.headers.get("Content-Length", "0")
             try:
                 length = int(raw_length)
@@ -593,6 +603,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self.send_response(app.health().status)
             else:
                 self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+            # A HEAD body is never read, so one announced ends the connection
+            # rather than being parsed as the next request.
+            if "Transfer-Encoding" in self.headers or self.headers.get(
+                "Content-Length", "0"
+            ).strip() not in ("", "0"):
+                self.close_connection = True
+                self.send_header("Connection", "close")
             self.send_header("Content-Length", "0")
             self.end_headers()
 
