@@ -262,10 +262,20 @@ class TestExports:
         sums = _sha256sums(package / "SHA256SUMS")
         assert sums["report.html"] == hashlib.sha256(issued.read_bytes()).hexdigest()
 
-        # without one, the package still renders a report from the result
+        assert json.loads((package / "package.json").read_text())["report"] == "issued"
+        assert "the deliverable as issued" in (package / "README.txt").read_text()
+
+        # Without one, the package still renders a report from the result — but
+        # it is not the issued document: the stored result has no display name,
+        # so the re-render addresses the client by its tenant id. It used to be
+        # labelled "the deliverable as issued" anyway (PRODUCTIZE_NOTES §16.47).
         plain = tmp_path / "plain"
         export_audit_package(result, evidence, plain)
         assert "<html" in (plain / "report.html").read_text()
+        assert json.loads((plain / "package.json").read_text())["report"] == "re-rendered"
+        readme = (plain / "README.txt").read_text()
+        assert "as issued" not in readme
+        assert "re-rendered" in readme
 
     def test_the_package_states_that_it_excludes_the_evidence_itself(
         self, result, evidence, tmp_path: Path
@@ -320,6 +330,71 @@ class TestStoredResultRoundTrip:
         assert manifest["audit_chain_verified"] is True
         rows = (tmp_path / "audit-trail.csv").read_text().splitlines()
         assert len(rows) == 1 + len(result.audit.events)
+
+    def test_an_auditor_can_verify_the_chain_from_the_package_alone(
+        self, result, evidence, tmp_path: Path
+    ) -> None:
+        # The README told an auditor the trail is hash-chained and "each entry
+        # carries the digest of the one before it", but audit-trail.csv had no
+        # prev_hash, tenant_id or metadata column — three of the nine hashed
+        # fields — and nothing in the package said how a digest is computed.
+        # The claim could only be checked by reading this repository
+        # (PRODUCTIZE_NOTES §16.47). This is the auditor's check: standard
+        # library only, the CSV and the README's stated rule, nothing of ours.
+        import csv
+        import hashlib
+
+        from ironclad.report.export import export_audit_package
+
+        # A scope exclusion carries the client's own words and a person's name,
+        # so an entry outside ASCII is ordinary. The engine writes those as
+        # \uXXXX escapes; an auditor's tool that wrote raw UTF-8 would compute a
+        # different digest and call an intact trail tampered with, so the rule
+        # has to say so.
+        result.audit.record(
+            actor="jürgen.müller@acme.example",
+            action="scope.excluded",
+            object_type="control",
+            object_id="CC9.9",
+            metadata={"justification": "Out of scope — no card data", "confidence": 81.4},
+            at=NOW,
+        )
+        export_audit_package(result, evidence, tmp_path)
+        readme = (tmp_path / "README.txt").read_text()
+        for term in ("prev_hash", "sort", "SHA-256", "0" * 64, "\\u"):
+            assert term in readme, f"the README does not state {term!r}"
+        head = json.loads((tmp_path / "package.json").read_text())["audit_chain_head"]
+
+        def verifies(rows: list[dict[str, str]]) -> bool:
+            previous = "0" * 64
+            for row in rows:
+                payload = {
+                    key: row[key]
+                    for key in (
+                        "event_id",
+                        "tenant_id",
+                        "actor",
+                        "action",
+                        "object_type",
+                        "object_id",
+                        "at",
+                        "prev_hash",
+                    )
+                }
+                payload["metadata"] = json.loads(row["metadata"])
+                encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+                digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+                if row["prev_hash"] != previous or digest != row["hash"]:
+                    return False
+                previous = digest
+            return previous == head
+
+        with (tmp_path / "audit-trail.csv").open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        assert len(rows) >= 2
+        assert verifies(rows)
+        rows[0]["actor"] = "someone-else"
+        assert not verifies(rows)
 
     def test_a_tampered_stored_trail_does_not_verify(self, result) -> None:
         # The stored digests are kept, not recomputed: editing an event on
@@ -541,6 +616,25 @@ class TestCli:
         )
         assert code == 0
         assert (tmp_path / "pkg" / "report.html").read_bytes() == (out / "report.html").read_bytes()
+        assert "warning" not in capsys.readouterr().err
+
+        # Without --report the package is still built, and the operator is told
+        # its report is not the issued one (PRODUCTIZE_NOTES §16.47).
+        code = main(
+            [
+                "export",
+                "--input",
+                str(out / "assessment.json"),
+                "--format",
+                "package",
+                "--out",
+                str(tmp_path / "rerendered"),
+            ]
+        )
+        assert code == 0
+        assert "not the file issued to the client" in capsys.readouterr().err
+        manifest = json.loads((tmp_path / "rerendered" / "package.json").read_text())
+        assert manifest["report"] == "re-rendered"
 
     def test_assess_refuses_an_id_the_store_would_refuse(self, tmp_path: Path, capsys) -> None:
         # Found by passing `../../escape`: assess accepted it, the AI stage

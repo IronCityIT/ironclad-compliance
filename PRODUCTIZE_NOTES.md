@@ -1938,3 +1938,52 @@ dashboard suite passes under the default timezone, Pacific/Auckland and
 America/Los_Angeles, apart from the two foreign `sage-demo.json` failures.
 `sh scripts/gates.sh`: every gate green except white-label, which fails
 only on `sage-demo.json` (§14).
+
+### 16.47 The auditor package promised checks an auditor could not make
+
+**Failure.** On 2026-09-23 the package's own `README.txt` was followed claim
+by claim with standard tools and nothing from this repository:
+- **Checksums:** `sha256sum -c SHA256SUMS` reads OK on every line. ✔
+- **Evidence index:** all 37 items carry a SHA-256. ✔
+- **Audit trail:** "each entry carries the digest of the one before it."
+  ✘ The digest covers nine fields. `audit-trail.csv` carried six plus
+  `hash`, with no `prev_hash`, `tenant_id` or `metadata`. Nothing in the
+  package said how a digest is computed. The chain was sound (it recomputes
+  from `assessment.json` to `package.json`'s head), but only for someone
+  who had read `ironclad/model/audit.py`.
+- **Report:** "report.html is the deliverable as issued." ✘ unless
+  `--report` is passed. Both pipelines pass it. A manual
+  `export --format package` re-rendered the report instead, and the stored
+  result has no display name, so the re-render addressed the client as
+  `acme-corp` ("prepared for acme-corp") where the issued report said
+  "Acme Corp". It was labelled "as issued" regardless.
+
+**On the way.** Writing the rule down exposed a trap. The engine hashes with
+Python's `json.dumps` default, which escapes non-ASCII as `\uXXXX`. An
+auditor re-implementing in `jq` or JavaScript writes raw UTF-8, gets a
+different digest for any event naming "Müller" or carrying an em dash, and
+would call an intact trail tampered with. `scope.excluded` events carry the
+client's own justification text and an approver's name, so this is ordinary
+input.
+
+**Fix.**
+- `audit-trail.csv` gains `tenant_id`, `prev_hash` and `metadata` (canonical
+  JSON), after `hash`, so no existing column moves.
+- The package README states the rule: the fields, sorted keys, compact
+  separators, `\uXXXX` escaping, UTF-8, and a genesis of 64 zeros.
+- With no issued report, `package.json` has `"report": "re-rendered"`, the
+  README says the file is not the issued one and names the client by id, and
+  the CLI warns. With one, `"report": "issued"` and the wording is unchanged.
+- The product README's package table says the same.
+
+**Validation.**
+- A new test does the auditor's check using only `csv`, `json` and
+  `hashlib` and the README's stated rule: it recomputes the chain from the
+  CSV to `package.json`'s head, including an event with non-ASCII text, and
+  a one-cell edit breaks it. It fails first.
+- The issued-report test now asserts provenance both ways. The CLI test
+  asserts the warning and fails without the change.
+- A real CLI-built package verifies the same way, and its issued report is
+  byte-identical to the file issued.
+- `sh scripts/gates.sh`: every gate green except white-label, which fails
+  only on the foreign `sage-demo.json` (§14).

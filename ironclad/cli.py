@@ -596,6 +596,13 @@ def cmd_export(args: argparse.Namespace) -> int:
         if issued is not None and not issued.is_file():
             raise ValidationError(f"issued report not found: {issued}")
         export_audit_package(result, result.evidence, output, issued_report=issued)
+        if issued is None:
+            print(
+                "warning: no --report given, so the package's report.html is re-rendered "
+                "and is not the file issued to the client (it names the client by id); "
+                "pass --report with the issued report",
+                file=sys.stderr,
+            )
 
     print(f"exported {args.format}: {output}", file=sys.stderr)
     return EXIT_OK

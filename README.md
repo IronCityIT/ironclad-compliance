@@ -266,11 +266,11 @@ ironclad export --input out/assessment.json --format package --out package/
 
 | File | Audience |
 |---|---|
-| `report.html` | the client |
+| `report.html` | the client — the issued file when exported with `--report`, as both pipelines do; otherwise a re-render, and `package.json` says which |
 | `control-register.csv` | the compliance team's working spreadsheet |
 | `remediation-plan.csv` | the work queue, in priority order |
 | `evidence-index.csv` | the auditor: which item supported which control |
-| `audit-trail.csv` | the auditor: what happened and when |
+| `audit-trail.csv` | the auditor: what happened and when, with every hashed field, so the chain recomputes from this file alone |
 | `assessment.json` | machine record |
 | `package.json` | manifest, including the audit chain head and a SHA-256 for every file |
 | `SHA256SUMS` | the same digests, in the format `sha256sum -c` reads |
@@ -279,7 +279,8 @@ The package carries **references and checksums, never the evidence bytes**. The
 artifacts stay in the client's own storage; `README.txt` in the package says so
 explicitly, so nobody assumes otherwise. It also says how to check that the
 package is the one that was issued: `sha256sum -c SHA256SUMS` — an edited
-verdict in `control-register.csv` is named, not missed.
+verdict in `control-register.csv` is named, not missed — and states the digest
+rule, so an auditor can recompute the audit chain without this repository.
 
 ## Multi-tenancy
 

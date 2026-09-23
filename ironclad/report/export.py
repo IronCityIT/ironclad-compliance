@@ -168,10 +168,30 @@ def export_evidence_index_csv(result: Any, evidence: Any) -> str:
 
 
 def export_audit_trail_csv(result: Any) -> str:
-    """The hash-chained audit log, flattened."""
+    """The hash-chained audit log, flattened.
+
+    Every field the digest covers is a column, so the chain can be recomputed
+    from this file alone by the rule the package README states. Without
+    tenant_id, metadata and prev_hash it could only be checked by reading this
+    repository (PRODUCTIZE_NOTES §16.47). The three were added after `hash` so
+    no existing column moved.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(["event_id", "at", "actor", "action", "object_type", "object_id", "hash"])
+    writer.writerow(
+        [
+            "event_id",
+            "at",
+            "actor",
+            "action",
+            "object_type",
+            "object_id",
+            "hash",
+            "tenant_id",
+            "prev_hash",
+            "metadata",
+        ]
+    )
     for event in result.audit.events:
         writer.writerow(
             [
@@ -182,6 +202,9 @@ def export_audit_trail_csv(result: Any) -> str:
                 event.object_type,
                 event.object_id,
                 event.hash,
+                event.tenant_id,
+                event.prev_hash,
+                json.dumps(event.metadata, sort_keys=True, separators=(",", ":")),
             ]
         )
     return buffer.getvalue()
@@ -246,6 +269,10 @@ def export_audit_package(
         "readiness_score": assessment.summary.readiness_score,
         "assessment_type": assessment.assessment_type,
         "report_view": view_for(assessment.assessment_type).to_dict(),
+        # Whether report.html is the file the client received, or a re-render
+        # from the result, which cannot reproduce it: the stored result has no
+        # display name (PRODUCTIZE_NOTES §16.47).
+        "report": "issued" if issued_report is not None else "re-rendered",
         "audit_chain_head": result.audit.head,
         "audit_chain_verified": result.audit.is_valid(),
         "files": sorted(checksums) + ["package.json", "README.txt", "SHA256SUMS"],
@@ -254,13 +281,23 @@ def export_audit_package(
     write("package.json", json.dumps(manifest, indent=2) + "\n")
 
     view_name = view_for(assessment.assessment_type).name
+    if issued_report is not None:
+        report_line = f"the deliverable as issued ({view_name})"
+        report_note = "report.html is the deliverable as issued and may be abridged"
+    else:
+        report_line = f"re-rendered at export ({view_name}); NOT the issued file"
+        report_note = (
+            "report.html was re-rendered from assessment.json when this package was\n"
+            "exported; it is not the file issued to the client, and names the client\n"
+            "by its identifier. It may be abridged"
+        )
     write(
         "README.txt",
         f"""Compliance evidence package
 {assessment.framework.name} ({assessment.framework.version})
 Assessment {assessment.assessment_id} — generated {iso(utc_now())}
 
-  report.html           the deliverable as issued ({view_name})
+  report.html           {report_line}
   assessment.json       the complete machine-readable result
   control-register.csv  one row per control, with its position and rationale
   remediation-plan.csv  outstanding work, in priority order, with target dates
@@ -276,7 +313,7 @@ file that has been altered since export, or is missing, is named. package.json
 carries the same digests under "sha256".
 
 THE CSV FILES ARE COMPLETE
-report.html is the deliverable as issued and may be abridged — a gap analysis
+{report_note} — a gap analysis
 lists only the controls with outstanding work. The CSV files below are never
 abridged: control-register.csv carries every control that was assessed, whatever
 the report shows.
@@ -287,8 +324,21 @@ storage location and SHA-256 checksum; the items remain in the client's own
 storage. Verify an item by checksum against the reference in the index.
 
 The audit trail is hash-chained: each entry carries the digest of the one before
-it. package.json records the chain head at the time of export. Altering or
-removing an entry breaks every digest that follows it.
+it (prev_hash). package.json records the chain head at the time of export.
+Altering or removing an entry breaks every digest that follows it.
+
+HOW TO VERIFY THE AUDIT TRAIL
+Each row's hash is the SHA-256, in lowercase hex, of a JSON object with the
+keys event_id, tenant_id, actor, action, object_type, object_id, at, metadata
+and prev_hash, taken from that row. metadata is itself JSON, parsed and
+embedded as a value. The object is written with its keys sorted, no spaces
+("," and ":" as separators), with every character outside ASCII written as a
+\\uXXXX escape (as Python's json.dumps does by default; jq and JavaScript
+do not, and would compute a different digest), then UTF-8 encoded. The first
+row's prev_hash is 64 zeros
+(0000000000000000000000000000000000000000000000000000000000000000);
+every later row's prev_hash is the hash of the row before it, and the last
+row's hash is the audit_chain_head in package.json.
 
 Prepared by Iron City IT Advisors. Confidential.
 """,
