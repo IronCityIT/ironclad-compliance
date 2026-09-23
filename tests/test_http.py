@@ -794,12 +794,60 @@ class TestTransport:
         assert b"Connection: close" in received
         assert b"Content-Length" in received  # the refusal says what to send instead
 
-    def test_a_head_with_a_body_does_not_run_the_body(self, port: int, secrets_for) -> None:
+    # Content-Length is 1*DIGIT (RFC 9110 §8.6), and a length the server reads
+    # one way and a proxy another is the same smuggling as a chunked body.
+    # Measured on 2026-09-23: `0_7` and `+7` were read as 7 by int(), and of
+    # two differing lengths the first silently won; each ran the /me below.
+    @pytest.mark.parametrize(
+        "length",
+        [
+            b"Content-Length: 0_7\r\n",
+            b"Content-Length: +7\r\n",
+            "Content-Length: ７\r\n".encode(),
+            b"Content-Length: 7\r\nContent-Length: 0\r\n",
+            b"Content-Length: 0\r\nContent-Length: 7\r\n",
+            b"Content-Length: 7, 7\r\n",
+        ],
+        ids=["underscore", "plus", "fullwidth", "dup-first", "dup-last", "list"],
+    )
+    def test_a_length_that_is_not_plain_digits_is_refused_and_ends_the_connection(
+        self, port: int, secrets_for, length: bytes
+    ) -> None:
+        auth = f"Authorization: Bearer {secrets_for['acme-manager']}\r\n".encode()
+        smuggled = b"GET /api/v1/me HTTP/1.1\r\nHost: x\r\n" + auth + b"\r\n"
+        received = self._exchange(
+            port,
+            b"POST /api/v1/tenants/acme/exceptions HTTP/1.1\r\nHost: x\r\n"
+            + auth
+            + length
+            + b"\r\n"
+            + b'{"a":1}'
+            + smuggled,
+        )
+        assert received.count(b"HTTP/1.1 ") == 1, received
+        assert received.startswith(b"HTTP/1.1 400 ")
+        assert b"Connection: close" in received
+
+    def test_a_padded_length_is_still_a_length(self, as_) -> None:
+        # Whitespace around a field value is not part of it (RFC 9110 §5.5).
+        status, body, _ = as_("acme-manager").post(
+            "/api/v1/tenants/acme/exceptions",
+            raw=b"{}",
+            headers={"Content-Length": " 2 "},
+        )
+        assert status == 400
+        assert "control_id is required" in body["errors"][0]
+
+    @pytest.mark.parametrize("zero_first", [False, True], ids=["length", "zero-then-length"])
+    def test_a_head_with_a_body_does_not_run_the_body(
+        self, port: int, secrets_for, zero_first: bool
+    ) -> None:
         auth = f"Authorization: Bearer {secrets_for['acme-manager']}\r\n".encode()
         smuggled = b"GET /api/v1/me HTTP/1.1\r\nHost: x\r\n" + auth + b"\r\n"
         received = self._exchange(
             port,
             b"HEAD /api/v1/health HTTP/1.1\r\nHost: x\r\n"
+            + (b"Content-Length: 0\r\n" if zero_first else b"")
             + f"Content-Length: {len(smuggled)}\r\n\r\n".encode()
             + smuggled,
         )

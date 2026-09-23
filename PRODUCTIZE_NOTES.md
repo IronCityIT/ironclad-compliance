@@ -1733,3 +1733,34 @@ could pass without it, and the fault would surface as a confusing mismatch
 in the policy file. The test now records every thread's exception or non-200
 body and asserts one outcome per control. If it happens again, the assertion
 names the cause.
+
+### 16.42 The same smuggling, through Content-Length
+
+**Failure.** After §16.40, the other framing header was checked against a
+live server. A POST whose body was followed by a complete `GET /api/v1/me`
+got the `/me` answered (200) when its length was `Content-Length: 0_7`,
+`+7`, or two differing `Content-Length` fields in either order. A `HEAD`
+with `Content-Length: 0` followed by a second, non-zero length ran its body
+as a request too.
+
+**Root cause.** The length went through `int()`, which accepts `+`, `_` and
+non-ASCII digits that the grammar (1*DIGIT, RFC 9110 §8.6) does not.
+`headers.get` returned only the first of several fields. A proxy that rejects
+`0_7`, or takes the last of two lengths, frames the connection differently
+from the server: the disagreement request smuggling needs.
+
+**Fix.** `_read_body` reads every `Content-Length` field. More than one field,
+or a value that is not ASCII digits after trimming whitespace, is a 400
+refused unread, so the connection closes (RFC 9112 §6.3). A listed value
+such as `7, 7`, which RFC 9110 allows a server either to collapse or to
+refuse, is refused. `do_HEAD` checks every length too.
+
+**Validation.** Eight new cases in `TestTransport`, each asserting one
+response per socket: underscore, plus, full-width, duplicates in both
+orders, list, and HEAD with a zero before a length. One more asserts that a
+padded ` 2 ` is still a length. The five that exposed the bug failed first;
+all pass. The live probe now answers every malformed form with a single
+400. A correctly framed body followed by a second request still gets two
+answers, which is ordinary pipelining. `sh scripts/gates.sh`: every gate
+green except white-label, which fails only on the foreign `sage-demo.json`
+(§14).

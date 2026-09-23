@@ -200,6 +200,7 @@ class HttpError(Exception):
 Handler = Callable[[Request, Principal], Response]
 
 _SEGMENT = r"[A-Za-z0-9][A-Za-z0-9._@:+-]*"
+_DIGITS = re.compile(r"[0-9]+")
 
 
 class App:
@@ -517,13 +518,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     HTTPStatus.NOT_IMPLEMENTED,
                     "Transfer-Encoding is not supported; send the body with Content-Length",
                 )
-            raw_length = self.headers.get("Content-Length", "0")
-            try:
-                length = int(raw_length)
-            except ValueError as exc:
-                raise HttpError(HTTPStatus.BAD_REQUEST, "Content-Length is not a number") from exc
-            if length < 0:
-                raise HttpError(HTTPStatus.BAD_REQUEST, "Content-Length is negative")
+            # Every Content-Length field, not the first: two that differ are
+            # read one way here and another by a proxy (RFC 9112 §6.3). And
+            # 1*DIGIT, not int(), which also takes `+7`, `0_7` and non-ASCII
+            # digits a proxy would not. Refused unread, so the connection closes.
+            lengths = [v.strip() for v in self.headers.get_all("Content-Length") or []]
+            if not lengths:
+                return b""
+            if len(lengths) > 1 or not _DIGITS.fullmatch(lengths[0]):
+                raise HttpError(
+                    HTTPStatus.BAD_REQUEST, "Content-Length must be one plain decimal number"
+                )
+            length = int(lengths[0])
             if length > MAX_BODY_BYTES:
                 raise HttpError(
                     HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -605,9 +611,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
             # A HEAD body is never read, so one announced ends the connection
             # rather than being parsed as the next request.
-            if "Transfer-Encoding" in self.headers or self.headers.get(
-                "Content-Length", "0"
-            ).strip() not in ("", "0"):
+            lengths = [v.strip() for v in self.headers.get_all("Content-Length") or []]
+            if "Transfer-Encoding" in self.headers or lengths not in ([], ["0"]):
                 self.close_connection = True
                 self.send_header("Connection", "close")
             self.send_header("Content-Length", "0")

@@ -105,7 +105,9 @@ Plus, from the transport itself: 401 for no or an unknown token, 405 for the
 wrong verb on a known path, 413 for a body over 64 KiB (refused unread, and the
 connection is closed so the unread bytes are not parsed as a second request),
 501 for any `Transfer-Encoding` — a body is framed by `Content-Length` only, and a
-chunked one is refused unread and the connection closed for the same reason — and
+chunked one is refused unread and the connection closed for the same reason; a
+`Content-Length` that is not one plain decimal number (`+7`, `0_7`, a repeated or
+listed header) is a 400 with the connection closed, likewise — and
 503 when there is no authenticator or it cannot read its file.
 
 ## Tenant rules
