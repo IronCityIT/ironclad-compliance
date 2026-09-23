@@ -226,6 +226,18 @@ def collect_from_directory(
 
     manifest = manifest_from_directory(tenant_id, directory, framework=framework)
     evidence, warnings = collect_from_manifest(manifest, base_dir=directory)
+    if len(evidence):
+        # A derived item is dated by its file's modification time, which is
+        # when the file last landed somewhere, not when the document was
+        # produced. A plain copy of two-year-old evidence read as current:
+        # 35.2% -> 46.5% readiness, 5 of 5 stale -> none (PRODUCTIZE_NOTES
+        # §16.48). The fallback stays; the result says what its dates are.
+        warnings.append(
+            "No evidence manifest was supplied, so each item is dated by its file's "
+            "last-modified time. A copy that does not keep timestamps makes older "
+            "evidence read as current; a manifest with collected_at dates the "
+            "evidence itself."
+        )
     incidental = sorted(
         str(p.relative_to(directory))
         for p in directory.rglob("*")

@@ -1987,3 +1987,44 @@ input.
   byte-identical to the file issued.
 - `sh scripts/gates.sh`: every gate green except white-label, which fails
   only on the foreign `sage-demo.json` (§14).
+
+### 16.48 A plain copy made two-year-old evidence current, without a word
+
+**Failure.** With no manifest, `manifest_from_directory` dates each item by
+its file's modification time (`st_mtime`). On 2026-09-23 the five sample
+documents were given a March 2024 timestamp and assessed, then copied with a
+plain `cp -r` and assessed again:
+
+| same documents | readiness | stale | warnings |
+|---|---|---|---|
+| timestamps kept | 35.2% | 5 of 5 | none |
+| after `cp -r` | **46.5%** | **0 of 5** | none |
+
+**Root cause.** An mtime records when a file last landed somewhere, not when
+the document was produced. Anything that does not keep timestamps (`cp`
+without `-p`, most uploads, most downloads) resets every document's age.
+Neither the result nor the contract said the dates were file timestamps.
+The pipelines are not exposed on the evidence path: `ironclad evidence stage`
+uses `copy2`, and assessment runs in the job that staged. The exposure is
+what a client or operator does to the folder before that.
+
+**Fix.** The fallback stays, because its absence would block every client
+without a manifest. What changes is disclosure:
+- `collect_from_directory` adds a caveat to any manifest-less folder that
+  holds evidence. It reaches `result.warnings`, and so the report's
+  "Assessment caveats" and the dashboard card.
+- `docs/ingestion-contract.md` says how undated evidence is dated and what
+  breaks it.
+
+**For Bill.** Every report built from a folder without a manifest, including
+the dry run on the sample evidence, now carries this caveat. It is accurate.
+Whether to push clients towards manifests is a commercial call.
+
+**Validation.** A new test fails first and passes now. Two more confirm a
+manifest-dated folder and an empty folder stay silent. Four existing tests
+that pinned the complete warning list for manifest-less folders now compare
+the list less this one note, so each still checks everything it did. The
+copied-folder assessment carries the caveat in `assessment.json` and in
+`report.html`. `scripts/end_to_end.py` passes. `sh scripts/gates.sh`:
+every gate green except white-label, which fails only on the foreign
+`sage-demo.json` (§14).

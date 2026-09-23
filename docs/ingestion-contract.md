@@ -183,6 +183,13 @@ ironclad assess --client "Acme Corp" --framework soc2 --evidence-dir evidence/
 A manifest is better — it carries evidence types, validity periods and asserted
 links that a filename cannot — but its absence never blocks an assessment.
 
+**Without a manifest, an item is dated by its file's last-modified time.** That is
+when the file last landed somewhere, not when the document was produced, so a
+copy that does not keep timestamps (`cp` without `-p`, most uploads and
+downloads) makes older evidence read as current and moves the readiness score.
+The assessment says so in a caveat on the report. `ironclad evidence stage`
+keeps timestamps; a manifest with `collected_at` removes the question.
+
 ---
 
 # Tenant policy

@@ -25,6 +25,11 @@ from ironclad.model.evidence import DEFAULT_VALIDITY_DAYS, VALIDITY_DAYS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _besides_dating(warnings: list[str]) -> list[str]:
+    """The warnings, less the note every manifest-less folder carries (§16.48)."""
+    return [w for w in warnings if "last-modified time" not in w]
+
+
 def valid_manifest(**overrides) -> dict:
     document = {
         "contract_version": CONTRACT_VERSION,
@@ -186,7 +191,7 @@ class TestCollection:
         evidence, warnings = collect_from_directory("Acme Corp", tmp_path)
         assert evidence.tenant_id == "acme-corp"
         assert len(evidence) == 2
-        assert warnings == []
+        assert _besides_dating(warnings) == []
 
     def test_a_derived_manifest_checksums_every_item(self, tmp_path: Path) -> None:
         (tmp_path / "policy.md").write_text("content")
@@ -258,9 +263,39 @@ class TestCollection:
 
         evidence, warnings = collect_from_directory("acme", tmp_path)
         assert [a.name for a in evidence] == ["policy.md"]
-        assert len(warnings) == 1
-        assert "3 hidden or resource-fork file(s)" in warnings[0]
-        assert ".DS_Store" in warnings[0] and "__MACOSX/._policy.pdf" in warnings[0]
+        hidden = [w for w in warnings if "hidden or resource-fork" in w]
+        assert len(hidden) == 1
+        assert "3 hidden or resource-fork file(s)" in hidden[0]
+        assert ".DS_Store" in hidden[0] and "__MACOSX/._policy.pdf" in hidden[0]
+
+    def test_dating_evidence_by_file_timestamp_is_disclosed(self, tmp_path: Path) -> None:
+        # With no manifest an item is dated by its file's modification time.
+        # A plain `cp -r` of evidence dated March 2024 took readiness from
+        # 35.2% to 46.5% and stale items from 5 of 5 to none, with no warning
+        # either way (PRODUCTIZE_NOTES §16.48). The fallback stays; the report
+        # has to say its dates are file timestamps.
+        (tmp_path / "policy.md").write_text("least privilege access control")
+        _, warnings = collect_from_directory("acme", tmp_path)
+        assert any("last-modified time" in w for w in warnings), warnings
+
+    def test_a_manifest_dates_its_own_evidence_and_says_nothing(self, tmp_path: Path) -> None:
+        (tmp_path / "policy.md").write_text("least privilege access control")
+        (tmp_path / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "contract_version": CONTRACT_VERSION,
+                    "tenant_id": "acme",
+                    "collected_at": "2026-09-01T00:00:00+00:00",
+                    "items": [{"name": "Policy", "uri": "policy.md"}],
+                }
+            )
+        )
+        _, warnings = collect_from_directory("acme", tmp_path)
+        assert not any("last-modified time" in w for w in warnings), warnings
+
+    def test_an_empty_folder_has_nothing_to_date(self, tmp_path: Path) -> None:
+        _, warnings = collect_from_directory("acme", tmp_path)
+        assert not any("last-modified time" in w for w in warnings), warnings
 
     def test_the_same_file_under_a_new_path_keeps_its_identity(self, tmp_path: Path) -> None:
         # Keyed on the checksum, so reorganising a folder does not present the
@@ -363,7 +398,7 @@ class TestACopyIsNotCorroboration:
 
         evidence, warnings = collect_from_directory("acme", tmp_path)
         assert [a.name for a in evidence] == ["access-control-policy.md"]
-        assert warnings == [
+        assert _besides_dating(warnings) == [
             "access-control-policy (copy).md: byte-identical to access-control-policy.md; "
             "counted once"
         ]
@@ -385,7 +420,9 @@ class TestACopyIsNotCorroboration:
 
         evidence, warnings = collect_from_directory("acme", tmp_path)
         assert [a.name for a in evidence] == ["policy.md"]
-        assert warnings == ["policy-final-v2.md: same content as policy.md; counted once"]
+        assert _besides_dating(warnings) == [
+            "policy-final-v2.md: same content as policy.md; counted once"
+        ]
 
     def test_the_earlier_submission_is_the_one_kept_whatever_sorts_first(
         self, tmp_path: Path
@@ -426,7 +463,7 @@ class TestACopyIsNotCorroboration:
         (tmp_path / "review.md").write_text("quarterly user access review completed")
         evidence, warnings = collect_from_directory("acme", tmp_path)
         assert len(evidence) == 2
-        assert warnings == []
+        assert _besides_dating(warnings) == []
 
     def test_a_copy_does_not_move_the_verdict(self, tmp_path: Path) -> None:
         # The assessment-level fact: readiness and every evidence_count are the
