@@ -2059,3 +2059,58 @@ formula-leading cells, `sha256sum -c` passes, and the audit chain still
 recomputes from the CSV to `package.json`'s head. `sh scripts/gates.sh`:
 every gate green except white-label, which fails only on the foreign
 `sage-demo.json` (§14).
+
+### 16.50 The dashboard could never run under its own security policy
+
+**Failure 1: headers.** `ironclad serve` replaces Firebase Hosting for the
+dashboard. Hosting (`firebase.json`) sends four headers on every file:
+`X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer`, and a `Content-Security-Policy` with `frame-ancestors 'none'`.
+On 2026-09-23, `curl` against `ironclad serve --static` showed it sending
+only the first. The move would have let any site frame the dashboard
+(clickjacking), and the dashboard carries an assessment trigger.
+
+**Failure 2, found by testing the first fix in a real browser.** That CSP
+allows scripts from `'self'` and two SDK hosts only, with no
+`'unsafe-inline'`. The committed `index.html` booted from an **inline**
+`<script type="module">`. The committed dashboard was served both ways and
+loaded in headless Chrome:
+
+| served with | capability checkboxes rendered | CSP violations |
+|---|---|---|
+| no CSP (`python -m http.server`) | 7 | 0 |
+| the CSP (`ironclad serve`, and as `firebase.json` would deploy it) | **0** | 1 — "Executing inline script violates … script-src" |
+
+**Root cause.** The page as `firebase.json` would deploy it has never
+worked: no catalog, no "not configured" notice, no sign-in. It was never
+observed because it was never deployed. The escaping tests run in node,
+where no CSP applies, and nothing loaded the page under its own headers.
+
+**Fix.**
+- `STATIC_HEADERS` in `ironclad/api/http.py` sends the same four headers
+  with every static file.
+- The bootstrap moves verbatim to `dashboard/public/main.js`, and
+  `index.html` loads it with `<script type="module" src="/main.js">`. The
+  policy is not weakened: no `'unsafe-inline'`, and no hash that would
+  break on every edit.
+
+**Validation.**
+- `test_the_dashboard_carries_the_headers_firebase_hosting_sends` reads
+  `firebase.json`, so the two cannot drift. It fails first.
+- A new `render.test.js` case requires every script in `index.html` to be a
+  file, with no inline handler and no `javascript:` URL. It fails on the old
+  page.
+- Headless Chrome against `ironclad serve` with the full CSP: 7 checkboxes,
+  0 violations, and the "not configured" notice shown, as designed while
+  config holds placeholders.
+- A clean worktree of `HEAD` with these changes: dashboard 66/66, and
+  `sh scripts/gates.sh` **all gates passed**, white-label included.
+
+**§14 addendum: the uncommitted Sage `index.html`.** This commit changes
+the committed `index.html`, and it was staged without touching the working
+file, which is still the foreign rebrand. That copy still boots inline, so
+it will fail under this CSP too. Whoever owns it needs to replace its
+inline module with `<script type="module" src="/main.js"></script>`. Its
+own additional inline scripts need the same treatment. Locally, the new
+render test fails on that copy, alongside the existing white-label failures
+it causes.

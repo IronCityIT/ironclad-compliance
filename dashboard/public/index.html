@@ -174,30 +174,6 @@
 <footer>Ironclad Compliance · Iron City IT Advisors</footer>
 
 <script src="/config.js"></script>
-<script type="module">
-  import { renderCatalog } from "/app.js";
-
-  const config = window.ICIT_CONFIG;
-
-  // The capability list, the presets and the framework picker all come from
-  // catalog.json, which is generated from the engine's registry. There is no
-  // second list of capabilities anywhere in this page.
-  const catalog = await fetch("/catalog.json").then((r) => r.json());
-  const parts = renderCatalog(catalog);
-  document.getElementById("capability-list").innerHTML = parts.modules;
-  document.getElementById("group-presets").innerHTML = parts.groups;
-  document.getElementById("framework-select").innerHTML = parts.frameworks;
-  document.getElementById("assessment-type-select").innerHTML = parts.assessmentTypes;
-
-  // Placeholders survive when the deploy step has not run. Say so plainly
-  // rather than failing with a console error nobody sees.
-  const configured = !JSON.stringify(config).includes("__");
-  if (!configured) {
-    document.getElementById("not-configured").hidden = false;
-  } else {
-    const { startAuth } = await import("/auth.js");
-    await startAuth(config);
-  }
-</script>
+<script type="module" src="/main.js"></script>
 </body>
 </html>

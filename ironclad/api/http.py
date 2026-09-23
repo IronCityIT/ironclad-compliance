@@ -70,6 +70,25 @@ MAX_BODY_BYTES = 64 * 1024
 # thread.
 READ_TIMEOUT_SECONDS = 30.0
 
+#: Sent with every dashboard file. The same four headers Firebase Hosting sends
+#: (firebase.json), which this server replaces: without them the move let any
+#: site frame the dashboard (PRODUCTIZE_NOTES §16.50). A test holds the two
+#: equal while firebase.json exists; the CSP still admits the Auth0 and
+#: Firebase SDK hosts because the dashboard loads them until B6 is decided.
+STATIC_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.auth0.com https://www.gstatic.com; "
+        "connect-src 'self' https://*.googleapis.com https://*.auth0.com "
+        "https://*.cloudfunctions.net; "
+        "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "frame-ancestors 'none'; base-uri 'self'"
+    ),
+}
+
 STATUS_FOR_KIND = {
     "validation": HTTPStatus.BAD_REQUEST,
     "authorization": HTTPStatus.FORBIDDEN,
@@ -503,7 +522,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(raw)))
-            self.send_header("X-Content-Type-Options", "nosniff")
+            for key, value in STATIC_HEADERS.items():
+                self.send_header(key, value)
             self.end_headers()
             self.wfile.write(raw)
 

@@ -917,6 +917,29 @@ class TestStatic:
         assert headers["Content-Type"].startswith("text/html")
         assert b"dash" in body["_raw"]
 
+    def test_the_dashboard_carries_the_headers_firebase_hosting_sends(self, as_) -> None:
+        # ironclad serve replaces Firebase Hosting for the dashboard. Hosting
+        # sends X-Frame-Options, a Content-Security-Policy with frame-ancestors
+        # 'none', and Referrer-Policy on every file; this server sent only
+        # nosniff, so the move would have let any site frame the dashboard
+        # (PRODUCTIZE_NOTES §16.50). Read from firebase.json, so the two cannot
+        # drift apart unnoticed.
+        repo = Path(__file__).resolve().parents[1]
+        hosting = json.loads((repo / "firebase.json").read_text())["hosting"]
+        expected = {
+            h["key"].lower(): h["value"]
+            for block in hosting["headers"]
+            if block["source"] == "**"
+            for h in block["headers"]
+        }
+        assert {"x-frame-options", "content-security-policy"} <= set(expected)
+        for path in ("/", "/app.js"):
+            status, _, headers = as_().get(path)
+            assert status == 200
+            sent = {k.lower(): v for k, v in headers.items()}
+            for key, value in expected.items():
+                assert sent.get(key) == value, f"{path}: {key}"
+
     def test_a_named_file_is_served_with_its_type(self, as_) -> None:
         status, _, headers = as_().get("/app.js")
         assert status == 200

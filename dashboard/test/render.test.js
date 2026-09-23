@@ -419,3 +419,25 @@ test("the card says how far to trust the number", async (t) => {
     }
   });
 });
+
+test("the page runs under its own Content-Security-Policy", async (t) => {
+  // firebase.json and ironclad serve send script-src 'self' with no
+  // 'unsafe-inline'. The bootstrap was an inline <script type="module">:
+  // headless Chrome refused it, and the page rendered no catalog and never
+  // started sign-in (PRODUCTIZE_NOTES §16.50). Every script is a file.
+  const html = readFileSync(path.join(REPO_ROOT, "dashboard", "public", "index.html"), "utf8");
+
+  await t.test("every script is loaded from a file", () => {
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    assert.ok(scripts.length > 0);
+    for (const [, attributes, body] of scripts) {
+      assert.match(attributes, /\bsrc=/, `inline script: ${body.trim().slice(0, 60)}`);
+      assert.equal(body.trim(), "");
+    }
+  });
+
+  await t.test("no inline event handler or javascript: URL", () => {
+    assert.doesNotMatch(html, /\son[a-z]+\s*=/i);
+    assert.doesNotMatch(html, /javascript:/i);
+  });
+});
