@@ -1734,6 +1734,9 @@ in the policy file. The test now records every thread's exception or non-200
 body and asserts one outcome per control. If it happens again, the assertion
 names the cause.
 
+**Update.** The probable cause was found the same day: the server's listen
+backlog of 5 (§16.44).
+
 ### 16.42 The same smuggling, through Content-Length
 
 **Failure.** After §16.40, the other framing header was checked against a
