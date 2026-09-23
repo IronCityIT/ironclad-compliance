@@ -1637,3 +1637,42 @@ points of focus label `8.4.1` as remote access; in the published numbering
 from outside the network is `8.4.3` (checked against three independent QSA
 write-ups, not the standard itself). That reads like a paraphrase written from
 memory, and it predates the version question.
+
+### 16.39 The dashboard's read path over `ironclad serve`, short of the token
+
+Stage 5 (HANDOFF §13) had two halves: the dashboard reading `ironclad serve`
+instead of Firestore, and a way for the browser to get a token (B6). The
+first half is not blocked, so it is done. The second is a decision and is left
+alone.
+
+- `dashboard/public/api.js`: a data source over `/api/v1/me`,
+  `/tenants/{t}/assessments` and `/tenants/{t}/remediation`. Its adapters turn
+  a store row (a flat summary, with nested fields as JSON text when it comes
+  out of MariaDB) into the record `renderAssessments` / `renderRemediation`
+  already take, so rendering doesn't change with the backend. It polls where
+  Firestore pushed. A failed request goes to `onError` and polling carries
+  on. A refusal is raised with the server's own message, never returned as an
+  empty list.
+- `app.js`: the card's timestamp takes the engine's ISO `started_at` as well
+  as a Firestore Timestamp.
+- `auth.js::startApi(config, token)` and `config.api`: the wiring. The token
+  is a parameter, and **`index.html` does not call it** until B6 is decided.
+- `dashboard/test/api.test.js`: 22 cases against a **real** `ironclad serve`
+  on a loopback port over a volume store with a published assessment. They
+  cover: the principal, the record shape, the remediation evidence gap, a
+  cross-tenant refusal, a wrong token refused rather than read as empty,
+  polling that stops when told and survives errors, and the adapters on
+  malformed JSON text.
+- `ci.yml`: the dashboard job now pins Python 3.12, because the test starts
+  the engine. It used to rely on the runner image's python3.
+
+Found uncommitted in the working tree, dated 2026-09-17 01:02–01:12, after the
+last commit. The style and cross-references show it is this branch's
+interrupted work, not the Sage WIP (§14). It was tested on its own in a clean
+worktree of `f50a899` with only these files applied: dashboard 60/60,
+`sh scripts/gates.sh` all green. In the shared working tree the dashboard run
+is 58/60. Both failures are `sage-demo.json names wazuh`, the known foreign
+file, and are correct.
+
+What remains of stage 5 is B6 alone: once a browser has a bearer token the
+server accepts, `index.html` calls `startApi` instead of `startAuth`.

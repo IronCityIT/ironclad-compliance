@@ -7,7 +7,7 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-17
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-23
 **PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c5d167a`, all six jobs, on every commit of 2026-09-16 and 2026-09-17. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
@@ -51,7 +51,7 @@ deploy, no `workflow_dispatch` fired against a real client.
 | End-to-end round trip | **DONE, green in CI against MariaDB and a volume** | `scripts/end_to_end.py` |
 | Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
-| Dashboard | **DONE, rendering tested, not deployed** | `dashboard/public/`, `dashboard/test/` |
+| Dashboard | **DONE, rendering tested, not deployed; the `ironclad serve` read path is built and tested against a real server, and is not wired in until B6 (§16.39)** | `dashboard/public/`, `dashboard/test/` |
 
 ## Gate results
 
@@ -64,7 +64,7 @@ Run on this branch, this machine, 2026-09-06.
 | Typecheck | `mypy` | **PASS** — 81 source files |
 | Test | `pytest` | **PASS** — 844 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
-| Dashboard | `npm --prefix dashboard test` | **PASS** — 46 passed (on the committed tree) |
+| Dashboard | `npm --prefix dashboard test` | **PASS** — 60 passed (on the committed tree, 2026-09-23) |
 | Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
 | Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29 |
 | End-to-end | `scripts/end_to_end.py` | **PASS** in CI against MariaDB **and** a volume |

@@ -23,4 +23,12 @@ window.ICIT_CONFIG = {
   // client_id and roles claims that firestore.rules gate on.
   exchangeUrl: "__EXCHANGE_URL__",
   region: "us-east5",
+  // The target backend: `ironclad serve`, behind a reverse proxy that
+  // terminates TLS. Read by auth.js's startApi once B6 decides how the
+  // browser obtains a token; until then this stays a placeholder and the
+  // Firestore path above is the one index.html starts.
+  api: {
+    baseUrl: "__API_BASE_URL__",
+    pollMs: 30000,
+  },
 };

@@ -133,6 +133,34 @@ export async function startAuth(config) {
   wireTrigger(firebaseApp, config);
 }
 
+/**
+ * The dashboard over `ironclad serve` instead of Firestore — the target
+ * architecture's read path (HANDOFF.md §13, stage 5). Everything below the
+ * token is done: the source polls the two lists and hands the card the same
+ * record shape Firestore did. What is NOT done is how `token` reaches the
+ * browser (HANDOFF.md B6): an Auth0 JWT needs a verifier the server does not
+ * have, and a service token belongs to an operator, not a browser. Until that
+ * is decided, index.html does not call this.
+ */
+export async function startApi(config, token) {
+  const { createApiSource } = await import("/api.js");
+  const source = createApiSource({ baseUrl: config.api.baseUrl, token });
+  const me = await source.me();
+  return source.subscribe(
+    me.principal.tenant_id,
+    {
+      onAssessments: (records) => {
+        $("assessments").innerHTML = renderAssessments(records);
+      },
+      onRemediation: (items) => {
+        $("remediation").innerHTML = renderRemediation(items);
+      },
+      onError: (err) => showError(err?.message || "The backend could not be read."),
+    },
+    config.api.pollMs || 30000
+  );
+}
+
 /** Live feeds for the two lists the dashboard shows. */
 function subscribe(firebaseApp, clientId) {
   const db = getFirestore(firebaseApp);

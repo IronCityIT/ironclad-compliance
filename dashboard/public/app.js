@@ -90,6 +90,16 @@ export function selectionToArgs(form) {
   return args;
 }
 
+function whenOf(record) {
+  if (record.created_at?.toDate) return record.created_at.toDate().toLocaleString();
+  const iso = record.started_at || record.created_at;
+  if (typeof iso === "string" && iso) {
+    const moment = new Date(iso);
+    if (!Number.isNaN(moment.getTime())) return moment.toLocaleString();
+  }
+  return "just now";
+}
+
 function scoreClass(score) {
   if (score >= 80) return "good";
   if (score >= 50) return "fair";
@@ -107,9 +117,9 @@ export function renderAssessments(assessments) {
       const summary = a.summary || {};
       const score = summary.readiness_score;
       const framework = (a.framework || {}).name || (a.framework || {}).id || "—";
-      const when = a.created_at?.toDate
-        ? a.created_at.toDate().toLocaleString()
-        : "just now";
+      // Firestore hands back a Timestamp; the API hands back the ISO text the
+      // engine wrote. Either is a moment; anything else is "just now".
+      const when = whenOf(a);
 
       if (a.status === "queued" || a.status === "running") {
         return `

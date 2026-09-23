@@ -600,9 +600,10 @@ Ordered by value, non-blocked first.
 9. **What is left needs a decision or a machine this one is not:**
    - B6 — how the browser signs in to `ironclad serve` (a dependency for
      RS256, a hand-written verifier, or HS256 with a shared secret). Every
-     field the dashboard card now shows is in the record both stores hand
-     back, so once a token reaches the browser the switch is a data-source
-     change in `dashboard/public/app.js`.
+     read side is built and tested against a real server
+     (`dashboard/public/api.js`, `auth.js::startApi`, §16.39). Once a token
+     reaches the browser, the switch is `index.html` calling `startApi`
+     instead of `startAuth`.
    - B1/B2/B3 — the transport and credential to the NAS MariaDB. The store
      is proven against 10.5 in CI and 10.11 here; the schema's assessment key
      is `(tenant_id, assessment_id)` and nothing has been initialised from

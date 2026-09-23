@@ -106,6 +106,13 @@ jobs:
       - name: Test
         run: npm --prefix functions test
 
+      # dashboard/test/api.test.js starts a real `ironclad serve` to test the
+      # API data source against. The engine is standard library only, so a
+      # pinned interpreter is all it needs — no install step.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       # Client-facing rendering. Everything on this surface builds HTML from
       # data that arrived out of Firestore, so escaping is the whole defence.
       - name: Test the dashboard rendering
