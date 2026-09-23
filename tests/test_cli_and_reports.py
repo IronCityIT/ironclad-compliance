@@ -137,6 +137,17 @@ class TestReportRendering:
         assert "Analyst commentary" not in html
         assert "no model responded" in html  # as a caveat, not as a verdict
 
+    def test_a_target_date_is_never_split_across_lines(self, result) -> None:
+        # In the plan's narrow column "2026-10-" and "07" printed on two lines
+        # in every report (PRODUCTIZE_NOTES §16.52).
+        import re
+
+        html = render_html(result, "Acme Corp")
+        assert ".date { white-space: nowrap; }" in html
+        dates = re.findall(r"<td>(?:<span[^>]*>)*(\d{4}-\d{2}-\d{2})", html)
+        assert dates, "the plan must list dated items"
+        assert all(f'<span class="date">{d}</span>' in html for d in dates)
+
     def test_a_capability_failure_is_disclosed_in_the_report(self, result) -> None:
         result.failed_modules["freshness_check"] = "RuntimeError: boom"
         html = render_html(result, "Acme Corp")

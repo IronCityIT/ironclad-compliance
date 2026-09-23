@@ -2171,3 +2171,45 @@ user. The exchange function's host must match `connect-src`
 (`*.cloudfunctions.net`): a second-generation function in us-east5 is
 served from `*.run.app`, which the policy does not admit. The stack is being
 retired, so this is recorded, not changed.
+
+### 16.52 The printed report said a control was "partly evidenced (0%)"
+
+**Method.** The client report for the sample evidence was printed to PDF
+and screenshotted in headless Chrome, then read as a client would read it.
+It loads nothing external and logs no errors. Two things were wrong on the
+page.
+
+**Failure 1: a sentence that contradicts itself.** CC1.4 and CC9.1 read
+"The control is partly evidenced (0% of its points of focus)."
+
+**Root cause 1.** Two rules meet. A control with one current linked item is
+`partial` by the corroboration rule (`control_mapping._verdict`), whether or
+not the item addresses any point of focus. Coverage counts the points the
+item addresses, which here is none. The guidance template printed both.
+
+**Fix 1.** When a partial control's evidence addresses none of its points of
+focus, the guidance says exactly that: "Evidence is linked to this control,
+but it addresses none of its N points of focus yet." Partial coverage above
+zero reads as before.
+
+**Failure 2: dates split across lines.** Target dates broke across two lines
+in the plan's narrow column ("2026-10-" / "07") in every report.
+
+**Fix 2.** Each date is one unbreakable token (`.date { white-space: nowrap }`).
+In an overdue item, the two dates are wrapped separately so the text between
+them can still wrap.
+
+**For Bill: a scoring decision, not changed here.** A `partial` earns half
+credit (`STATUS_CREDIT`), including a control whose one linked item
+addresses none of its points of focus. On the sample evidence, readiness is
+**46.5%** as scored and **43.7%** if such a control earned nothing. That
+was recomputed from the stored verdicts with the engine's own credit table,
+and it reproduces 46.5% exactly. The scoring weights are already an open
+commercial decision (STATUS, open decisions 4–5); this is one more input to
+it.
+
+**Validation.** Three guidance tests (zero coverage, partial coverage, gap)
+and one date test fail first and pass now. The re-rendered report reads
+correctly for CC1.4 and CC9.1, and the screenshot shows single-line dates.
+`sh scripts/gates.sh`: every gate green except white-label, which fails only
+on the foreign `sage-demo.json` (§14).

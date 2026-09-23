@@ -857,3 +857,51 @@ class TestRemediationDatesAcrossAssessments:
         created, due = item.created_at, item.due_date
         carry_forward(item, {"created_at": "yesterday-ish", "due_date": None}, now=NOW)
         assert (item.created_at, item.due_date) == (created, due)
+
+
+class TestRemediationGuidanceSaysWhatIsTrue:
+    """The first line of each remediation item, as the client reads it.
+
+    A control with one current linked item is partial by the corroboration rule
+    even when that item addresses none of its points of focus. The guidance
+    printed "The control is partly evidenced (0% of its points of focus)" — a
+    sentence that contradicts itself — for CC1.4 and CC9.1 on the sample
+    evidence (PRODUCTIZE_NOTES §16.52).
+    """
+
+    @staticmethod
+    def _guidance(status, covered: int, total: int) -> str:
+        from ironclad.model.assessment import ControlAssessment
+        from ironclad.modules.remediation_plan import RemediationPlanning
+
+        verdict = ControlAssessment(
+            control_id="CC9.1",
+            control_name="Risk Mitigation",
+            status=status,
+            points_covered=covered,
+            points_total=total,
+        )
+        return RemediationPlanning._guidance(verdict, ["Business continuity plan"])
+
+    def test_evidence_that_addresses_no_point_of_focus_is_not_called_partial_coverage(
+        self,
+    ) -> None:
+        from ironclad.model.assessment import ControlStatus
+
+        text = self._guidance(ControlStatus.PARTIAL, 0, 2)
+        assert "0%" not in text
+        assert "partly evidenced" not in text
+        assert "none of its 2 points of focus" in text
+
+    def test_partial_coverage_still_says_how_much(self) -> None:
+        from ironclad.model.assessment import ControlStatus
+
+        text = self._guidance(ControlStatus.PARTIAL, 1, 3)
+        assert "partly evidenced (33% of its points of focus)" in text
+
+    def test_a_gap_is_still_a_gap(self) -> None:
+        from ironclad.model.assessment import ControlStatus
+
+        assert self._guidance(ControlStatus.GAP, 0, 2).startswith(
+            "No current evidence supports this control."
+        )

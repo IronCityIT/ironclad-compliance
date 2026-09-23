@@ -76,6 +76,7 @@ tr:last-child td { border-bottom: none; }
 .pill.medium { background: var(--part-bg); color: var(--part); }
 .pill.low, .pill.info { background: var(--na-bg); color: var(--na); }
 .cid { font-weight: 700; color: var(--navy); white-space: nowrap; }
+.date { white-space: nowrap; }
 .note { font-size: 8.5pt; color: var(--muted); margin-top: 4px; }
 .ours { font-weight: 700; color: var(--navy); white-space: nowrap; }
 .improved { color: var(--met); font-weight: 700; }
@@ -155,10 +156,13 @@ def _remediation_rows(plan: RemediationPlan) -> str:
         if item.item_id in overdue:
             since = item.created_at.date().isoformat()
             due_cell = (
-                f'<span class="overdue">{escape(due)} — overdue; raised {escape(since)}</span>'
+                f'<span class="overdue"><span class="date">{escape(due)}</span> — overdue; '
+                f'raised <span class="date">{escape(since)}</span></span>'
             )
         else:
-            due_cell = escape(due)
+            # A date is one token: "2026-10-" and "07" on two lines in a narrow
+            # column is how every printed plan read (PRODUCTIZE_NOTES §16.52).
+            due_cell = f'<span class="date">{escape(due)}</span>'
         required = ", ".join(item.evidence_gap[:4]) or "—"
         rows.append(
             "<tr>"

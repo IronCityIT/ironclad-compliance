@@ -116,6 +116,18 @@ class RemediationPlanning(AssessmentModule):
     def _guidance(verdict, missing: list[str]) -> str:  # type: ignore[no-untyped-def]
         if verdict.status is ControlStatus.GAP:
             opening = "No current evidence supports this control."
+        elif (
+            verdict.status is ControlStatus.PARTIAL
+            and verdict.points_total
+            and (verdict.points_covered == 0)
+        ):
+            # Partial by the corroboration rule — an item is linked — while
+            # addressing no point of focus. "Partly evidenced (0% …)" said both
+            # at once (PRODUCTIZE_NOTES §16.52).
+            opening = (
+                "Evidence is linked to this control, but it addresses none of its "
+                f"{verdict.points_total} points of focus yet."
+            )
         elif verdict.status is ControlStatus.PARTIAL:
             opening = (
                 f"The control is partly evidenced "
