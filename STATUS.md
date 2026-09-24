@@ -1,0 +1,533 @@
+# STATUS — Ironclad Compliance productization
+
+> **Architecture change, 2026-09-07.** Firebase, Firestore, Firebase Hosting and
+> GCP product storage are **retired from the target architecture**. GitHub
+> Actions stays the orchestration layer; persistent state moves to NAS-backed
+> MariaDB and NAS volumes. The Firebase components described below are the
+> *current implementation*, not the target. `HANDOFF.md` classifies every
+> reference and stages the migration; nothing is migrated or deleted yet.
+
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-23
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `87f2b28` (run 35923149183), all six jobs; green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
+
+> **The working tree carries uncommitted work that is not this branch's.**
+> A rebranded dashboard with a named healthcare client's demo data, a
+> `tenants/` baseline and `automation/`, dated 2026-09-10 evening. Reviewed,
+> not committed, not touched: it names a SIEM product on a served surface,
+> renders one client's name to every visitor, and uses a framework id the
+> engine refuses. `PRODUCTIZE_NOTES.md` §14 has the item-by-item review.
+> `sh scripts/gates.sh` is **red on white-label** while those files sit in
+> `dashboard/public/`; it is green on the committed tree.
+
+`ironclad-compliance` is not listed in any tier in `CLAUDE.md`, and the fallback
+rule is "treat as HANDS OFF and ask Bill". Asked, and directed to take the
+REVIEW ONLY posture: build, run the gates, open a PR, stop there. No merge, no
+deploy, no `workflow_dispatch` fired against a real client.
+
+## Phase state
+
+| Phase | State | Where |
+|---|---|---|
+| Read the existing code, reconcile findings | **DONE** | `PRODUCTIZE_NOTES.md` |
+| Controls / evidence domain model | **DONE, tested** | `ironclad/model/` |
+| Frameworks: NIST CSF 2.0, PCI DSS 4.0, HIPAA added | **DONE, validated** | `frameworks/` |
+| Crosswalks, 94 mappings | **DONE, every edge verified against real controls** | `frameworks/crosswalks/` |
+| Ingestion contract v1.0 | **DONE, tested** | `ironclad/ingest/`, `docs/ingestion-contract.md` |
+| Modular capabilities + registry | **DONE, tested** | `ironclad/modules/`, `ironclad/registry.py` |
+| Remediation planning | **DONE, tested; an open item keeps its first-raised and target dates across assessments, so overdue is real (§16.35)** | `ironclad/model/remediation.py` |
+| Exceptions / risk acceptance | **DONE, tested** | `ironclad/model/exception.py` |
+| Audit trail (hash-chained) | **DONE, tested** | `ironclad/model/audit.py` |
+| Reports, exports, auditor package | **DONE, tested** | `ironclad/report/` |
+| Assessment types actually shaping the deliverable | **DONE, tested** | `ironclad/report/views.py` |
+| Standards-vs-ICIT-policy disclosure | **DONE, tested** | `ironclad/method.py` |
+| Tenancy, RBAC, service API | **DONE, tested** | `ironclad/model/tenant.py`, `ironclad/api/` |
+| HTTP surface — `ironclad serve` | **DONE, tested against a real socket; not deployed** | `ironclad/api/http.py`, `docs/http-api.md` |
+| GitHub workflows | **DONE; `ci.yml` green; `compliance-assessment.yml` executed twice as a dry run, report stage proven, AI job red on the engine's output size (consensus-engine PR #6)** | `.github/workflows/` |
+| Jenkins pipeline | **DONE; passes the declarative linter; executed on a throwaway controller with the Docker agent substituted — every runnable gate green, `persistence` UNAVAILABLE as designed; the assessment mode published to a volume store through an `ironclad-store` credential (§16.26–16.28)** | `Jenkinsfile` |
+| Persistence seam (NAS volume + MariaDB) | **DONE, tested against a real MariaDB 10.5 in CI and 10.11 on this machine; the trend reads out of both stores** | `ironclad/store/` |
+| Evidence from a NAS volume | **DONE, tested** | `ironclad/evidence_root.py` |
+| Trend comparison between assessments | **DONE, tested; reaches the client report from both pipelines when a store is configured (§16.30)** | `ironclad/compare.py` |
+| End-to-end round trip | **DONE, green in CI against MariaDB and a volume** | `scripts/end_to_end.py` |
+| Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
+| Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
+| Dashboard | **DONE, rendering tested, not deployed; the `ironclad serve` read path is built and tested against a real server, and is not wired in until B6 (§16.39)** | `dashboard/public/`, `dashboard/test/` |
+
+## Gate results
+
+Run on this branch, this machine, 2026-09-06.
+
+| Gate | Command | Result |
+|---|---|---|
+| Format | `ruff format --check .` | **PASS** — 90 files |
+| Lint | `ruff check .` | **PASS** |
+| Typecheck | `mypy` | **PASS** — 81 source files |
+| Test | `pytest` | **PASS** — 844 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
+| Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
+| Dashboard | `npm --prefix dashboard test` | **PASS** — 60 passed (on the committed tree, 2026-09-23) |
+| Firestore rules | `npm --prefix tests/rules test` | **PASS** — 53 passed against the emulator |
+| Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29 |
+| End-to-end | `scripts/end_to_end.py` | **PASS** in CI against MariaDB **and** a volume |
+| Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
+| Catalog | `python tools/build_catalog.py --check` | **PASS** — committed catalog current |
+| Build | `python -m build` | **PASS** — sdist + wheel |
+| Security — dependencies | `pip-audit -r requirements*.txt` | **PASS** — no known vulnerabilities |
+| Security — secret literals | `sh scripts/check_secret_literals.sh` | **PASS** — no credential-shaped literals; one script for CI, `gates.sh` and Jenkins since 2026-09-17 |
+| Security — white-label | `sh scripts/check_white_label.sh` | **PASS on the committed tree; FAIL on the working tree** — see the note at the top |
+| Security — static analysis | `bandit` | **PASS in CI** — see below |
+
+`ci.yml` had no security gate at all when this branch started, despite
+`CLAUDE.md` listing one and the Jenkins pipeline running it. It has one now, and
+all four checks are green.
+
+`bandit` cannot run on this machine — it will not install into an
+externally-managed Python (PEP 668) — so its first real run was in CI, and it
+**found a genuine defect**: `scripts/store_results.py` passed an
+operator-supplied endpoint to `urllib.request.urlopen`, which honours `file://`.
+A mistyped or tampered endpoint would have read a local file and reported it as
+an HTTP response. Rewritten onto `http.client`, which speaks only HTTP, so the
+risk is structurally absent rather than checked. That rewrite also caught a
+second bug: the old code inferred success from "no exception raised", so a 204 or
+a 302 from a misconfigured ingest would have been recorded as stored.
+
+`pip-audit` is scoped to `requirements.txt` and `requirements-dev.txt` rather
+than the whole environment — more correct, since it audits what this repository
+declares, and it is also what made it runnable here, where an unrelated
+locally-installed package had been aborting the whole-environment scan.
+
+## CI
+
+Green on `productize/ironclad-compliance` at `c5d167a`, run
+[35183274645](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35183274645):
+Quality gates (3.10) ✅ · Quality gates (3.12) ✅ · Cloud Functions and dashboard ✅ ·
+Persistence and end-to-end ✅ · Firestore rules ✅ · Security gate ✅
+
+`ci.yml` now also runs a **Cloud Functions** job. `functions/` previously had no
+gate but `node --check`, and no tests at all, while carrying the code that
+decides which tenant a write lands in.
+
+## What is proven, and how
+
+**Proven by execution on this machine:**
+
+- An end-to-end assessment: ingest a directory → 6 capabilities → scored
+  assessment → remediation plan → HTML report → auditor package. Run repeatedly
+  against real evidence files.
+- All four frameworks load, validate, and produce keywords for every control.
+- All 94 crosswalk edges point at controls that actually exist in both
+  frameworks — checked by a test, not by eye.
+- The consensus-engine merge path across all three states: a valid base64
+  payload, an empty one (the engine's documented failure output), and garbage.
+  Run by extracting the workflow step verbatim from the YAML and executing it.
+- `scripts/validate_artifacts.py` rejects a prepended byte, a missing trailing
+  newline, and a truncated document.
+- Determinism: the same inputs produce the same readiness score across runs.
+- Degradation: a capability that raises mid-run is recorded as failed, named in
+  the report's caveats, and the rest of the assessment still completes.
+- The three assessment types produce three different documents from one
+  unchanged assessment: same evidence, identical 24.0% readiness and identical
+  stored control set; 33 controls listed in the full report, 28 in the gap
+  analysis, none in the readiness summary; both abridged reports state what they
+  left out. The auditor package exported from the gap-only run carries all 33
+  controls in `control-register.csv` and a verified audit chain.
+- `ironclad report --view full` re-issues a stored gap-only assessment as the
+  complete report without re-running anything.
+- Every control id in all four shipped frameworks (126 of them) is usable as a
+  stored document id — checked, not assumed, and a framework carrying one that
+  is not now fails validation with the control named, rather than losing that
+  control at storage time behind a 200.
+- **Every permission refusal is exercised.** `api/service.py` 84% → 100%: a
+  viewer running an assessment, an auditor running one, a contributor revoking
+  an acceptance, a stranger reading another tenant's assessments, a viewer
+  reading the exception register. A refusal that silently succeeded would be a
+  viewer revoking a risk acceptance. Coverage across the engine is 93%.
+- **A policy file that validates now also loads.** `ironclad validate --policy`
+  accepted a rejected acceptance and `load_policy` then raised on it: the replay
+  never submitted the exception, and the state machine correctly refuses
+  draft → rejected. An expired one was not replayed at all and came out as a
+  draft, silently discarding the status the file claimed. Every status a policy
+  may carry — draft, pending, approved, rejected, revoked, expired — now
+  validates and loads into that state. `policy.py` 86% → 97%.
+- **A withdrawn decision does not make a failing control disappear.** Asserted
+  end to end: with a rejected, revoked, expired, draft or still-pending
+  acceptance on CC1.1, the control does not read as `accepted_risk`; with a live
+  approval it does, so the negative tests are not passing because nothing works.
+- **Evidence extraction, where a met control becomes a gap if it goes wrong.**
+  `ironclad/ingest/extractors.py` was the least covered module in the engine at
+  52% and the most consequential: a document that fails to extract produces no
+  matched terms, so the control it supports reads as unevidenced. 92% in CI now,
+  with the failure paths asserted individually — corrupt file, empty file,
+  truncated zip behind a `.docx`, missing dependency, unsupported suffix, no
+  suffix — each coming back as a named error with empty text rather than as an
+  empty document.
+- **The PDF reader is a maintained one.** PyPDF2 announces its own deprecation
+  on import and no longer receives fixes; this parser reads documents a client
+  uploads. `pypdf` is preferred, PyPDF2 still accepted.
+- **The whole path agrees with itself.** `scripts/end_to_end.py` ingests the
+  sample evidence, assesses it, renders the deliverables, publishes and reads
+  the record back — against MariaDB and against a volume, in CI on every push.
+  It checks the readiness a client reads is the readiness stored, the chain head
+  matches, the queue is the tenant's own, and re-publishing leaves one record.
+- **A trend that moves the right controls.** Adding a risk assessment and a
+  change management policy to the sample evidence moved readiness 46.5% → 63.5%,
+  improved 12 controls and closed 7 remediation items — and the controls that
+  moved are CC3.1–CC3.4, CC8.1, CC9.1 and CC9.2, which are the ones those two
+  documents actually evidence.
+- **A tenant's evidence prefix cannot be escaped**: a traversal, a path-shaped
+  client id that would normalise into a different valid tenant, a symlink on the
+  prefix, and a symlink on a file inside it are each refused, and an empty
+  prefix is refused rather than assessed as nothing.
+- The persistence seam against a **real MariaDB 10.5.29** in CI: schema applied
+  (7 statements), 70 store tests passed. Two defects it found on its first real
+  run, both invisible to a mock — MariaDB truncates silently without a strict
+  `sql_mode`, and remediation item ids being deterministic on (tenant, control)
+  meant a client's *second* assessment collided with their first. Then a third,
+  worse than either: the projection was truncating in Python before the database
+  ever saw the value, on both backends. Nothing is truncated now; an over-long
+  value is refused with its table, column and length named.
+- `firestore.rules` executed against the Firestore emulator, both directions:
+  a tenant reads its own record and an auditor sees the evidence index, while a
+  tenant cannot reach another tenant's documents by any of seven paths, cannot
+  list the client collection, and no role can write anywhere. 53 cases.
+  Verified by mutation rather than by a green tick: replacing `ownsTenant` with
+  `return true` fails 17 of them, so the suite is checking the partition rather
+  than agreeing with it.
+- Every field the dashboard takes from a record is escaped before it reaches the
+  page — asserted field by field over every render path, not read for. Two were
+  not: the "N of M evidence items are out of date" banner and the framework
+  option's control count. Both were counts, which is why nobody looked at them,
+  and neither is guaranteed to be a number — `storeAssessmentResults` copies
+  `body.summary` verbatim and `catalog.json` is fetched over the network. A
+  crafted record put script into a client's compliance dashboard. Both fixed.
+- The report and the stored record both state, rule by rule, whether a bar came
+  from the framework or from Iron City — generated from the constants the engine
+  applies, so the disclosure cannot describe a rule that changed in the code.
+- The tenant slug is byte-identical between `ironclad.ids.slugify` and
+  `functions/core.js::toClientId` over a shared table of 21 cases, including
+  traversal and reserved-name inputs. A disagreement there writes a client's
+  results to a document their dashboard does not read.
+
+- **The HTTP surface, refusal by refusal, on a real socket.** `ironclad serve`
+  gives the dashboard a backend that is not Firebase: 59 tests speak HTTP to a
+  `ThreadingHTTPServer` on a loopback port, including the command run as a
+  subprocess. Fail-closed without a token file (503, not open); a stranger's
+  read and write are 403 and leave nothing on the policy volume; the body
+  cannot redirect a write to another tenant or name a different requester;
+  request → approve → revoke lands in `policy.json` with a chained trail. Four
+  defects on the first run, recorded in `PRODUCTIZE_NOTES.md` §13 — the one
+  that matters most: over HTTP, `requested_by` from the body would have let a
+  manager approve their own acceptance.
+- **The white-label gate now reads the surface, not a list.** It enumerated
+  four files; a fifth in `dashboard/public/` was served and unread. One script
+  scans the directories, in CI, `gates.sh` and Jenkins (which had no such
+  check), and it is red on the working tree for exactly the reason it should
+  be.
+
+- **The evidence directory is a boundary (2026-09-16).** A tenant's own
+  `manifest.json` could name `../other-client/policy.pdf` or `/etc/passwd`
+  and the engine read it, matched it and linked it to the tenant's controls
+  with the path on their record; staging confined the prefix but not what the
+  prefix's manifest pointed at. Every local URI must now resolve inside the
+  directory, symlinks are refused rather than followed, and `.DS_Store`,
+  `.git/` and `__MACOSX` are not evidence. Reproduced, fixed, re-run:
+  `PRODUCTIZE_NOTES.md` §16.1–16.2, 16.8.
+- **A risk acceptance can be renewed (2026-09-16).** Request → approve →
+  revoke → request again was a 500 over HTTP and the CLI alike: the policy
+  file's one-per-control rule counted history, so a lapsed acceptance blocked
+  the renewal the engine's own "lapsed" finding asks for — and nothing swept
+  lapsed approvals on file. Replayed against the restarted server: the
+  renewal lands `[revoked, pending_approval]`. Nine more inputs a browser
+  would not send, a swapped `compare`, and non-JSON files to `report`,
+  `export`, `compare` and `validate` each get a named refusal instead of a
+  traceback or a coerced value. §16.4–16.9.
+
+- **The scoring cannot be talked into a verdict (2026-09-17).** Three ways a
+  tenant's own files moved the number, each tried and closed: a copy of a
+  document counted as the corroborating second (one document now, by bytes
+  or by text); a manifest's `collected_at: 2030` made a review fresh for
+  years (pulled back to ingestion, named) and a `valid_until: 2099` was
+  accepted silently (stands, disclosed); two remote URIs nobody read, each
+  hinting every control id, scored **100%** (held at partial, named). A
+  document that *is* the framework's wording still scores 100% — keyword
+  matching cannot tell a quoting policy from a copy — and is now named as
+  such in the caveats rather than believed quietly. §16.15–16.18.
+- **The trend could not tell a decision from progress (2026-09-17).**
+  Accepting every gap read as "11 improved, 27 remediation items closed";
+  a quick-group run followed by a deep one read as "27 opened". Acceptance
+  is a decision in either direction now, an item set aside by acceptance or
+  scope is not closed, and a side that never planned remediation is named.
+  The same pair reads "0 improved, 0 closed; 27 accepted as risk". §16.36.
+- **Nothing could ever be overdue (2026-09-17).** Every run re-dated its
+  remediation items to today, so a control outstanding for six months read
+  "due in 30 days" in every report. With the previous assessment — which
+  both pipelines now fetch — an open item keeps its first-raised and target
+  dates, the caveats name the overdue controls and the report marks the rows.
+  Proven on the throwaway controller: 27 items carried from the earlier
+  stored plan, dates unchanged. §16.35.
+- **The dashboard card says how far to trust the number (2026-09-17).**
+  Every caveat the engine raises reached the report and the record and the
+  card showed the bare figure; it now shows the scoped-out count, names a
+  stage that did not complete, and lists the first three caveats. §16.34.
+- **MariaDB, from this machine (2026-09-17).** Two more store defects the
+  CI suite could not see: a record read back as the number 46.5 from the
+  volume and the string "46.50" from MariaDB through the API's JSON; and
+  two clients handing in the same `scan_id` — a standard dispatch input now
+  — was an IntegrityError for the second on MariaDB and two records on the
+  volume. Rows are normalised, the key is `(tenant_id, assessment_id)` with
+  composite child keys, and contract tests on both stores hold them alike.
+  Nothing initialised from the old schema exists outside CI and the scratch
+  server. §16.32–16.33.
+- **The trend reaches the report (2026-09-17).** The comparison existed and
+  nothing in either pipeline fetched the previous assessment; now both do,
+  from the store, and the auditor package carries the report as issued
+  rather than a re-render that lost the section. MariaDB found to be
+  installed here: 73 store tests and the round trip pass against 10.11,
+  twenty concurrent publishes land clean, and `compare --client` now works
+  against it. §16.29–16.31.
+- **The Jenkins pipeline ran (2026-09-17).** On a throwaway controller in
+  the scratchpad with only the Docker agent substituted: nine builds, every
+  runnable gate green, the assessment mode publishing to a volume store
+  through a credential. Found four defects the linter could not — a
+  plugin-only cleanup step, gate accumulators that never reached `post`, a
+  publish stage wired to the retired ingest alone, and the restore check
+  reading a tenant's trail as one chain, which broke on the second
+  assessment into any store used twice. §16.26–16.28.
+- **Three pipelines, one set of gates (2026-09-17).** A parity test written
+  to hold `ci.yml`, `gates.sh` and the Jenkinsfile together failed first
+  against CI: the catalog check that keeps the dashboard's `catalog.json`
+  equal to the registry ran everywhere but CI. It runs there now; the
+  secrets check is a shared script rather than inline shell in one place;
+  the Jenkins security gate matches CI's. §16.25.
+- **What a file costs to open (2026-09-17).** With the extraction extras in
+  a venv for the first time on this machine: a 0.57 MB `.docx` expanding to
+  143 MB took 19 s and 545 MB to yield 20,000 characters — four of them and
+  the assess job is out of memory. The zip's own table of contents is read
+  first and a member past 50 MB is refused unopened; text files are read only
+  as far as the clip; `pypdf` already refuses a stream bomb on its own. The
+  models' advice is white-labelled at merge time, since it is the one text
+  the gate cannot scan. consensus-engine PR #6 measured against the real
+  artifact: 707 KB → 87 KB, folds clean. §16.22–16.24.
+- **The record store under load (2026-09-17).** Twenty concurrent acceptance
+  requests: fourteen answered 200, eight were on file, six read a half-written
+  policy and got a 500. The policy store now holds a file lock across each
+  write path and replaces both files atomically; replayed, 20 of 20 land and
+  the audit chain holds. §16.21.
+- **Also 2026-09-17:** `ironclad serve` closes a stalled connection after
+  30 s instead of holding its thread forever; the auditor package carries a
+  digest for every file and a `SHA256SUMS`; `store verify` lists every fault;
+  the workflow speaks the standard `client_name`/`scan_id` inputs, proven by
+  a third dry run. §16.10–16.14.
+
+## Dry runs — the product workflow has now executed
+
+`Compliance Assessment` gained a `dry_run` input: the synthetic sample
+evidence, every stage, artifacts uploaded, nothing published, the assessment
+id suffixed `-dry-run`. Dispatched twice on this branch against the throwaway
+client "ICIT Dry Run", framework `soc2`. Full account in
+`PRODUCTIZE_NOTES.md` §15.
+
+| Run | prepare | assess | ai-consensus | report | What it proved |
+|---|---|---|---|---|---|
+| [34722216087](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34722216087) | ✅ | ✅ 46.5% | ❌ 23 min | ✅ | The engine analysed all 57 findings — 14 of 15 models on every one — then the job failed at the **1 MB job-output cap** ("Maximum object size exceeded"). The report ran with `consensus: unavailable`. Reading the artifact it also uploaded showed the merge would have rejected the result anyway: a list, and field names the merge never read. |
+| [34723682288](https://github.com/IronCityIT/ironclad-compliance/actions/runs/34723682288) | ✅ | ✅ 46.5% | ❌ 13 min | ✅ **`consensus status: ok analysed: 25 of 25`** | On the fixed workflow: 25 findings sent (one per control, gaps only, capped), the report job read the engine's **artifact** — 707 KB — merged it, rendered the report with the commentary block populated, exported the auditor package, validated the artifacts, published nowhere. The AI job is still red: 25 results are 0.9 MB base64 and the step output is counted alongside the job output. |
+| [35170758865](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35170758865) | ✅ | ✅ 46.5% | cancelled while queued | ✅ `consensus: unavailable` | 2026-09-17, dispatched with the **standard input names** `client_name` and `scan_id` (§16.14): the client resolved, the scan id became the assessment id with `-dry-run` suffixed, the report and package rendered, nothing published. The AI stage was cancelled deliberately — it proves nothing about input names and costs 13 minutes of model calls. |
+| [35183541091](https://github.com/IronCityIT/ironclad-compliance/actions/runs/35183541091) | ✅ | ✅ 46.5% | cancelled while running | ✅ | 2026-09-17, after the report job learned to take the previous assessment from the assess job and to package the report as issued (§16.30–16.35): the absent `previous-assessment` artifact is tolerated, the report renders without a trend, the package carries the issued report, artifacts valid, nothing published. |
+
+The red AI job is the engine's output size, not its analysis. Fixed at the
+source in **[consensus-engine PR #6](https://github.com/IronCityIT/consensus-engine/pull/6)**
+(REVIEW ONLY — opened, not merged): the output drops the model transcripts,
+which were ~90% of the bytes; the artifact keeps them. Until it merges, the
+report is right and the run summary says so — it reports the fold's outcome
+and the AI job's status side by side.
+
+Seen in both runs and belonging to the engine's owner: `gemini-flash` **403
+Forbidden on all 82 calls** — `GEMINI_API_KEY` is rejected or the project
+behind it is not enabled — and `gpt-oss-20b` returning no JSON on 27 of 82.
+
+**Not proven — needs a GitHub runner:**
+
+The evidence-staging and publishing steps of the product workflow — a real
+tenant's evidence from a volume, a real store — are exactly the steps a dry
+run skips, and they need the transport decision (HANDOFF §3.2). The framework
+update checker workflow has not been dispatched from this branch.
+
+**Partly proven — the Jenkins pipeline, on a throwaway controller (2026-09-17):**
+
+`Jenkinsfile` passes the declarative linter and, with only its Docker agent
+substituted by `agent any`, ran four builds on a Jenkins started in the
+scratchpad: every gate green in order, the Firestore emulator and the node
+suites included, `persistence` UNAVAILABLE without MariaDB and the build
+UNSTABLE as designed. The runs found three defects in the file — a
+plugin-only cleanup step, a description that was never set, and gate
+accumulators that never reached `post` — and one in the store: the restore
+check read a tenant's trail as one chain and broke on the second assessment
+(§16.27). Not proven: the `python:3.11-slim` Docker agent, and ICIT's own
+controller and plugin set. The two credential ids the assessment stage binds
+(`ironclad-store-results-url`, `ironclad-ingest-api-key`) do not exist yet.
+
+**Not proven — needs GCP:**
+
+Nothing is deployed. The Cloud Functions have never *run* and the dashboard has
+never been served against a live project.
+
+`firestore.rules` is no longer in this list: it is executed against the emulator
+by `tests/rules`, as its own CI job. What remains unproven there is the pairing
+with `functions/exchange.js` — the rules are tested against the claims that
+function is supposed to mint, and the minting itself still needs a live Auth0
+token to prove end to end. The claim shapes it produces are unit-tested; the
+round trip is not.
+
+What is now proven about the functions is their decisions, not their execution:
+`functions/core.js` holds the tenant slug, the document-id check, the ingest
+authorization and the evidence-path check, with no firebase imports, and
+`functions/test` covers every branch. Three defects it found and fixed:
+
+1. **The ingest failed open.** An unset `INGEST_API_KEY` was treated as "open by
+   config", so a deploy that never bound the secret would have left an
+   unauthenticated endpoint able to create or overwrite an assessment in *any*
+   tenant — the `client_id` comes from the request body. A missing key now
+   refuses every write (503) instead of accepting anyone's.
+2. **The evidence-path check was a containment test.** `gs://bucket/acme/../beta/`
+   contains `/acme/` and so passed, pointing a run at another tenant's evidence
+   while filing the result under the caller's. The prefix is now checked
+   structurally: the client id must be the first object segment and no segment
+   may be empty or relative.
+3. **Payload-supplied ids went into Firestore paths unchecked.** An
+   `assessment_id`, remediation `item_id` or audit `event_id` containing `/`
+   addressed a different collection — a path `firestore.rules` does not match,
+   so the record would have been written where nothing can read it. Ids are now
+   checked; the assessment id is refused rather than rewritten, because a
+   sanitized substitute silently splits a re-run into a second record.
+
+## Live evidence from `main`
+
+**Correction to an earlier entry.** This previously recorded that the fixed
+checker "reported `updates_found=false` for all four" across two live runs, as
+evidence it does not false-positive. That was true and it was not the whole
+story: it could not false-positive on three of the four because **it was seeing
+nothing at all**. `meta` and `link` were in the extractor's skip set and both are
+void — `<meta charset="utf-8">` has no closing tag — so the skip counter went up
+on the first one in `<head>` and never came back down, discarding every text
+node after it. SOC 2, PCI DSS and HIPAA were being fingerprinted as the empty
+string, compared against the empty string, and reported unchanged with
+confidence. NIST worked only because that page self-closes its meta tags.
+
+Fixed, and the first working run found a real update — see below.
+
+Applying the *original* rule to the same pages: it reports an update on NIST,
+matching the word "latest", where the current rule reports unchanged. That
+comparison stands; it is the reason PR #3 exists.
+
+### The first working run found a real one: PCI DSS 4.0.1
+
+With the extractor fixed, all four sources yield real text — 5,368 to 9,139
+characters — and the checker immediately reported:
+
+```
+! PCI Data Security Standard: version_detected — The source advertises 4.0.1
+  while this repository tracks 4.0.
+```
+
+**This is a true positive and an open product task.** `frameworks/pci-dss-4.0.json`
+carries 27 controls against 4.0; the source publishes 4.0.1. The control text
+has not been touched here — the checker never transcribes a regulator's wording
+and neither does this session. Reading the published document and updating the
+control set, the version in `framework-versions.json` and the affected
+crosswalks is work for someone who can read the standard.
+
+A second run against the recorded fingerprints reported `unchanged` for the
+other three and the same version detection for PCI, so the result is stable
+rather than a one-off.
+
+```
+framework                          old rule                       new rule
+SOC 2 Trust Service Criteria       no update                      unchanged
+NIST Cybersecurity Framework       UPDATE — matched 'latest'      unchanged
+PCI Data Security Standard         no update                      unchanged
+HIPAA Security Rule                no update                      unchanged
+```
+
+
+**PR #3 is an open false positive.** The quarterly framework checker on `main`
+matched the word "latest" on three standards pages and reported all three as
+updated — its own diff says `"details": "Found 'latest'"` for each. It also adds
+`updates.json`, which `.gitignore` excludes. Both defects are fixed on this
+branch; the finding is recorded as a comment on PR #3, which needs closing
+rather than merging. Not closed here — that is Bill's call.
+
+## Blocked
+
+**`GITHUB_DISPATCH_TOKEN` is not provisioned.** `functions/trigger.js` needs a
+GitHub token with `actions:write` on `IronCityIT/ironclad-compliance` to start
+an assessment from the dashboard. It is not on the approved ICIT secret list, so
+no value was invented — the function references the name and will not deploy
+until the secret exists in Secret Manager (us-east5). Everything else works
+without it; only the dashboard's "Start assessment" button depends on it.
+
+## Exact next command
+
+The branch is pushed and PR #4 is open with CI green. What remains needs
+something this machine does not have.
+
+```sh
+# 1. review the PR
+gh pr view 4 -R IronCityIT/ironclad-compliance --web
+
+# 2. dry-run the assessment workflow against a throwaway client before
+#    anything touches a real one. NOT run: firing it needs the GCS evidence
+#    bucket and the ingest secrets, and it is a real dispatch, which the
+#    REVIEW ONLY posture does not cover.
+gh workflow run "Compliance Assessment" \
+  -R IronCityIT/ironclad-compliance \
+  -f client_name="icit-internal" \
+  -f framework=soc2 \
+  -f evidence_path=gs://ironclad-evidence/icit-internal/
+
+# 3. the rules suite, if you want to see it locally (CI runs it every push)
+npm --prefix tests/rules ci && npm --prefix tests/rules test
+```
+
+## Open decisions
+
+1. **Merge and deploy?** This branch stops at the PR under the REVIEW ONLY
+   posture. Moving `ironclad-compliance` to IN SCOPE in `CLAUDE.md` is the
+   decision that unblocks merge and deploy, and it is not one to make silently.
+2. **Provision `GITHUB_DISPATCH_TOKEN`?** Without it the dashboard renders and
+   reads results but cannot start an assessment.
+3. **Provision `STORE_RESULTS_URL` and `INGEST_API_KEY`?** `store_results.py`
+   prints the record instead of posting when the endpoint is unset, so the
+   pipeline runs without them — it just does not publish.
+4. **Is the corroboration rule right for the business?** Two independent items
+   before a control reads as met is an auditor's bar, and it will make early
+   client reports look worse than the tools they are replacing. That is
+   deliberate, but it is a commercial call, not a technical one.
+5. **The freshness windows are ICIT policy, not standard.** 90 days for an
+   access review, 365 for a policy, 30 for a scan. They are the numbers most
+   likely to need arguing with a real auditor. They live in one dict —
+   `ironclad/model/evidence.py::VALIDITY_DAYS`. Every report and every stored
+   record now carries a *Basis of assessment* block that says so explicitly,
+   rule by rule, generated from the constants the engine applies
+   (`ironclad/method.py`). The decision is still open; what is no longer open is
+   whether a client can tell which bars are ours.
+6. **The legacy `scripts/*.py` are now thin wrappers.** They keep the flags the
+   old workflow passed. If nothing outside this repo calls them, they can go.
+
+## Note on the old scripts
+
+`scripts/assess_controls.py`, `generate_report.py`, `check_framework_updates.py`
+and `store_results.py` all still exist and still take the arguments they always
+took. Their logic moved into the package; the files are wrappers. Nothing that
+called them before needs to change.
+
+That promise had nothing behind it until now — none of them had a test, and one
+had stopped keeping it. **`assess_controls.py` had no `--policy` flag and did not
+look for a policy beside the evidence**, so a client's scope exclusions and risk
+acceptances were silently not applied: a control the client had formally
+accepted came back as a gap. Fixed, and both entry points are now asserted to
+reach identical verdicts and an identical readiness score over the same evidence
+and policy. Its `--assessment-type` is constrained to the real set too; it used
+to accept anything and fall back to the full view without a word.
+
+`generate_report.py` and `check_framework_updates.py` were checked against the
+engine and are faithful. `store_results.py` is the retired ingest path and goes
+with `functions/`.

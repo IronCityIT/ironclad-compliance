@@ -1,0 +1,158 @@
+{
+  "generated_by": "tools/build_catalog.py (engine 1.0.0)",
+  "engine_version": "1.0.0",
+  "modules": [
+    {
+      "name": "control_mapping",
+      "description": "Match submitted evidence to each framework control and set an initial verdict.",
+      "groups": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "evidence_inventory"
+      ]
+    },
+    {
+      "name": "crosswalk_coverage",
+      "description": "Project assessed control verdicts onto the other supported frameworks to show what is already covered.",
+      "groups": [
+        "deep"
+      ],
+      "requires": [
+        "control_mapping"
+      ]
+    },
+    {
+      "name": "evidence_inventory",
+      "description": "Catalogue submitted evidence and flag missing, unreadable or expired items.",
+      "groups": [
+        "quick",
+        "standard",
+        "deep"
+      ],
+      "requires": []
+    },
+    {
+      "name": "exception_review",
+      "description": "Apply approved risk acceptances and reopen any that have lapsed.",
+      "groups": [
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "control_mapping",
+        "scope_review"
+      ]
+    },
+    {
+      "name": "freshness_check",
+      "description": "Flag controls whose supporting evidence is ageing or about to expire.",
+      "groups": [
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "control_mapping"
+      ]
+    },
+    {
+      "name": "remediation_plan",
+      "description": "Produce a prioritised remediation plan with owners, due dates and required evidence.",
+      "groups": [
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "control_mapping",
+        "exception_review"
+      ]
+    },
+    {
+      "name": "scope_review",
+      "description": "Apply the client's scoping determinations and flag any that need re-examining.",
+      "groups": [
+        "standard",
+        "deep"
+      ],
+      "requires": [
+        "control_mapping"
+      ]
+    }
+  ],
+  "groups": [
+    "deep",
+    "quick",
+    "standard"
+  ],
+  "default_group": "standard",
+  "frameworks": [
+    {
+      "alias": "hipaa",
+      "id": "hipaa",
+      "name": "HIPAA Security Rule",
+      "version": "45 CFR Part 164 Subpart C",
+      "source": "HHS",
+      "control_count": 23
+    },
+    {
+      "alias": "nist-csf",
+      "id": "nist-csf",
+      "name": "NIST Cybersecurity Framework",
+      "version": "2.0",
+      "source": "NIST",
+      "control_count": 43
+    },
+    {
+      "alias": "pci-dss",
+      "id": "pci-dss",
+      "name": "PCI Data Security Standard",
+      "version": "4.0",
+      "source": "PCI Security Standards Council",
+      "control_count": 27
+    },
+    {
+      "alias": "soc2",
+      "id": "soc2-tsc",
+      "name": "SOC 2 Trust Service Criteria",
+      "version": "2017",
+      "source": "AICPA",
+      "control_count": 33
+    }
+  ],
+  "assessment_types": [
+    {
+      "name": "full",
+      "title": "Compliance readiness assessment",
+      "description": "Every control, the remediation plan and the framework crosswalk.",
+      "shows_register": true,
+      "register_statuses": null,
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    },
+    {
+      "name": "gap-only",
+      "title": "Compliance gap analysis",
+      "description": "Only the controls with outstanding work, plus the remediation plan.",
+      "shows_register": true,
+      "register_statuses": [
+        "gap",
+        "partial",
+        "pending",
+        "accepted_risk"
+      ],
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    },
+    {
+      "name": "readiness",
+      "title": "Compliance readiness summary",
+      "description": "The overall position and the work outstanding, without the register.",
+      "shows_register": false,
+      "register_statuses": null,
+      "shows_remediation": true,
+      "shows_crosswalk": true
+    }
+  ]
+}

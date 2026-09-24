@@ -1,0 +1,156 @@
+rules_version = '2';
+
+// Ironclad Compliance — multi-tenant Firestore rules.
+//
+// Data is partitioned as clients/{client_id}/... . A signed-in user may read
+// only their own client's data. The client_id and roles are asserted on the
+// Auth0 -> Firebase custom token by functions/exchange.js; nothing else mints
+// them, so there is no path to another tenant's documents.
+//
+// Assessment, evidence, remediation and risk writes remain Admin/service-owned.
+// The only browser-write exception is the tenant partner/integration register,
+// restricted to owner, compliance_manager and contributor roles.
+//
+// Roles mirror ironclad.model.tenant.Role. The two role checks below are the
+// ones that matter at the data layer:
+//   * evidence and the audit trail are not visible to a plain viewer
+//   * only oversight records are client-maintainable; assessment records stay read-only
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function callerClientId() {
+      return request.auth != null ? request.auth.token.client_id : null;
+    }
+
+    function callerRoles() {
+      return request.auth != null && request.auth.token.roles is list
+        ? request.auth.token.roles
+        : [];
+    }
+
+    function ownsTenant(clientId) {
+      return callerClientId() == clientId;
+    }
+
+    // Evidence references and the audit trail are privileged reads within the
+    // tenant. A viewer sees the readiness position; they do not see the
+    // underlying evidence index or who accepted which risk.
+    function canReadPrivileged() {
+      return callerRoles().hasAny(['owner', 'compliance_manager', 'auditor']);
+    }
+
+    function canMaintainOversight() {
+      return callerRoles().hasAny(['owner', 'compliance_manager', 'contributor']);
+    }
+
+    function canApproveOversight() {
+      return callerRoles().hasAny(['owner', 'compliance_manager']);
+    }
+
+    function validOversightCreate(clientId) {
+      return request.resource.data.tenant_id == clientId
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.updated_by == request.auth.uid
+        && request.resource.data.created_at == request.time
+        && request.resource.data.updated_at == request.time;
+    }
+
+    function validOversightUpdate(clientId) {
+      return request.resource.data.tenant_id == clientId
+        && request.resource.data.tenant_id == resource.data.tenant_id
+        && request.resource.data.created_by == resource.data.created_by
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.updated_by == request.auth.uid
+        && request.resource.data.updated_at == request.time;
+    }
+
+    function contributorKeepsGovernanceState() {
+      return !callerRoles().hasAny(['contributor'])
+        || callerRoles().hasAny(['owner', 'compliance_manager'])
+        || (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
+          ['risk', 'agreement_status', 'baa_status', 'status']
+        ));
+    }
+
+    match /clients/{clientId} {
+      allow read: if ownsTenant(clientId);
+      allow write: if false;
+
+      match /assessments/{assessmentId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+
+        // Per-control detail, stored separately for large frameworks.
+        match /controls/{controlId} {
+          allow read: if ownsTenant(clientId);
+          allow write: if false;
+        }
+      }
+
+      match /remediation/{itemId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      // Client-maintained third-party and integration inventory. These are the
+      // only browser-writable records in the tenant tree. The authenticated
+      // tenant owns the path and only programme contributors may change it.
+      match /partners/{partnerId} {
+        allow read: if ownsTenant(clientId);
+        allow create: if ownsTenant(clientId)
+          && canMaintainOversight()
+          && validOversightCreate(clientId)
+          && (canApproveOversight()
+            || (request.resource.data.risk == 'Unrated'
+              && request.resource.data.agreement_status == 'Pending review'
+              && request.resource.data.baa_status == 'Pending review'
+              && request.resource.data.status == 'Pending information'));
+        allow update: if ownsTenant(clientId)
+          && canMaintainOversight()
+          && validOversightUpdate(clientId)
+          && contributorKeepsGovernanceState();
+        // Retain history. Offboard/retire records by status rather than deleting them.
+        allow delete: if false;
+      }
+
+      match /integrations/{integrationId} {
+        allow read: if ownsTenant(clientId);
+        allow create: if ownsTenant(clientId)
+          && canMaintainOversight()
+          && validOversightCreate(clientId)
+          && (canApproveOversight()
+            || (request.resource.data.risk == 'Unrated'
+              && request.resource.data.agreement_status == 'Pending review'
+              && request.resource.data.baa_status == 'Pending review'
+              && request.resource.data.status == 'Pending information'));
+        allow update: if ownsTenant(clientId)
+          && canMaintainOversight()
+          && validOversightUpdate(clientId)
+          && contributorKeepsGovernanceState();
+        // Retain history. Offboard/retire records by status rather than deleting them.
+        allow delete: if false;
+      }
+
+      match /exceptions/{exceptionId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      match /evidence/{artifactId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+
+      match /audit/{eventId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+    }
+
+    // Anything not matched above is closed. Stated explicitly rather than left
+    // to the default, so a new collection cannot be readable by accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
