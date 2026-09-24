@@ -125,6 +125,17 @@ export async function startAuth(config) {
   $("client-roles").textContent = roles.join(", ") || "viewer";
   $("signed-in").hidden = false;
 
+  // Tenant-scoped third-party / integration register. The page reuses the
+  // Firebase session minted above and derives client_id + roles from claims.
+  if (!document.getElementById("oversight-link")) {
+    const link = document.createElement("a");
+    link.id = "oversight-link";
+    link.href = "/oversight.html";
+    link.textContent = "Partner & integration oversight";
+    link.style.cssText = "display:inline-block;margin-top:6px;color:#fff;font-size:9.5pt";
+    $("signed-in").appendChild(link);
+  }
+
   const canRun = roles.some((r) => MAY_RUN.has(r));
   $("new-assessment").hidden = !canRun;
   if (!canRun) {

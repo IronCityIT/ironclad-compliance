@@ -27,7 +27,7 @@ const {
   assertFails,
   assertSucceeds,
 } = require("@firebase/rules-unit-testing");
-const { doc, getDoc, setDoc, deleteDoc, collection, getDocs } = require("firebase/firestore");
+const { doc, getDoc, setDoc, deleteDoc, collection, getDocs, serverTimestamp } = require("firebase/firestore");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
@@ -290,6 +290,58 @@ test("no client may write anywhere, whatever their role", async (t) => {
   await t.test("nobody can create a new tenant", async () => {
     const db = as(ACME, ["owner"]);
     await assertFails(setDoc(doc(db, "clients", "invented-tenant"), { client_id: "invented" }));
+  });
+});
+
+test("partner and integration oversight is tenant-scoped and role-gated", async (t) => {
+  const ownPartner = (db, id = "partner-1") => doc(db, "clients", ACME, "partners", id);
+  const ownIntegration = (db, id = "integration-1") => doc(db, "clients", ACME, "integrations", id);
+  const payload = { tenant_id: ACME, name: "Clinical Integration Partner", risk: "Unrated", agreement_status: "Pending review", baa_status: "Pending review", status: "Pending information", created_by: "", updated_by: "", created_at: serverTimestamp(), updated_at: serverTimestamp() };
+  const forUser = (db, role) => ({ ...payload, created_by: `auth0|${ACME}-${role}`, updated_by: `auth0|${ACME}-${role}` });
+
+  for (const role of ["owner", "compliance_manager", "contributor"]) {
+    await t.test(`${role} can maintain its own oversight records`, async () => {
+      const db = as(ACME, [role]);
+      await assertSucceeds(setDoc(ownPartner(db, `partner-${role}`), forUser(db, role)));
+      await assertSucceeds(setDoc(ownIntegration(db, `integration-${role}`), forUser(db, role)));
+      await assertSucceeds(getDoc(ownPartner(db, `partner-${role}`)));
+    });
+  }
+
+  for (const role of ["viewer", "auditor"]) {
+    await t.test(`${role} is read-only`, async () => {
+      const db = as(ACME, [role]);
+      await assertFails(setDoc(ownPartner(db, `blocked-${role}`), forUser(db, role)));
+      await assertSucceeds(getDocs(collection(db, "clients", ACME, "partners")));
+    });
+  }
+
+  await t.test("a tenant id cannot be spoofed in the record", async () => {
+    const db = as(ACME, ["owner"]);
+    await assertFails(setDoc(ownPartner(db, "spoofed"), { ...forUser(db, "owner"), tenant_id: BETA }));
+  });
+
+  await t.test("a contributor cannot write another tenant", async () => {
+    const db = as(ACME, ["contributor"]);
+    await assertFails(setDoc(doc(db, "clients", BETA, "partners", "cross-tenant"), {
+      ...forUser(db, "contributor"),
+      tenant_id: BETA,
+      name: "Nope",
+    }));
+  });
+
+  await t.test("client records are retained rather than deleted", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "retained");
+    await assertSucceeds(setDoc(ref, forUser(db, "owner")));
+    await assertFails(deleteDoc(ref));
+  });
+
+  await t.test("a contributor cannot self-approve governance state", async () => {
+    const db = as(ACME, ["contributor"]);
+    const ref = ownPartner(db, "contributor-state");
+    await assertSucceeds(setDoc(ref, forUser(db, "contributor")));
+    await assertFails(setDoc(ref, { ...forUser(db, "contributor"), risk: "Low", created_at: (await getDoc(ref)).data().created_at }, { merge: true }));
   });
 });
 

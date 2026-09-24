@@ -1,0 +1,107 @@
+{
+  "tenant_id": "sage-spine",
+  "name": "Sage Spine",
+  "frameworks": [
+    "hipaa",
+    "soc2"
+  ],
+  "oversight": {
+    "partners": [
+      {
+        "name": "DrChrono",
+        "business_owner": "Sage Spine",
+        "status": "Active",
+        "risk": "High",
+        "data_access": "PHI",
+        "agreement_status": "Under review",
+        "review_due": "2026-12-31",
+        "notes": "Source EHR and API integration partner.",
+        "baa_status": "Pending review",
+        "baa_execution_date": "",
+        "baa_document_ref": "",
+        "phi_scope": "Demographics, clinical data, DICOM metadata/images",
+        "assurance": "Pending vendor assurance review",
+        "cert_expiration_date": ""
+      },
+      {
+        "name": "PRIMO",
+        "business_owner": "Sage Spine",
+        "status": "Onboarding",
+        "risk": "High",
+        "data_access": "PHI",
+        "agreement_status": "Required - pending",
+        "review_due": "2026-10-31",
+        "notes": "Interface broker between DrChrono and imaging workflow.",
+        "baa_status": "Required - pending",
+        "baa_execution_date": "",
+        "baa_document_ref": "",
+        "phi_scope": "Demographics, clinical data, DICOM metadata/images",
+        "assurance": "Pending vendor assurance review",
+        "cert_expiration_date": ""
+      },
+      {
+        "name": "Fujifilm",
+        "business_owner": "Sage Spine",
+        "status": "Onboarding",
+        "risk": "High",
+        "data_access": "PHI",
+        "agreement_status": "Required - pending",
+        "review_due": "2026-10-31",
+        "notes": "Modality worklist / imaging integration oversight.",
+        "baa_status": "Required - pending",
+        "baa_execution_date": "",
+        "baa_document_ref": "",
+        "phi_scope": "Demographics, clinical data, DICOM metadata/images",
+        "assurance": "Pending vendor assurance review",
+        "cert_expiration_date": ""
+      }
+    ],
+    "integrations": [
+      {
+        "name": "DrChrono to PRIMO",
+        "status": "Under review",
+        "risk": "High",
+        "data_access": "PHI",
+        "integration_method": "API",
+        "notes": "DrChrono API feed into PRIMO broker.",
+        "agreement_status": "Pending review",
+        "baa_status": "Pending review",
+        "phi_scope": "Clinical data / imaging workflow",
+        "data_flow_direction": "Outbound / push",
+        "network_exposure": "Clinical VLAN / private network",
+        "port_protocol": "HTTPS/API",
+        "assurance": "Pending integration security validation"
+      },
+      {
+        "name": "PRIMO to Fuji MWL",
+        "status": "Under review",
+        "risk": "High",
+        "data_access": "PHI",
+        "integration_method": "DICOM MWL 19112",
+        "notes": "Broker to Fujifilm modality worklist.",
+        "agreement_status": "Pending review",
+        "baa_status": "Pending review",
+        "phi_scope": "Clinical data / imaging workflow",
+        "data_flow_direction": "Outbound / push",
+        "network_exposure": "Clinical VLAN / private network",
+        "port_protocol": "DICOM MWL/19112",
+        "assurance": "Pending integration security validation"
+      },
+      {
+        "name": "OEC Storage SCP",
+        "status": "Under review",
+        "risk": "High",
+        "data_access": "PHI",
+        "integration_method": "DICOM Storage SCP 11112",
+        "notes": "Imaging storage path requiring ownership, encryption and retention validation.",
+        "agreement_status": "Pending review",
+        "baa_status": "Pending review",
+        "phi_scope": "Clinical data / imaging workflow",
+        "data_flow_direction": "Inbound / pull",
+        "network_exposure": "Clinical VLAN / private network",
+        "port_protocol": "DICOM Storage SCP/11112",
+        "assurance": "Pending integration security validation"
+      }
+    ]
+  }
+}
