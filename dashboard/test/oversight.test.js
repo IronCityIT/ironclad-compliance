@@ -75,3 +75,25 @@ test("every Sage Spine seed record fits the register's closed shape",()=>{
     }
   }
 });
+
+// firestore.rules refuses a register write that does not file history/{revision}
+// in the same batch. The page is held to that path here, so a regression to a
+// bare addDoc shows up as a failing test rather than as every save refused.
+test("the page files each new record with its revision 1 history entry in one batch",()=>{
+  assert.ok(allowedFields.includes("revision"),"revision is in oversightFields()");
+  assert.doesNotMatch(js,/\baddDoc\b/);
+  assert.match(js,/revision:1,/);
+  const save=js.match(/const batch=writeBatch\(db\);(.*?)await batch\.commit\(\)/s);
+  assert.ok(save,"the save is a single batch");
+  assert.match(save[1],/batch\.set\(ref,record\)/);
+  assert.match(save[1],/batch\.set\(doc\(ref,"history","1"\),record\)/);
+});
+
+test("the form is reset from a reference taken before the save is awaited",()=>{
+  // e.currentTarget is null once the handler has yielded; resetting through it
+  // would report a successful save as an error.
+  const handler=js.match(/onsubmit=async e=>\{(.*)\}\}\);?\s*$/s)[1];
+  const awaited=handler.indexOf("await ");
+  assert.ok(awaited>0);
+  assert.doesNotMatch(handler.slice(awaited),/e\.currentTarget/);
+});

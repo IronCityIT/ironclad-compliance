@@ -84,10 +84,37 @@ Closed on 2026-09-26:
   deleted). Three `Loading…` strings rendered as `Loadingâ€¦` (UTF-8 read as
   cp1252 on commit); now `&hellip;`.
 
-Still open for this workspace: no change history per record beyond
-`updated_by`/`updated_at` (HIPAA review would want who-changed-what); no edit
-UI for an existing record; the page uses the Firebase path that is being
-retired (§ architecture note above), so it moves with B6.
+**Change history, 2026-09-26 (second pass).** Every register write now carries
+a `revision` and must, in the same batch, create `history/{revision}` holding an
+exact copy of the record as written — `updated_by`/`updated_at` say who and
+when, adjacent revisions say what. Enforced in `firestore.rules`, not trusted to
+the page: a create or update without its entry is refused, the entry must equal
+the record's post-write state, be filed under that revision and be written by
+that caller in that request; entries cannot be updated or deleted; a revision
+cannot be skipped. Because `history/{n}` can be created once, two editors
+working from the same revision cannot both land — the second is refused rather
+than silently overwriting the first. Records seeded before history existed take
+revision 1 on their first edit. Tenant members read history; other tenants do
+not. Ten new emulator cases cover this; the existing oversight cases now write
+through the same batched path, so the schema refusals stay meaningful.
+
+The page now files each new record with its revision-1 entry in one batch and
+shows the revision on each card. It also had a latent bug: the form was reset
+through `e.currentTarget` after the save was awaited, when that is already
+`null`, so a successful save would have been reported as an error. Fixed and
+held by a test; both new dashboard tests were mutation-checked (dropping the
+history write, and reverting the reset, each fail by name).
+
+Still open for this workspace: no edit UI for an existing record and no history
+view (the data is there and readable by the tenant); the page uses the Firebase
+path that is being retired (§ architecture note above), so it moves with B6 —
+`HANDOFF.md` now records that the SQL replacement must keep a same-transaction,
+immutable per-record change log.
+
+Local evidence for the change-history pass, 2026-09-26: `npm --prefix dashboard
+test` 70/71 (same environmental `api.test.js` failure as below); `node --check`
+on the rules suite; white-label and secret-literal gates pass. The rules change
+itself is proven only by the emulator job in CI — no JDK here.
 
 Local evidence, 2026-09-26 (Windows 11, Node 24, Python 3.12 venv):
 `npm --prefix dashboard test` 68/69 — the one failure is `api.test.js`, which

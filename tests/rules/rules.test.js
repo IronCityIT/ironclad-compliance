@@ -27,7 +27,9 @@ const {
   assertFails,
   assertSucceeds,
 } = require("@firebase/rules-unit-testing");
-const { doc, getDoc, setDoc, deleteDoc, collection, getDocs, serverTimestamp } = require("firebase/firestore");
+const {
+  doc, getDoc, setDoc, deleteDoc, collection, getDocs, serverTimestamp, writeBatch,
+} = require("firebase/firestore");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
@@ -298,12 +300,36 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
   const ownIntegration = (db, id = "integration-1") => doc(db, "clients", ACME, "integrations", id);
   const payload = { tenant_id: ACME, name: "Clinical Integration Partner", risk: "Unrated", agreement_status: "Pending review", baa_status: "Pending review", status: "Pending information", created_by: "", updated_by: "", created_at: serverTimestamp(), updated_at: serverTimestamp() };
   const forUser = (db, role) => ({ ...payload, created_by: `auth0|${ACME}-${role}`, updated_by: `auth0|${ACME}-${role}` });
+  const history = (ref, revision) => doc(ref, "history", String(revision));
+
+  // The page's write path: the record and its history/{revision} snapshot in
+  // one batch. Anything else is refused, so every test that expects a write to
+  // land goes through these two.
+  const create = (ref, data) => {
+    const record = { ...data, revision: 1 };
+    const batch = writeBatch(ref.firestore);
+    batch.set(ref, record);
+    batch.set(history(ref, 1), record);
+    return batch.commit();
+  };
+  const revise = async (ref, patch, role) => {
+    const prior = (await getDoc(ref)).data();
+    const record = {
+      ...prior, ...patch,
+      revision: (prior.revision ?? 0) + 1,
+      updated_by: `auth0|${ACME}-${role}`, updated_at: serverTimestamp(),
+    };
+    const batch = writeBatch(ref.firestore);
+    batch.set(ref, record);
+    batch.set(history(ref, record.revision), record);
+    return batch.commit();
+  };
 
   for (const role of ["owner", "compliance_manager", "contributor"]) {
     await t.test(`${role} can maintain its own oversight records`, async () => {
       const db = as(ACME, [role]);
-      await assertSucceeds(setDoc(ownPartner(db, `partner-${role}`), forUser(db, role)));
-      await assertSucceeds(setDoc(ownIntegration(db, `integration-${role}`), forUser(db, role)));
+      await assertSucceeds(create(ownPartner(db, `partner-${role}`), forUser(db, role)));
+      await assertSucceeds(create(ownIntegration(db, `integration-${role}`), forUser(db, role)));
       await assertSucceeds(getDoc(ownPartner(db, `partner-${role}`)));
     });
   }
@@ -311,19 +337,19 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
   for (const role of ["viewer", "auditor"]) {
     await t.test(`${role} is read-only`, async () => {
       const db = as(ACME, [role]);
-      await assertFails(setDoc(ownPartner(db, `blocked-${role}`), forUser(db, role)));
+      await assertFails(create(ownPartner(db, `blocked-${role}`), forUser(db, role)));
       await assertSucceeds(getDocs(collection(db, "clients", ACME, "partners")));
     });
   }
 
   await t.test("a tenant id cannot be spoofed in the record", async () => {
     const db = as(ACME, ["owner"]);
-    await assertFails(setDoc(ownPartner(db, "spoofed"), { ...forUser(db, "owner"), tenant_id: BETA }));
+    await assertFails(create(ownPartner(db, "spoofed"), { ...forUser(db, "owner"), tenant_id: BETA }));
   });
 
   await t.test("a contributor cannot write another tenant", async () => {
     const db = as(ACME, ["contributor"]);
-    await assertFails(setDoc(doc(db, "clients", BETA, "partners", "cross-tenant"), {
+    await assertFails(create(doc(db, "clients", BETA, "partners", "cross-tenant"), {
       ...forUser(db, "contributor"),
       tenant_id: BETA,
       name: "Nope",
@@ -333,37 +359,36 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
   await t.test("client records are retained rather than deleted", async () => {
     const db = as(ACME, ["owner"]);
     const ref = ownPartner(db, "retained");
-    await assertSucceeds(setDoc(ref, forUser(db, "owner")));
+    await assertSucceeds(create(ref, forUser(db, "owner")));
     await assertFails(deleteDoc(ref));
   });
 
   await t.test("a contributor cannot self-approve governance state", async () => {
     const db = as(ACME, ["contributor"]);
     const ref = ownPartner(db, "contributor-state");
-    await assertSucceeds(setDoc(ref, forUser(db, "contributor")));
-    await assertFails(setDoc(ref, { ...forUser(db, "contributor"), risk: "Low", created_at: (await getDoc(ref)).data().created_at }, { merge: true }));
+    await assertSucceeds(create(ref, forUser(db, "contributor")));
+    await assertFails(revise(ref, { risk: "Low" }, "contributor"));
   });
 
   await t.test("a contributor can still correct the descriptive fields", async () => {
     const db = as(ACME, ["contributor"]);
     const ref = ownPartner(db, "contributor-notes");
-    await assertSucceeds(setDoc(ref, forUser(db, "contributor")));
-    await assertSucceeds(setDoc(ref, { notes: "Feed confirmed on the clinical VLAN.", updated_at: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(create(ref, forUser(db, "contributor")));
+    await assertSucceeds(revise(ref, { notes: "Feed confirmed on the clinical VLAN." }, "contributor"));
   });
 
   await t.test("an approver can rate a record a contributor proposed", async () => {
     const ref = ownIntegration(as(ACME, ["contributor"]), "rated-later");
-    await assertSucceeds(setDoc(ref, forUser(ref.firestore, "contributor")));
+    await assertSucceeds(create(ref, forUser(ref.firestore, "contributor")));
     const db = as(ACME, ["compliance_manager"]);
-    await assertSucceeds(setDoc(ownIntegration(db, "rated-later"), {
+    await assertSucceeds(revise(ownIntegration(db, "rated-later"), {
       risk: "High", baa_status: "Executed", baa_execution_date: "2026-09-01",
-      updated_by: `auth0|${ACME}-compliance_manager`, updated_at: serverTimestamp(),
-    }, { merge: true }));
+    }, "compliance_manager"));
   });
 
   await t.test("a complete, valid record is accepted", async () => {
     const db = as(ACME, ["owner"]);
-    await assertSucceeds(setDoc(ownIntegration(db, "complete"), {
+    await assertSucceeds(create(ownIntegration(db, "complete"), {
       ...forUser(db, "owner"),
       status: "Active", risk: "High", data_access: "PHI", agreement_status: "Under review",
       baa_status: "Required - pending", data_flow_direction: "Outbound / push",
@@ -391,7 +416,7 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
   for (const [what, patch] of Object.entries(rejected)) {
     await t.test(`${what} is refused`, async () => {
       const db = as(ACME, ["owner"]);
-      await assertFails(setDoc(ownPartner(db, "shape"), { ...forUser(db, "owner"), ...patch }));
+      await assertFails(create(ownPartner(db, "shape"), { ...forUser(db, "owner"), ...patch }));
     });
   }
 
@@ -399,14 +424,128 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
     const db = as(ACME, ["owner"]);
     const { risk, ...withoutRisk } = forUser(db, "owner");
     assert.equal(risk, "Unrated");
-    await assertFails(setDoc(ownPartner(db, "no-risk"), withoutRisk));
+    await assertFails(create(ownPartner(db, "no-risk"), withoutRisk));
   });
 
   await t.test("an update cannot smuggle in an unknown field", async () => {
     const db = as(ACME, ["owner"]);
     const ref = ownPartner(db, "smuggle");
-    await assertSucceeds(setDoc(ref, forUser(db, "owner")));
-    await assertFails(setDoc(ref, { ssn: "000-00-0000", updated_at: serverTimestamp() }, { merge: true }));
+    await assertSucceeds(create(ref, forUser(db, "owner")));
+    await assertFails(revise(ref, { ssn: "000-00-0000" }, "owner"));
+  });
+
+  // Change history: who changed what and when, and no edit lost to a race.
+  await t.test("a record cannot be created without its history entry", async () => {
+    const db = as(ACME, ["owner"]);
+    await assertFails(setDoc(ownPartner(db, "no-history"), { ...forUser(db, "owner"), revision: 1 }));
+  });
+
+  await t.test("a record cannot be changed without a history entry", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "silent-edit");
+    await assertSucceeds(create(ref, forUser(db, "owner")));
+    await assertFails(setDoc(ref, {
+      notes: "changed off the record", revision: 2,
+      updated_by: `auth0|${ACME}-owner`, updated_at: serverTimestamp(),
+    }, { merge: true }));
+  });
+
+  await t.test("the history entry must be the record exactly as written", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "doctored");
+    const record = { ...forUser(db, "owner"), revision: 1 };
+    const batch = writeBatch(db);
+    batch.set(ref, record);
+    batch.set(history(ref, 1), { ...record, risk: "Low" });
+    await assertFails(batch.commit());
+  });
+
+  await t.test("a history entry cannot be filed under another revision", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "misfiled");
+    const record = { ...forUser(db, "owner"), revision: 1 };
+    const batch = writeBatch(db);
+    batch.set(ref, record);
+    batch.set(history(ref, 1), record);
+    batch.set(history(ref, 7), record);
+    await assertFails(batch.commit());
+  });
+
+  await t.test("a revision cannot be skipped", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "skipped");
+    await assertSucceeds(create(ref, forUser(db, "owner")));
+    const record = {
+      ...(await getDoc(ref)).data(), notes: "jumped", revision: 3,
+      updated_by: `auth0|${ACME}-owner`, updated_at: serverTimestamp(),
+    };
+    const batch = writeBatch(db);
+    batch.set(ref, record);
+    batch.set(history(ref, 3), record);
+    await assertFails(batch.commit());
+  });
+
+  await t.test("a stale editor cannot overwrite a newer revision", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "race");
+    await assertSucceeds(create(ref, forUser(db, "owner")));
+    const stale = (await getDoc(ref)).data();
+    await assertSucceeds(revise(ref, { notes: "first editor" }, "owner"));
+    const record = {
+      ...stale, notes: "second editor, working from revision 1", revision: 2,
+      updated_by: `auth0|${ACME}-owner`, updated_at: serverTimestamp(),
+    };
+    const batch = writeBatch(db);
+    batch.set(ref, record);
+    batch.set(history(ref, 2), record);
+    await assertFails(batch.commit());
+    assert.equal((await getDoc(ref)).data().notes, "first editor");
+  });
+
+  await t.test("history says who changed what, and cannot be rewritten or deleted", async () => {
+    const contributor = as(ACME, ["contributor"]);
+    await assertSucceeds(create(ownIntegration(contributor, "audited"), forUser(contributor, "contributor")));
+    const manager = as(ACME, ["compliance_manager"]);
+    await assertSucceeds(revise(ownIntegration(manager, "audited"), { risk: "High" }, "compliance_manager"));
+
+    const viewer = as(ACME, ["viewer"]);
+    const first = (await assertSucceeds(getDoc(history(ownIntegration(viewer, "audited"), 1)))).data();
+    const second = (await assertSucceeds(getDoc(history(ownIntegration(viewer, "audited"), 2)))).data();
+    assert.equal(first.updated_by, `auth0|${ACME}-contributor`);
+    assert.equal(first.risk, "Unrated");
+    assert.equal(second.updated_by, `auth0|${ACME}-compliance_manager`);
+    assert.equal(second.risk, "High");
+
+    const entry = history(ownIntegration(as(ACME, ["owner"]), "audited"), 1);
+    await assertFails(setDoc(entry, { ...first, risk: "Low" }));
+    await assertFails(deleteDoc(entry));
+  });
+
+  await t.test("a history entry cannot be forged without changing the record", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "forged");
+    await assertSucceeds(create(ref, forUser(db, "owner")));
+    const current = (await getDoc(ref)).data();
+    await assertFails(setDoc(history(ref, 2), { ...current, revision: 2 }));
+  });
+
+  await t.test("another tenant cannot read a record's history", async () => {
+    const ref = ownPartner(as(ACME, ["owner"]), "private-history");
+    await assertSucceeds(create(ref, forUser(ref.firestore, "owner")));
+    const outsider = as(BETA, ["owner"]);
+    await assertFails(getDoc(doc(outsider, "clients", ACME, "partners", "private-history", "history", "1")));
+  });
+
+  await t.test("a record seeded before history existed takes revision 1 on its first edit", async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "clients", ACME, "partners", "seeded"), {
+        ...payload, name: "Seeded partner", created_by: "seed", updated_by: "seed",
+        created_at: new Date("2026-09-01T00:00:00Z"), updated_at: new Date("2026-09-01T00:00:00Z"),
+      });
+    });
+    const ref = ownPartner(as(ACME, ["owner"]), "seeded");
+    await assertSucceeds(revise(ref, { notes: "first edit after seeding" }, "owner"));
+    assert.equal((await getDoc(ref)).data().revision, 1);
   });
 });
 

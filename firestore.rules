@@ -57,7 +57,7 @@ service cloud.firestore {
         'risk', 'data_access', 'phi_scope', 'data_flow_direction',
         'agreement_status', 'baa_status', 'baa_execution_date', 'baa_document_ref',
         'review_due', 'integration_method', 'port_protocol', 'network_exposure',
-        'assurance', 'cert_expiration_date', 'notes',
+        'assurance', 'cert_expiration_date', 'notes', 'revision',
         'created_at', 'created_by', 'updated_at', 'updated_by'];
     }
 
@@ -79,7 +79,8 @@ service cloud.firestore {
       let agreement = ['Pending review', 'Under review', 'Required - pending', 'Executed', 'Not required'];
       return d.keys().hasOnly(oversightFields())
         && d.keys().hasAll(['tenant_id', 'name', 'status', 'risk', 'agreement_status', 'baa_status',
-          'created_at', 'created_by', 'updated_at', 'updated_by'])
+          'revision', 'created_at', 'created_by', 'updated_at', 'updated_by'])
+        && d.revision is int
         && d.name is string && d.name.size() > 0 && d.name.size() <= 120
         && d.status in ['Pending information', 'Onboarding', 'Active', 'Under review', 'Offboarding', 'Retired']
         && d.risk in ['Unrated', 'Low', 'Medium', 'High', 'Critical']
@@ -101,8 +102,37 @@ service cloud.firestore {
         && optionalText(d, 'notes', 2000);
     }
 
+    // Change history. Every write to a register record carries the next
+    // revision number and must, in the same batch, create history/{revision}
+    // holding an exact copy of the record as written. updated_by/updated_at in
+    // that copy say who changed it and when; adjacent revisions say what. The
+    // copy is immutable, and because history/{n} can be created only once, two
+    // editors working from the same revision cannot both land: the second is
+    // refused instead of silently overwriting the first.
+    function oversightHistory(clientId, kind, recordId, revision) {
+      return /databases/$(database)/documents/clients/$(clientId)/$(kind)/$(recordId)/history/$(string(revision));
+    }
+
+    function recordsHistory(clientId, kind, recordId) {
+      return existsAfter(oversightHistory(clientId, kind, recordId, request.resource.data.revision));
+    }
+
+    // A history entry is only ever the record's own post-write state, written
+    // by the caller who made that write, in that request.
+    function canRecordOversightHistory(clientId, kind, recordId, revision) {
+      let after = getAfter(/databases/$(database)/documents/clients/$(clientId)/$(kind)/$(recordId));
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && after != null
+        && revision == string(after.data.revision)
+        && after.data.updated_by == request.auth.uid
+        && after.data.updated_at == request.time
+        && request.resource.data == after.data;
+    }
+
     function validOversightCreate(clientId) {
       return request.resource.data.tenant_id == clientId
+        && request.resource.data.revision == 1
         && request.resource.data.created_by == request.auth.uid
         && request.resource.data.updated_by == request.auth.uid
         && request.resource.data.created_at == request.time
@@ -114,6 +144,9 @@ service cloud.firestore {
         && request.resource.data.tenant_id == resource.data.tenant_id
         && request.resource.data.created_by == resource.data.created_by
         && request.resource.data.created_at == resource.data.created_at
+        // Records seeded before history existed carry no revision; their first
+        // edit is revision 1.
+        && request.resource.data.revision == resource.data.get('revision', 0) + 1
         && request.resource.data.updated_by == request.auth.uid
         && request.resource.data.updated_at == request.time;
     }
@@ -135,20 +168,22 @@ service cloud.firestore {
           && request.resource.data.status == 'Pending information');
     }
 
-    function canCreateOversight(clientId) {
+    function canCreateOversight(clientId, kind, recordId) {
       return ownsTenant(clientId)
         && canMaintainOversight()
         && validOversightCreate(clientId)
         && validOversightShape()
-        && contributorCreatesUnrated();
+        && contributorCreatesUnrated()
+        && recordsHistory(clientId, kind, recordId);
     }
 
-    function canUpdateOversight(clientId) {
+    function canUpdateOversight(clientId, kind, recordId) {
       return ownsTenant(clientId)
         && canMaintainOversight()
         && validOversightUpdate(clientId)
         && validOversightShape()
-        && contributorKeepsGovernanceState();
+        && contributorKeepsGovernanceState()
+        && recordsHistory(clientId, kind, recordId);
     }
 
     match /clients/{clientId} {
@@ -176,18 +211,30 @@ service cloud.firestore {
       // tenant owns the path and only programme contributors may change it.
       match /partners/{partnerId} {
         allow read: if ownsTenant(clientId);
-        allow create: if canCreateOversight(clientId);
-        allow update: if canUpdateOversight(clientId);
+        allow create: if canCreateOversight(clientId, 'partners', partnerId);
+        allow update: if canUpdateOversight(clientId, 'partners', partnerId);
         // Retain history. Offboard/retire records by status rather than deleting them.
         allow delete: if false;
+
+        match /history/{revision} {
+          allow read: if ownsTenant(clientId);
+          allow create: if canRecordOversightHistory(clientId, 'partners', partnerId, revision);
+          allow update, delete: if false;
+        }
       }
 
       match /integrations/{integrationId} {
         allow read: if ownsTenant(clientId);
-        allow create: if canCreateOversight(clientId);
-        allow update: if canUpdateOversight(clientId);
+        allow create: if canCreateOversight(clientId, 'integrations', integrationId);
+        allow update: if canUpdateOversight(clientId, 'integrations', integrationId);
         // Retain history. Offboard/retire records by status rather than deleting them.
         allow delete: if false;
+
+        match /history/{revision} {
+          allow read: if ownsTenant(clientId);
+          allow create: if canRecordOversightHistory(clientId, 'integrations', integrationId, revision);
+          allow update, delete: if false;
+        }
       }
 
       match /exceptions/{exceptionId} {
