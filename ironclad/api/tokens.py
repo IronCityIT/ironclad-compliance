@@ -20,13 +20,27 @@ server's access log as well, it says when each entry was last used and which
 were refused: a token nobody has used in `DORMANT_DAYS` is access to remove,
 not to keep in case (164.308(a)(4)(ii)(C), access modification), and a run of
 403s is a caller reaching for what their role or tenant does not allow.
+
+`issue_token()` and `revoke_tokens()` are the only edits an operator should
+need, so the file is not written by hand. An issued entry always ends, within
+`MAX_TERM_DAYS`, and names who granted it and when; a renewal is a new token
+issued after the old entry is revoked, so a credential never outlives its
+term. `write_token_file()` replaces the file whole, under an exclusive lock
+file, so the server (which re-reads it per request) sees the old file or the
+new one and never half of one, and two operators cannot each lose the other's
+edit.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+import secrets
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from ironclad.ids import slugify
@@ -39,6 +53,10 @@ EXPIRY_WARNING_DAYS = 30
 #: An active entry with no recorded request in this many days is reported as
 #: dormant. The window is ours, not HIPAA's; `--dormant-days` changes it.
 DORMANT_DAYS = 90
+
+#: The longest term `issue_token` grants. Ours, not HIPAA's: a year keeps
+#: every grant inside one annual access review.
+MAX_TERM_DAYS = 365
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -280,7 +298,7 @@ def _review_entry(
     else:
         state = "active"
 
-    return {
+    item: dict[str, Any] = {
         "entry": position,
         "user_id": user,
         "tenant_id": tenant,
@@ -291,3 +309,194 @@ def _review_entry(
         "findings": [{"level": "high", "message": m} for m in high]
         + [{"level": "notice", "message": m} for m in notice],
     }
+    # Written by `issue_token`; a hand-written entry has neither.
+    for key in ("issued_by", "issued_at"):
+        if entry.get(key):
+            item[key] = str(entry[key])
+    return item
+
+
+# ------------------------------------------------------------------ editing
+
+
+class TokenFileError(ValueError):
+    """An issue or revocation refused; nothing was written."""
+
+
+def _entries_of(document: object) -> list[Any]:
+    entries = document.get("tokens") if isinstance(document, dict) else None
+    if not isinstance(entries, list):
+        raise TokenFileError('not a token file: expected {"tokens": [...]}')
+    return entries
+
+
+def _holds(entry: object, user: str, tenant: str) -> bool:
+    return (
+        isinstance(entry, dict)
+        and str(entry.get("user_id", "")).strip() == user
+        and str(entry.get("tenant_id", "")).strip() == tenant
+    )
+
+
+def issue_token(
+    document: object,
+    *,
+    user_id: str,
+    tenant_id: str,
+    roles: list[str],
+    expires_at: date,
+    issued_by: str,
+    as_of: date,
+) -> tuple[str, dict[str, Any]]:
+    """Add one entry to `document` in place; return the token and the entry.
+
+    The token is returned once and is not stored: the entry holds its digest.
+    Refused, leaving `document` unchanged, for a user or tenant that is not
+    one, an unknown or missing role, no issuer, an expiry already past or
+    beyond `MAX_TERM_DAYS`, or an entry already held by this user in this
+    tenant. The access log names callers by user and tenant, not by token, so
+    two entries for one pair could not be told apart in a review.
+    """
+    entries = _entries_of(document)
+    user, tenant, actor = user_id.strip(), tenant_id.strip(), issued_by.strip()
+    problems: list[str] = []
+    if not user:
+        problems.append("no user id; the access log could not name this caller")
+    if not tenant or slugify(tenant) != tenant:
+        problems.append(f"tenant {tenant_id!r} is not a tenant id")
+    unknown = sorted({r for r in roles if r not in _ROLES})
+    if unknown:
+        problems.append(f"unrecognised roles: {', '.join(unknown)}")
+    if not roles:
+        problems.append("no role; the token could reach nothing")
+    if not actor:
+        problems.append("no issuer; the grant must name who made it")
+    if expires_at < as_of:
+        problems.append(f"expires {expires_at.isoformat()}, before {as_of.isoformat()}")
+    elif (expires_at - as_of).days > MAX_TERM_DAYS:
+        problems.append(
+            f"expires {expires_at.isoformat()}, more than {MAX_TERM_DAYS} days after "
+            f"{as_of.isoformat()}"
+        )
+    if user and any(_holds(e, user, tenant) for e in entries):
+        problems.append(
+            f"{user} already holds an entry for {tenant}; revoke it first "
+            "(a renewal is a new token)"
+        )
+    if problems:
+        raise TokenFileError("; ".join(problems))
+
+    token = secrets.token_urlsafe(32)
+    entry: dict[str, Any] = {
+        "sha256": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+        "user_id": user,
+        "tenant_id": tenant,
+        "roles": sorted(set(roles)),
+        "expires_at": expires_at.isoformat(),
+        "issued_by": actor,
+        "issued_at": as_of.isoformat(),
+    }
+    entries.append(entry)
+    return token, entry
+
+
+def revoke_tokens(
+    document: object,
+    *,
+    user_id: str = "",
+    tenant_id: str = "",
+    digest_prefix: str = "",
+    expired_as_of: date | None = None,
+) -> list[dict[str, Any]]:
+    """Remove matching entries from `document` in place; return what was removed.
+
+    Exactly one selector: a user in a tenant, a digest prefix as the review
+    prints it (at least 12 hex characters, matching one entry), or every entry
+    expired as of a date, which is what the review asks for when it reports
+    one still in the file. Removing nothing is refused, so a mistyped name is
+    not reported as a revocation that happened.
+    """
+    entries = _entries_of(document)
+    user, tenant = user_id.strip(), tenant_id.strip()
+    prefix = digest_prefix.strip().lower()
+    by_user = bool(user or tenant)
+    if sum([by_user, bool(prefix), expired_as_of is not None]) != 1:
+        raise TokenFileError("name one of: a user and tenant, a digest prefix, or expired")
+    if by_user and not (user and tenant):
+        raise TokenFileError("a revocation by user names both the user and the tenant")
+    if prefix and not re.fullmatch(r"[0-9a-f]{12,64}", prefix):
+        raise TokenFileError("a digest prefix is 12 to 64 hex characters")
+
+    def matches(entry: object) -> bool:
+        if by_user:
+            return _holds(entry, user, tenant)
+        if not isinstance(entry, dict):
+            return False
+        if prefix:
+            return str(entry.get("sha256", "")).strip().lower().startswith(prefix)
+        try:
+            last_day = parse_expiry(entry.get("expires_at"))
+        except InvalidExpiryError:
+            return False  # refused already; the review names it for a person to decide
+        return last_day is not None and expired_as_of is not None and expired_as_of > last_day
+
+    removed = [e for e in entries if matches(e)]
+    if not removed:
+        raise TokenFileError("no entry matches; nothing was revoked")
+    if prefix and len(removed) > 1:
+        raise TokenFileError(f"{len(removed)} entries match that prefix; give more of it")
+    entries[:] = [e for e in entries if not matches(e)]
+    return removed
+
+
+def summary(entry: dict[str, Any]) -> dict[str, Any]:
+    """An entry as it may be printed: the digest cut to the review's prefix."""
+    shown = {k: v for k, v in entry.items() if k != "sha256"}
+    shown["digest_prefix"] = str(entry.get("sha256", ""))[:12]
+    return shown
+
+
+def read_token_file(path: Path) -> dict[str, Any]:
+    """A token file to edit; a missing one is empty, anything unreadable refused."""
+    if not path.exists():
+        return {"tokens": []}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise TokenFileError(f"token file unreadable: {path}: {exc}") from exc
+    _entries_of(document)
+    return document  # type: ignore[no-any-return]
+
+
+class TokenFileLock:
+    """`<file>.lock`, created exclusively and held across a read-modify-write."""
+
+    def __init__(self, path: Path) -> None:
+        self.lock = path.with_name(path.name + ".lock")
+
+    def __enter__(self) -> TokenFileLock:
+        try:
+            fd = os.open(self.lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError as exc:
+            raise TokenFileError(
+                f"{self.lock} exists: another edit is in progress, or one was "
+                "interrupted; remove it only once no edit is running"
+            ) from exc
+        os.close(fd)
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.lock.unlink(missing_ok=True)
+
+
+def write_token_file(path: Path, document: dict[str, Any]) -> None:
+    """Replace the file whole, so a reader sees the old file or the new one."""
+    temp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        with open(temp, "x", encoding="utf-8") as handle:
+            handle.write(json.dumps(document, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)

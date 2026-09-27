@@ -13,19 +13,15 @@ yet pointed at it.
 ## Running it
 
 ```sh
-# 1. a token for one person, hashed; the token itself never touches a file or
-#    a command line
-printf '%s\n' "$TOKEN" | ironclad hash-token      # prints the sha256 digest
-
-# 2. the token file — digests, user ids, tenants, roles
-cat > /srv/ironclad/tokens.json <<'EOF'
-{"tokens": [
-  {"sha256": "<digest from step 1>", "user_id": "alice@acme.example",
-   "tenant_id": "acme", "roles": ["compliance_manager"],
-   "expires_at": "2026-12-31"}
-]}
-EOF
+# 1-2. a token for one person in one tenant, until a date; the file stores its
+#      digest with the user, tenant, roles, expiry, issuer and date, and the
+#      token is printed once on stdout and stored nowhere
+ironclad tokens issue /srv/ironclad/tokens.json --user alice@acme.example \
+    --tenant acme --role compliance_manager --expires 2026-12-31 --actor bill
 ironclad tokens review /srv/ironclad/tokens.json   # who holds access, and what is wrong
+# (`ironclad hash-token` still digests a token read from stdin, for an entry
+#  written some other way: {"tokens": [{"sha256", "user_id", "tenant_id",
+#  "roles", "expires_at"}]})
 
 # 3. serve
 IRONCLAD_STORE=/srv/ironclad/results \
@@ -62,6 +58,15 @@ IRONCLAD_STORE=/srv/ironclad/results \
   default, our number; "since the log begins" when it has none, so a rotated
   log narrows what the review can see), and any 403, with the latest path.
   An expired entry's use is shown and not called dormant; it is already high.
+- `ironclad tokens issue` and `ironclad tokens revoke` are the edits. `issue`
+  generates the token, prints it once and stores its digest with
+  `issued_by`/`issued_at`; it refuses a grant with no end or more than 365
+  days out (ours), an unknown role, a tenant that is not a tenant id, and a
+  second entry for one user in one tenant (the log could not tell them apart).
+  `revoke` takes a user and tenant, a digest prefix as the review prints it,
+  or `--expired`, and refuses to remove nothing. Both hold
+  `<file>.lock` for the edit and replace the file whole, so the server reads
+  the old file or the new one; exit 2 and nothing written on any refusal.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
 - A connection that sends nothing for 30 seconds — the rest of a request, the

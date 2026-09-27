@@ -561,6 +561,58 @@ Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1110 tests,
 pass; mypy reports only the known Windows `fcntl` errors; white-label,
 secret-literal and catalog gates pass. bandit is not installed here; CI runs it.
 
+**Granting and removing access without hand-editing, 2026-09-27 (fourteenth
+pass).** The review found what was wrong with a token file, and the only way
+to write one was by hand: generate a token, pipe it to `hash-token`, paste the
+digest into JSON on the server. Every high finding the review can report (no
+expiry, a bad date, a duplicate, no tenant, an unknown role, no `user_id`) is
+a hand edit gone wrong, and a partial write could be read by the running
+server, which re-reads the file per request. Nothing recorded who granted
+access. `ironclad tokens issue | revoke` (`ironclad/api/tokens.py`) now:
+
+- **issue** generates the token (`secrets.token_urlsafe(32)`), prints it once
+  on stdout and stores only its digest, with `issued_by` and `issued_at`. It
+  refuses a grant with no end or more than `MAX_TERM_DAYS` (365, ours: one
+  annual review) out, an expiry already past, an unknown role, a tenant that
+  is not a tenant id, no user or no issuer, and a second entry for one user
+  in one tenant. The access log names callers by user and tenant, so two
+  entries for one pair could not be told apart. A renewal is revoke then
+  issue, so the credential changes with the term.
+- **revoke** removes one user's entry in a tenant, one entry by the digest
+  prefix the review prints (at least 12 hex; an ambiguous prefix is refused),
+  or every entry past its expiry (`--expired`, the review's "remove the
+  entry"). An entry with an unreadable date is left for a person. Removing
+  nothing is refused. It prints what it removed by prefix, with `revoked_by`.
+- Both hold `<file>.lock`, created exclusively, for the whole
+  read-modify-write, and replace the file with a fsynced temp file and
+  `os.replace`, so the server reads the old file or the new one. Any refusal
+  is exit 2 and the file is byte-for-byte unchanged.
+- The review prints `issued_by`/`issued_at` for entries that have them.
+
+No route, authenticator rule or stored field the server reads changed; the
+two new keys are ignored by `TokenFileAuthenticator`. Runbook: `HANDOFF.md`
+§17, "Grant, renew and review a service token"; reference: `docs/http-api.md`.
+
+Tests: 25 new cases in `tests/test_tokens.py` (50 in the file). An issued
+token authenticates as its user and tenant and its token is not in the file;
+two issues never share a token; eight refusals leave the document unchanged;
+the term edges (today, day 365, day 366); one entry per user per tenant; revoke
+by user, by prefix (short and ambiguous refused), `--expired` (the bad date
+kept and still high in the review), four selector refusals; a revoked token
+refused at its next lookup while another still works; and four CLI cases (issue
+then revoke with no temp or lock left behind, a refused edit leaving the
+file's bytes, a held lock refusing an edit and being left alone, other keys
+in the file kept). Seven mutations each fail a test by name: no maximum term,
+no one-per-pair check, an ambiguous prefix allowed, the lock not exclusive,
+`--expired` sweeping unreadable dates, the printed entry carrying its digest,
+a past expiry allowed.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1135 tests,
+1070 passed, 55 skipped, 10 failed; untouched HEAD `03136f9` in a worktree:
+1110 tests, 1045 passed, the same 10 failed, compared set for set. ruff format
+and lint pass; mypy reports only the known Windows `fcntl` errors;
+white-label, secret-literal, catalog and `git diff --check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

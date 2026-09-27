@@ -518,6 +518,50 @@ def build_parser() -> argparse.ArgumentParser:
         default="never",
         help=f"exit {EXIT_FINDINGS} when an entry has a high finding, or any finding",
     )
+    tokens_issue = tokens_sub.add_parser(
+        "issue",
+        help="grant one user access to one tenant until a date; prints the token once",
+        description=(
+            "Generate a token, add its digest to the file with the user, tenant, roles, "
+            "expiry, issuer and date, and print the token once on stdout (it is not "
+            "stored). Every grant ends: --expires is required and at most 365 days out. "
+            "One entry per user per tenant; a renewal is `revoke` then `issue`, so the "
+            f"credential changes with the term. Exit {EXIT_BAD_INPUT}, writing nothing, "
+            "if any of that does not hold."
+        ),
+    )
+    tokens_issue.add_argument("file", help="the token file; created if missing")
+    tokens_issue.add_argument("--user", required=True, help="who holds it, as the log names them")
+    tokens_issue.add_argument("--tenant", required=True, help="the one tenant it reaches")
+    tokens_issue.add_argument(
+        "--role",
+        action="append",
+        required=True,
+        choices=[str(r) for r in Role],
+        help="repeat for more than one",
+    )
+    tokens_issue.add_argument("--expires", required=True, help="YYYY-MM-DD, the last day in UTC")
+    tokens_issue.add_argument("--actor", required=True, help="who is granting it")
+    tokens_issue.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    tokens_revoke = tokens_sub.add_parser(
+        "revoke",
+        help="remove entries: one user's in a tenant, one digest, or every expired one",
+        description=(
+            "Remove token-file entries and print what was removed (digest prefixes, "
+            "never digests). Give --user with --tenant, or --digest-prefix as the review "
+            "prints it, or --expired. The next request with a removed token is 401. "
+            f"Exit {EXIT_BAD_INPUT}, writing nothing, if nothing matches."
+        ),
+    )
+    tokens_revoke.add_argument("file", help="the token file")
+    tokens_revoke.add_argument("--user", default="")
+    tokens_revoke.add_argument("--tenant", default="")
+    tokens_revoke.add_argument("--digest-prefix", default="")
+    tokens_revoke.add_argument(
+        "--expired", action="store_true", help="every entry past its expiry as of --as-of"
+    )
+    tokens_revoke.add_argument("--actor", required=True, help="who is revoking")
+    tokens_revoke.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
 
     hash_cmd = sub.add_parser(
         "hash-token",
@@ -1226,7 +1270,9 @@ def cmd_access_log(args: argparse.Namespace) -> int:
 
 
 def cmd_tokens(args: argparse.Namespace) -> int:
-    """Review a token file, and its use if given the access log. The only subcommand."""
+    """Review a token file (and its use, given the access log), or issue or revoke an entry."""
+    if args.tokens_command in ("issue", "revoke"):
+        return _edit_tokens(args)
     from ironclad.api.tokens import review_tokens, utc_now  # noqa: PLC0415
 
     path = Path(args.file)
@@ -1268,6 +1314,61 @@ def cmd_tokens(args: argparse.Namespace) -> int:
         args.fail_on == "any" and (review["high"] or review["notices"])
     )
     return EXIT_FINDINGS if tripped else EXIT_OK
+
+
+def _edit_tokens(args: argparse.Namespace) -> int:
+    """`tokens issue` and `tokens revoke`: one locked read-modify-write of the file."""
+    from ironclad.api import tokens  # noqa: PLC0415
+
+    path = Path(args.file)
+    as_of = date.fromisoformat(oversight.check_as_of(args.as_of)) if args.as_of else None
+    as_of = as_of or tokens.utc_now().date()
+    try:
+        with tokens.TokenFileLock(path):
+            document = tokens.read_token_file(path)
+            if args.tokens_command == "issue":
+                try:
+                    expires = tokens.parse_expiry(args.expires)
+                except tokens.InvalidExpiryError as exc:
+                    raise tokens.TokenFileError(str(exc)) from None
+                if expires is None:
+                    raise tokens.TokenFileError("--expires is required; every grant ends")
+                token, entry = tokens.issue_token(
+                    document,
+                    user_id=args.user,
+                    tenant_id=args.tenant,
+                    roles=args.role,
+                    expires_at=expires,
+                    issued_by=args.actor,
+                    as_of=as_of,
+                )
+                tokens.write_token_file(path, document)
+                print(
+                    "the token below is shown once and is not stored; hand it to "
+                    f"{entry['user_id']} over a channel you would trust with the access",
+                    file=sys.stderr,
+                )
+                _emit({"token": token, "entry": tokens.summary(entry)})
+                return EXIT_OK
+            removed = tokens.revoke_tokens(
+                document,
+                user_id=args.user,
+                tenant_id=args.tenant,
+                digest_prefix=args.digest_prefix,
+                expired_as_of=as_of if args.expired else None,
+            )
+            tokens.write_token_file(path, document)
+    except tokens.TokenFileError as exc:
+        print(f"{path}: {exc}; nothing was written", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    _emit(
+        {
+            "revoked_by": args.actor,
+            "as_of": as_of.isoformat(),
+            "removed": [tokens.summary(e) for e in removed],
+        }
+    )
+    return EXIT_OK
 
 
 def cmd_hash_token() -> int:

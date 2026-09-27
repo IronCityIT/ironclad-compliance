@@ -778,10 +778,32 @@ incident. Rotation is the same move while the server is stopped.
 ### Grant, renew and review a service token
 
 Every token a Sage staff member or integration partner holds is one entry in
-the `--tokens` file. Give each an `expires_at` (`YYYY-MM-DD`, UTC): the token
-works through that day and is refused from the next, with no restart. An
-expiry that is not a calendar date refuses the token; so does a digest listed
-twice. Renewing is editing the date; revoking is removing the entry.
+the `--tokens` file. Its `expires_at` (`YYYY-MM-DD`, UTC) is the last day it
+works; it is refused from the next, with no restart. An expiry that is not a
+calendar date refuses the token; so does a digest listed twice. Do not edit
+the file by hand: `issue` and `revoke` hold `tokens.json.lock` for the edit
+and replace the file whole, so the running server never reads half of one.
+
+```sh
+ironclad tokens issue  /srv/ironclad/tokens.json --user dana@partner.example --tenant sage-spine \
+                       --role viewer --expires 2027-03-31 --actor bill   # prints the token once
+ironclad tokens revoke /srv/ironclad/tokens.json --user dana@partner.example --tenant sage-spine --actor bill
+ironclad tokens revoke /srv/ironclad/tokens.json --digest-prefix 3f9a1c0b7d2e --actor bill
+ironclad tokens revoke /srv/ironclad/tokens.json --expired --actor bill  # what the review calls high
+```
+
+`issue` refuses (exit 2, nothing written) a grant with no end or one more than
+365 days out (our term, one annual review), an unknown role, a tenant that is
+not a tenant id, or a second entry for the same user in the same tenant: the
+access log names callers by user and tenant, so two entries for one pair
+could not be told apart in a review. The entry records `issued_by` and
+`issued_at`, and the review prints both. The token goes to stdout once and is
+stored nowhere; hand it over a channel you would trust with the access. A
+renewal is `revoke` then `issue`, so the credential changes with the term.
+`revoke` prints what it removed by digest prefix with `revoked_by`; keep that
+output with the review record. Removing nothing is exit 2, so a mistyped name
+is not mistaken for a revocation. A `.lock` left by an interrupted edit
+refuses further edits until someone who knows no edit is running removes it.
 
 ```sh
 ironclad tokens review /srv/ironclad/tokens.json                   # who holds access, until when

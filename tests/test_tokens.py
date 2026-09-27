@@ -1,9 +1,9 @@
-"""Service-token expiry and the access review (`ironclad tokens review`)."""
+"""Service tokens: expiry, the access review, and issuing and revoking entries."""
 
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -11,10 +11,15 @@ import pytest
 from ironclad.api.http import TokenFileAuthenticator, hash_token
 from ironclad.api.tokens import (
     EXPIRY_WARNING_DAYS,
+    MAX_TERM_DAYS,
     InvalidExpiryError,
+    TokenFileError,
     is_expired,
+    issue_token,
     parse_expiry,
     review_tokens,
+    revoke_tokens,
+    write_token_file,
 )
 from ironclad.cli import main
 
@@ -412,3 +417,231 @@ class TestReviewWithUsage:
         out = capsys.readouterr().out
         for token in ("daily", "idle", "never", "prober", "lapsed"):
             assert hash_token(token) not in out
+
+
+# ------------------------------------------------------------ issue, revoke
+
+
+def _issue(document: dict, **overrides: object) -> tuple[str, dict]:
+    kwargs: dict = {
+        "user_id": "dana@partner.example",
+        "tenant_id": "sage-spine",
+        "roles": ["viewer"],
+        "expires_at": date(2026, 12, 31),
+        "issued_by": "bill",
+        "as_of": AS_OF,
+    }
+    kwargs.update(overrides)
+    return issue_token(document, **kwargs)
+
+
+class TestIssue:
+    def test_an_issued_token_authenticates_and_only_its_digest_is_stored(
+        self, tmp_path: Path
+    ) -> None:
+        document: dict = {"tokens": []}
+        token, entry = _issue(document, roles=["contributor", "viewer", "viewer"])
+        path = tmp_path / "tokens.json"
+        write_token_file(path, document)
+
+        assert token not in path.read_text(encoding="utf-8")
+        assert entry["sha256"] == hash_token(token)
+        assert entry["roles"] == ["contributor", "viewer"]
+        assert (entry["issued_by"], entry["issued_at"]) == ("bill", "2026-09-26")
+        principal = TokenFileAuthenticator(path).principal_for(token)
+        assert principal is not None
+        assert (principal.user_id, principal.tenant_id) == ("dana@partner.example", "sage-spine")
+
+        item = review_tokens(json.loads(path.read_text()), AS_OF)["items"][0]
+        assert item["state"] == "active" and item["findings"] == []
+        assert (item["issued_by"], item["issued_at"]) == ("bill", "2026-09-26")
+
+    def test_two_issues_never_share_a_token(self) -> None:
+        document: dict = {"tokens": []}
+        first, _ = _issue(document)
+        second, _ = _issue(document, user_id="erin@partner.example")
+        assert first != second and len(first) >= 40
+
+    @pytest.mark.parametrize(
+        ("override", "message"),
+        [
+            ({"expires_at": date(2026, 9, 25)}, "before 2026-09-26"),
+            ({"expires_at": date(2027, 9, 27)}, "more than 365 days"),
+            ({"tenant_id": "Sage Spine"}, "not a tenant id"),
+            ({"tenant_id": ""}, "not a tenant id"),
+            ({"roles": ["admin"]}, "unrecognised roles: admin"),
+            ({"roles": []}, "no role"),
+            ({"user_id": "  "}, "no user id"),
+            ({"issued_by": ""}, "no issuer"),
+        ],
+    )
+    def test_refusals_leave_the_file_as_it_was(self, override: dict, message: str) -> None:
+        document: dict = {"tokens": [_entry("existing")]}
+        before = json.dumps(document)
+        with pytest.raises(TokenFileError, match=message):
+            _issue(document, **override)
+        assert json.dumps(document) == before
+
+    def test_the_term_edges(self) -> None:
+        _issue({"tokens": []}, expires_at=AS_OF)  # through today
+        _issue({"tokens": []}, expires_at=AS_OF + timedelta(days=MAX_TERM_DAYS))
+        with pytest.raises(TokenFileError, match="more than"):
+            _issue({"tokens": []}, expires_at=AS_OF + timedelta(days=MAX_TERM_DAYS + 1))
+
+    def test_one_entry_per_user_per_tenant(self) -> None:
+        document: dict = {"tokens": []}
+        _issue(document)
+        with pytest.raises(TokenFileError, match="already holds an entry for sage-spine"):
+            _issue(document, roles=["owner"])
+        _issue(document, tenant_id="other-clinic")  # another tenant is another grant
+        assert len(document["tokens"]) == 2
+
+
+class TestRevoke:
+    @pytest.fixture
+    def document(self) -> dict:
+        return {
+            "tokens": [
+                _entry("lapsed", expires_at="2026-09-25"),
+                _entry("current", expires_at="2026-12-31"),
+                _entry("forever"),
+                _entry("typo", expires_at="2026-02-30"),
+            ]
+        }
+
+    def test_by_user_and_tenant(self, document: dict) -> None:
+        removed = revoke_tokens(document, user_id="current@sage.example", tenant_id="sage-spine")
+        assert [e["user_id"] for e in removed] == ["current@sage.example"]
+        assert [e["user_id"] for e in document["tokens"]] == [
+            "lapsed@sage.example",
+            "forever@sage.example",
+            "typo@sage.example",
+        ]
+
+    def test_by_the_prefix_the_review_prints(self, document: dict) -> None:
+        prefix = review_tokens(document, AS_OF)["items"][2]["digest_prefix"]
+        with pytest.raises(TokenFileError, match="12 to 64"):
+            revoke_tokens(document, digest_prefix=prefix[:8])
+        removed = revoke_tokens(document, digest_prefix=prefix.upper())
+        assert [e["user_id"] for e in removed] == ["forever@sage.example"]
+
+    def test_an_ambiguous_prefix_is_refused(self) -> None:
+        shared = "ab" * 32
+        document = {"tokens": [{"sha256": shared}, {"sha256": shared}]}
+        with pytest.raises(TokenFileError, match="2 entries match"):
+            revoke_tokens(document, digest_prefix=shared[:12])
+        assert len(document["tokens"]) == 2
+
+    def test_expired_removes_only_what_has_lapsed(self, document: dict) -> None:
+        removed = revoke_tokens(document, expired_as_of=AS_OF)
+        assert [e["user_id"] for e in removed] == ["lapsed@sage.example"]
+        # The bad date stays for a person to decide; the review still reports it.
+        assert review_tokens(document, AS_OF)["high"] == 1
+
+    @pytest.mark.parametrize(
+        "selector",
+        [
+            {},
+            {"user_id": "current@sage.example"},
+            {"user_id": "current@sage.example", "tenant_id": "sage-spine", "expired_as_of": AS_OF},
+            {"user_id": "nobody@sage.example", "tenant_id": "sage-spine"},
+        ],
+    )
+    def test_refusals_remove_nothing(self, document: dict, selector: dict) -> None:
+        with pytest.raises(TokenFileError):
+            revoke_tokens(document, **selector)
+        assert len(document["tokens"]) == 4
+
+    def test_a_revoked_token_stops_on_the_next_request(self, tmp_path: Path) -> None:
+        document: dict = {"tokens": []}
+        kept, _ = _issue(document)
+        gone, _ = _issue(document, user_id="erin@partner.example")
+        path = tmp_path / "tokens.json"
+        write_token_file(path, document)
+        auth = TokenFileAuthenticator(path)
+        assert auth.principal_for(gone) is not None
+        revoke_tokens(document, user_id="erin@partner.example", tenant_id="sage-spine")
+        write_token_file(path, document)
+        assert auth.principal_for(gone) is None
+        assert auth.principal_for(kept) is not None
+
+
+class TestEditCommands:
+    ISSUE = [
+        "--user",
+        "dana@partner.example",
+        "--tenant",
+        "sage-spine",
+        "--role",
+        "viewer",
+        "--role",
+        "auditor",
+        "--expires",
+        "2026-12-31",
+        "--actor",
+        "bill",
+        "--as-of",
+        "2026-09-26",
+    ]
+
+    def test_issue_then_revoke(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tokens.json"
+        assert main(["tokens", "issue", str(path), *self.ISSUE]) == 0
+        captured = capsys.readouterr()
+        printed = json.loads(captured.out)
+        token = printed["token"]
+        assert token not in captured.err and token not in path.read_text()
+        assert "sha256" not in printed["entry"]
+        assert printed["entry"]["roles"] == ["auditor", "viewer"]
+        assert TokenFileAuthenticator(path).principal_for(token) is not None
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["tokens.json"]  # no temp, no lock
+
+        args = ["--user", "dana@partner.example", "--tenant", "sage-spine", "--actor", "bill"]
+        assert main(["tokens", "revoke", str(path), *args]) == 0
+        revoked = json.loads(capsys.readouterr().out)
+        assert revoked["revoked_by"] == "bill"
+        assert revoked["removed"][0]["digest_prefix"] == hash_token(token)[:12]
+        assert "sha256" not in revoked["removed"][0]
+        assert TokenFileAuthenticator(path).principal_for(token) is None
+
+    def test_a_refused_edit_writes_nothing(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tokens.json"
+        assert main(["tokens", "issue", str(path), *self.ISSUE]) == 0
+        before = path.read_bytes()
+        assert main(["tokens", "issue", str(path), *self.ISSUE]) == 2  # already held
+        bad_date = ["2026-02-30" if a == "2026-12-31" else a for a in self.ISSUE]
+        assert main(["tokens", "issue", str(path), *bad_date, "--user", "x@p.example"]) == 2
+        revoke = ["--user", "nobody@p.example", "--tenant", "sage-spine", "--actor", "bill"]
+        assert main(["tokens", "revoke", str(path), *revoke]) == 2
+        assert "nothing was written" in capsys.readouterr().err
+        assert path.read_bytes() == before
+        junk = tmp_path / "junk.json"
+        junk.write_text("{not json")
+        assert main(["tokens", "issue", str(junk), *self.ISSUE]) == 2
+        assert junk.read_text() == "{not json"
+
+    def test_an_edit_in_progress_is_not_raced(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tokens.json"
+        lock = tmp_path / "tokens.json.lock"
+        lock.write_text("")
+        assert main(["tokens", "issue", str(path), *self.ISSUE]) == 2
+        assert "another edit is in progress" in capsys.readouterr().err
+        assert not path.exists()
+        assert lock.exists()  # someone else's; left alone
+
+    def test_revoke_expired_keeps_the_rest_of_the_file(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "tokens.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "note": "Sage Spine workspace",
+                    "tokens": [_entry("lapsed", expires_at="2026-09-25"), _entry("current")],
+                }
+            )
+        )
+        args = ["--expired", "--actor", "bill", "--as-of", "2026-09-26"]
+        assert main(["tokens", "revoke", str(path), *args]) == 0
+        capsys.readouterr()
+        kept = json.loads(path.read_text())
+        assert kept["note"] == "Sage Spine workspace"
+        assert [e["user_id"] for e in kept["tokens"]] == ["current@sage.example"]
