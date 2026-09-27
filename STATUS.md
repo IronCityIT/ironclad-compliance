@@ -1211,6 +1211,53 @@ secret-literal and `git diff --check` gates pass. No dashboard file or rule
 changed. In CI at `441f740` (run 36302969029) all six jobs passed: pytest
 1214 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**A partner token with no end date, or one outlasting the assurance, 2026-09-27.**
+`oversight access` reported a linked token with no `expires_at` as clean
+when its record was in order, though that token outlasts every date the
+register holds the partner to. `tokens issue` never writes one, so such an
+entry was written by hand. It also said nothing when a token ran past the
+partner's certificate/assurance expiry, only past its next review. Now:
+
+- `no-expiry`, high: a linked, live entry with no `expires_at`. It is
+  reported next to any register finding, not instead of one. Staff tokens
+  without one stay under `unlinked`, where `tokens review` already gives a
+  notice.
+- `outlasts-assurance`, notice: the token runs past `cert_expiration_date`
+  while that date is still ahead. It is the same rule as `outlasts-review`,
+  which is unchanged. A token ending on the date does not outlast it, and a
+  date already past stays `assurance-expired` (high).
+
+The server's behaviour is unchanged: it still refuses only retired or missing
+records. No route, stored field, token-file field, ledger line or access-log
+line changed. The CLI help, `HANDOFF.md` §17 ("Grant, renew and review a
+service token") and `docs/http-api.md` name both findings.
+
+Tests: 5 new cases in `tests/test_partner_access.py::TestPartnerAccess`:
+
+- outlasting the assurance is a notice;
+- ending on the assurance date is clean;
+- outlasting both dates names both;
+- no expiry is high and leaves the staff token alone;
+- no expiry is reported next to the BAA and missing-record findings.
+
+The queue-notices case now issues its token to end before the record's
+assurance date, so it still tests what it tested. Five mutations each fail a
+test by name:
+
+- the no-expiry check dropped;
+- no-expiry made a notice;
+- assurance not checked;
+- a token ending on the date counted as outlasting it;
+- a lapsed date counted as outlasting.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1276
+tests, 1209 passed, 57 skipped, 10 failed. Untouched HEAD `ba6dc94` in a
+worktree, run after it: 1271 tests, 1204 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. `mypy` (the CI invocation) reports
+only the known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file or rule
+changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

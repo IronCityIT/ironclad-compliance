@@ -163,7 +163,9 @@ class TestPartnerAccess:
             store, "partners", {**GOVERNED, "risk": "Unrated", "cert_expiration_date": "2026-10-10"}
         )
         document: dict[str, Any] = {"tokens": []}
-        grant(document, "ops@governed.example", f"partners/{record_id}")
+        # Ends before the assurance does, so it does not outlast it either.
+        grant(document, "ops@governed.example", f"partners/{record_id}",
+              expires_at=date(2026, 10, 5))  # fmt: skip
         (item,) = access(store, document)["items"]
         assert item["findings"] == []
 
@@ -184,6 +186,59 @@ class TestPartnerAccess:
         grant(document, "ops@governed.example", f"partners/{record_id}")
         (item,) = access(store, document)["items"]
         assert item["findings"] == []
+
+    def test_a_token_outlasting_the_assurance_is_a_notice(self, store: Any) -> None:
+        record_id = add(store, "integrations", {**GOVERNED, "cert_expiration_date": "2026-11-30"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"integrations/{record_id}")
+        result = access(store, document)
+        (item,) = result["items"]
+        assert codes(item) == ["outlasts-assurance"]
+        assert "assurance expiring 2026-11-30" in item["findings"][0]["message"]
+        assert (item["level"], result["high"], result["notices"]) == ("notice", 0, 1)
+
+    def test_a_token_ending_on_the_assurance_date_does_not_outlast_it(self, store: Any) -> None:
+        record_id = add(store, "partners", {**GOVERNED, "cert_expiration_date": "2026-12-31"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert item["findings"] == []
+
+    def test_a_token_outlasting_both_dates_names_both(self, store: Any) -> None:
+        record_id = add(
+            store,
+            "partners",
+            {**GOVERNED, "review_due": "2026-11-30", "cert_expiration_date": "2026-10-31"},
+        )
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert codes(item) == ["outlasts-review", "outlasts-assurance"]
+
+    def test_a_linked_token_with_no_expiry_is_high(self, store: Any) -> None:
+        record_id = add(store, "partners", GOVERNED)
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        grant(document, "staff@sage.example")
+        for entry in document["tokens"]:
+            del entry["expires_at"]  # tokens issue never writes one without it
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (codes(item), item["level"], item["expires_at"]) == (["no-expiry"], "high", None)
+        assert result["high"] == 1
+        # A staff token without one is the token review's notice, not this one's.
+        assert [h["user_id"] for h in result["unlinked"]] == ["staff@sage.example"]
+
+    def test_no_expiry_is_reported_alongside_the_register_findings(self, store: Any) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "dana@drchrono.example", "partners/drchrono")
+        grant(document, "ghost@nowhere.example", "integrations/not-in-register")
+        for entry in document["tokens"]:
+            del entry["expires_at"]
+        found = {item["user_id"]: codes(item) for item in access(store, document)["items"]}
+        assert "no-expiry" in found["dana@drchrono.example"]
+        assert "phi-without-baa" in found["dana@drchrono.example"]
+        assert sorted(found["ghost@nowhere.example"]) == ["no-expiry", "record-missing"]
 
     def test_only_live_entries_of_this_tenant_are_held_to_the_register(self, store: Any) -> None:
         document: dict[str, Any] = {"tokens": []}

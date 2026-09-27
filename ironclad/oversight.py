@@ -532,8 +532,12 @@ def partner_access(
     live entry with `on_behalf_of` is high when the record is missing, retired,
     or has a review-queue finding in `ACCESS_CODES`: a partner handling PHI
     without an executed BAA, or whose review or assurance has lapsed, still
-    holding a working token. Offboarding is a notice. Entries without a link
-    are listed under `unlinked`, not judged: staff hold those.
+    holding a working token. A linked token with no `expires_at` is high too:
+    `tokens issue` never writes one, so it was written by hand, and it runs
+    past every date the register holds the partner to. Offboarding, and a
+    token running past the record's next review or its assurance expiry, are
+    notices. Entries without a link are listed under `unlinked`, not judged:
+    staff hold those.
     """
     from ironclad.api.tokens import (  # noqa: PLC0415  (ironclad.api imports this module)
         InvalidExpiryError,
@@ -606,18 +610,34 @@ def partner_access(
                             "message": "Relationship is offboarding; end this token with it.",
                         }
                     )
-        if last_day is not None and record and _ISO_DATE.match(_text(record.get("review_due"))):
-            if last_day.isoformat() > _text(record.get("review_due")) >= today:
-                findings.append(
-                    {
-                        "level": "notice",
-                        "code": "outlasts-review",
-                        "message": (
-                            f"Token runs to {last_day.isoformat()}, past the relationship's "
-                            f"review due {record['review_due']}."
-                        ),
-                    }
-                )
+        if last_day is None:
+            findings.append(
+                {
+                    "level": "high",
+                    "code": "no-expiry",
+                    "message": (
+                        "Token has no expires_at: it outlasts every review and assurance "
+                        "date; reissue it with an end date."
+                    ),
+                }
+            )
+        elif record:
+            for field, code, what in (
+                ("review_due", "outlasts-review", "review due"),
+                ("cert_expiration_date", "outlasts-assurance", "assurance expiring"),
+            ):
+                bound = _text(record.get(field))
+                if _ISO_DATE.match(bound) and last_day.isoformat() > bound >= today:
+                    findings.append(
+                        {
+                            "level": "notice",
+                            "code": code,
+                            "message": (
+                                f"Token runs to {last_day.isoformat()}, past the "
+                                f"relationship's {what} {bound}."
+                            ),
+                        }
+                    )
         findings.sort(key=lambda f: f["level"] != "high")
         items.append(
             {

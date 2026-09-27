@@ -99,8 +99,9 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
   retired, or it handles PHI without an executed BAA, claims a BAA without
-  its evidence, or has a lapsed review or assurance. Notice: offboarding, or
-  a token that runs past the record's next review. Entries without a link
+  its evidence, or has a lapsed review or assurance, or the token has no
+  `expires_at`. Notice: offboarding, or a token that runs past the record's
+  next review or its assurance expiry. Entries without a link
   (staff) are listed under `unlinked` and not judged. `--fail-on high|any`
   exits 4. It reads digests only, and there is no HTTP route for it: who
   holds a token is the operator's to see, not every tenant member's.
