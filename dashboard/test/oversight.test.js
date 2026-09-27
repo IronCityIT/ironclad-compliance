@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -193,4 +193,65 @@ test("every Sage Spine seed record renders with its actions",()=>{
     for(const r of sage.oversight[kind]) assert.ok(out.includes(r.name.replace(/&/g,"&amp;")),r.name);
     assert.equal(out.match(/data-action="edit"/g).length,sage.oversight[kind].length);
   }
+});
+
+// The review queue. Fixed date so the cases do not drift with the calendar.
+const TODAY="2026-09-26";
+const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
+const clean={name:"Clean",status:"Active",risk:"Low",data_access:"PHI",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
+
+test("a fully governed PHI record needs no attention",()=>{
+  assert.deepEqual(attentionFindings(clean,TODAY),[]);
+});
+
+test("PHI without an executed BAA is a high finding, whatever the BAA status says",()=>{
+  for(const baa_status of ["Pending review","Under review","Required - pending","Not required",""]){
+    const f=attentionFindings({...clean,baa_status},TODAY);
+    assert.equal(f[0].code,"phi-without-baa",baa_status);
+    assert.equal(f[0].level,"high");
+  }
+  assert.ok(!codes({...clean,data_access:"Operational only",baa_status:"Not required"}).includes("phi-without-baa"));
+});
+
+test("an executed BAA without its evidence is called out",()=>{
+  assert.match(attentionFindings({...clean,baa_execution_date:""},TODAY)[0].message,/no execution date recorded/);
+  assert.match(attentionFindings({...clean,baa_document_ref:"",baa_execution_date:""},TODAY)[0].message,/execution date or document reference/);
+});
+
+test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{
+  const edge=new Date(`${TODAY}T00:00:00Z`);edge.setUTCDate(edge.getUTCDate()+ATTENTION_WINDOW_DAYS);
+  const inWindow=edge.toISOString().slice(0,10);
+  edge.setUTCDate(edge.getUTCDate()+1);
+  const beyond=edge.toISOString().slice(0,10);
+  assert.deepEqual(codes({...clean,review_due:"2026-09-25"}),["review-overdue"]);
+  assert.deepEqual(codes({...clean,review_due:TODAY}),["review-due-soon"]);
+  assert.deepEqual(codes({...clean,review_due:inWindow}),["review-due-soon"]);
+  assert.deepEqual(codes({...clean,review_due:beyond}),[]);
+  assert.deepEqual(codes({...clean,review_due:""}),["review-unscheduled"]);
+  assert.deepEqual(codes({...clean,cert_expiration_date:"2026-01-01"}),["assurance-expired"]);
+  assert.deepEqual(codes({...clean,cert_expiration_date:inWindow}),["assurance-expiring"]);
+  assert.deepEqual(codes({...clean,cert_expiration_date:""}),[],"no expiry recorded is not itself a finding");
+});
+
+test("high findings sort ahead of notices; retired records are excluded",()=>{
+  const f=attentionFindings({...clean,risk:"Unrated",baa_status:"Pending review",review_due:"2020-01-01"},TODAY);
+  assert.deepEqual(f.map(x=>x.level),["high","high","notice"]);
+  assert.deepEqual(attentionFindings({...clean,status:"Retired",baa_status:"",review_due:"2020-01-01"},TODAY),[]);
+  assert.equal(isoToday(new Date("2026-09-26T23:59:00Z")),"2026-09-26");
+});
+
+test("every Sage Spine seed record surfaces its missing BAA",()=>{
+  const all=[...sage.oversight.partners,...sage.oversight.integrations];
+  for(const r of all) assert.ok(codes(r).includes("phi-without-baa"),r.name);
+  const html=renderAttention({partners:sage.oversight.partners,integrations:sage.oversight.integrations},TODAY);
+  assert.match(html,new RegExp(`${all.length} records to review as of ${TODAY}; ${all.length} with a high-priority finding`));
+});
+
+test("the review queue escapes stored values and says when nothing is due",()=>{
+  const queue=renderAttention({partners:[{...clean,name:"<img src=x onerror=alert(1)>",baa_status:"<b>x</b>"}],integrations:[]},TODAY);
+  assert.doesNotMatch(queue,/<img|<b>/);
+  assert.match(queue,/&lt;img/);
+  assert.match(renderAttention({partners:[clean],integrations:[]},TODAY),/Nothing needs attention as of 2026-09-26/);
+  assert.match(js,/renderAttention\(/,"the page renders the queue");
+  assert.match(html,/id="attention"/,"the page has somewhere to render it");
 });

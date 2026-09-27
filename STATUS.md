@@ -135,6 +135,26 @@ in CI — and pass there: 91/91 in run 36283015277. Local evidence: `npm --prefi
 failure is the same environmental `api.test.js`); `node --check` on the rules
 suite; white-label and secret-literal gates pass.
 
+**Review queue, 2026-09-26 (fourth pass).** The register recorded BAA status,
+review dates and assurance expiry and nothing read them back: a reviewer had to
+open every card to find PHI moving without a BAA. The page now opens with
+**Needs attention**, derived only from stored fields by `attentionFindings()` in
+`oversight-core.js`. High: PHI access without an executed BAA (whatever else the
+BAA status says, `Not required` included); a BAA marked executed with no
+execution date or document reference; a review overdue; assurance expired.
+Notice: review or assurance due within 30 days; no review date; risk unrated;
+data access unknown. Retired records are excluded. It is recomputed from both
+kinds on every snapshot with the current UTC date. No write path, rule or schema
+changed. Against the Sage Spine seed as committed, all six records (three
+partners, three integrations) come up high for a missing BAA — true of the seed,
+and the reason this exists. Seven new cases in `dashboard/test/oversight.test.js`
+(fixed date, window boundaries both sides, escaping, the seed); four mutations
+(exempting `Not required` from the BAA check, an off-by-one at the window edge,
+dropping the Retired exclusion, unescaping the record name) each fail a test by
+name. Local evidence: `npm --prefix dashboard test` 86/87 (the one failure is the
+same environmental `api.test.js`); `node --check` on the page; white-label and
+secret-literal gates pass.
+
 Still open for this workspace: nothing loads `tenants/sage-spine/seed.json`
 into a store — it is data and a test fixture, not a migration (loading it
 needs a service credential, out of the REVIEW ONLY posture); the page uses the Firebase

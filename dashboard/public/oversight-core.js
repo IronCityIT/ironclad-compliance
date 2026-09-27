@@ -158,3 +158,77 @@ export function saveFailureMessage(err, editing) {
   }
   return err?.message || "Record could not be saved.";
 }
+
+// How far ahead a review or assurance expiry is called out before it lapses.
+export const ATTENTION_WINDOW_DAYS = 30;
+
+// Today's date in UTC as YYYY-MM-DD, the form register dates are stored in.
+export function isoToday(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+function addDays(iso, days) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * What a reviewer should look at on one record, most serious first: PHI moving
+ * without an executed BAA, a BAA claimed without its evidence, a lapsed review
+ * or assurance, and gaps that leave the record unassessable. Derived only from
+ * what is stored, so it says nothing a reviewer cannot check on the card.
+ * Retired records need no attention. `today` is YYYY-MM-DD; ISO dates compare
+ * correctly as strings.
+ */
+export function attentionFindings(record, today) {
+  if (record.status === "Retired") return [];
+  const soon = addDays(today, ATTENTION_WINDOW_DAYS);
+  const findings = [];
+  const add = (level, code, message) => findings.push({ level, code, message });
+  const baa = text(record.baa_status) || "not recorded";
+  if (record.data_access === "PHI" && record.baa_status !== "Executed") {
+    add("high", "phi-without-baa", `Handles PHI without an executed BAA (BAA: ${baa}).`);
+  }
+  if (record.baa_status === "Executed") {
+    const missing = [!text(record.baa_execution_date) && "execution date", !text(record.baa_document_ref) && "document reference"].filter(Boolean);
+    if (missing.length) add("high", "baa-evidence-missing", `BAA marked executed with no ${missing.join(" or ")} recorded.`);
+  }
+  const review = text(record.review_due);
+  if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");
+  else if (review < today) add("high", "review-overdue", `Review overdue since ${review}.`);
+  else if (review <= soon) add("notice", "review-due-soon", `Review due ${review}.`);
+  const expiry = text(record.cert_expiration_date);
+  if (ISO_DATE.test(expiry)) {
+    if (expiry < today) add("high", "assurance-expired", `Certificate / assurance expired ${expiry}.`);
+    else if (expiry <= soon) add("notice", "assurance-expiring", `Certificate / assurance expires ${expiry}.`);
+  }
+  if (!record.risk || record.risk === "Unrated") add("notice", "risk-unrated", "Risk not yet rated.");
+  if (!record.data_access || record.data_access === "Unknown") add("notice", "data-access-unknown", "Data access not established.");
+  return findings.sort((a, b) => (a.level === b.level ? 0 : a.level === "high" ? -1 : 1));
+}
+
+const KIND_LABELS = { partners: "Partner", integrations: "Integration" };
+
+/**
+ * The register's review queue: every record with findings, those with a
+ * high-level finding first, then by name. `byKind` maps a kind to its records.
+ */
+export function renderAttention(byKind, today) {
+  const rows = [];
+  for (const [kind, list] of Object.entries(byKind)) {
+    for (const r of list) {
+      const findings = attentionFindings(r, today);
+      if (findings.length) rows.push({ kind, r, findings, high: findings.some((f) => f.level === "high") });
+    }
+  }
+  if (!rows.length) return `<div class="meta">Nothing needs attention as of ${escapeHtml(today)}.</div>`;
+  rows.sort((a, b) => (a.high === b.high ? String(a.r.name).localeCompare(String(b.r.name)) : a.high ? -1 : 1));
+  const highCount = rows.filter((x) => x.high).length;
+  const summary = `<div class="meta">${rows.length} record${rows.length === 1 ? "" : "s"} to review as of ${escapeHtml(today)}; ${highCount} with a high-priority finding.</div>`;
+  const items = rows.map(({ kind, r, findings }) => `<li><strong>${escapeHtml(r.name)}</strong> <span class="meta">${escapeHtml(KIND_LABELS[kind] ?? kind)}</span>`
+    + `<ul>${findings.map((f) => `<li class="finding-${f.level}">${f.level === "high" ? "High: " : ""}${escapeHtml(f.message)}</li>`).join("")}</ul></li>`);
+  return `${summary}<ul class="attention">${items.join("")}</ul>`;
+}

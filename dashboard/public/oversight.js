@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, writeBatch, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { buildRecord, renderRecords, renderHistory, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
+import { buildRecord, renderRecords, renderHistory, renderAttention, isoToday, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
 
 const $ = (id) => document.getElementById(id);
 const config = window.ICIT_CONFIG;
@@ -83,6 +83,9 @@ onAuthStateChanged(auth, async (user) => {
       records[kind] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
       const sorted = [...records[kind].values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
       $(kind).innerHTML = renderRecords(sorted, kind, { canEdit });
+      // Recomputed from both kinds on every snapshot, with today's date, so
+      // the queue never lags a save or a date rolling over.
+      $("attention").innerHTML = renderAttention(Object.fromEntries(KINDS.map((k) => [k, [...records[k].values()]])), isoToday());
     }, () => fail(`Could not load ${kind}.`));
     $(kind).addEventListener("click", (e) => {
       const button = e.target.closest("button[data-action]");
