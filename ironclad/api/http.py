@@ -45,6 +45,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 from ironclad import oversight, registry
+from ironclad.api.access_log import AccessLog, AccessLogError
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest, ServiceResponse
 from ironclad.api.service import ComplianceService
@@ -181,6 +182,9 @@ class Request:
     headers: dict[str, str]
     body: bytes
     params: dict[str, str] = field(default_factory=dict)
+    #: Set once the bearer token is recognised, so the access log can name
+    #: the caller even when the route then refuses them.
+    principal: Principal | None = None
 
     def json(self) -> dict[str, Any]:
         """The body as a JSON object. Anything else is a 400."""
@@ -240,9 +244,11 @@ class App:
         authenticator: Authenticator | None,
         static_root: Path | str | None = None,
         quiet: bool = False,
+        access_log: AccessLog | None = None,
     ) -> None:
         self.results = results
         self.quiet = quiet
+        self.access_log = access_log
         self.policy_root = Path(policy_root)
         self.authenticator = authenticator
         self.static_root = Path(static_root).resolve() if static_root else None
@@ -305,6 +311,7 @@ class App:
             raise HttpError(HTTPStatus.NOT_FOUND, "no such route")
 
         principal = self._authenticate(request)
+        request.principal = principal
 
         path_known = False
         for method, regex, handler in self._routes:
@@ -748,6 +755,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
         def _dispatch(self, method: str) -> None:
             parts = urlsplit(self.path)
             body_consumed = False
+            request: Request | None = None
             try:
                 body = self._read_body()
                 body_consumed = True
@@ -763,7 +771,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     headers={k.lower(): v for k, v in self.headers.items()},
                     body=body,
                 )
-                response = app.handle(request)
+                answer = app.handle(request)
+                status, payload = answer.status, answer.body
             except TimeoutError:
                 # The client stopped mid-request. There is nobody to answer and
                 # nothing to log at error level; the connection is simply over.
@@ -775,18 +784,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     # the unread bytes would be parsed as the next request
                     # line, so the connection ends with this answer.
                     self.close_connection = True
-                self._send_json(exc.status, {"ok": False, "data": {}, "errors": [exc.message]})
-                return
+                status, payload = exc.status, {"ok": False, "data": {}, "errors": [exc.message]}
             except (IroncladError, StoreError) as exc:
                 # The engine refused something the routes did not anticipate:
                 # a policy file that will not load, a store that cannot read.
                 # Reported as the engine's fault, with its message, never as
                 # a stack trace.
-                self._send_json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"ok": False, "data": {}, "errors": [str(exc)]},
-                )
-                return
+                status = HTTPStatus.INTERNAL_SERVER_ERROR
+                payload = {"ok": False, "data": {}, "errors": [str(exc)]}
             except Exception as exc:  # noqa: BLE001 — the last line of defence
                 # Anything else is a bug. The caller gets a 500 that says so
                 # and nothing about the internals; the server log gets the
@@ -794,12 +799,50 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 # client sees a dropped connection, which is how a corrupt
                 # policy file first surfaced.
                 self.log_error("unhandled %s: %s", type(exc).__name__, exc)
-                self._send_json(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    {"ok": False, "data": {}, "errors": ["internal error"]},
+                status = HTTPStatus.INTERNAL_SERVER_ERROR
+                payload = {"ok": False, "data": {}, "errors": ["internal error"]}
+            status, payload = self._record(method, parts.path, request, status, payload)
+            self._send_json(status, payload)
+
+        def _record(
+            self,
+            method: str,
+            path: str,
+            request: Request | None,
+            status: HTTPStatus,
+            payload: dict[str, Any],
+        ) -> tuple[HTTPStatus, dict[str, Any]]:
+            """Write the access-log line, or refuse to answer without one.
+
+            Every API answer but health is recorded before it is sent, refusals
+            included: a 401 as an unnamed caller, a 403 with the name of the
+            token that was refused. If the line cannot be written the caller
+            gets 503 instead. A write that already landed stays landed -- the
+            register's own history names its author -- but nothing is read
+            out of the server unrecorded.
+            """
+            log = app.access_log
+            if log is None or not path.startswith(API_PREFIX + "/"):
+                return status, payload
+            if path == API_PREFIX + "/health":
+                return status, payload
+            principal = request.principal if request is not None else None
+            try:
+                log.record(
+                    user=principal.user_id if principal else None,
+                    user_tenant=principal.tenant_id if principal else None,
+                    method=method,
+                    path=path,
+                    status=int(status),
                 )
-                return
-            self._send_json(response.status, response.body)
+            except AccessLogError as exc:
+                self.log_error("access log: %s", exc)
+                return HTTPStatus.SERVICE_UNAVAILABLE, {
+                    "ok": False,
+                    "data": {},
+                    "errors": ["the access log cannot be written, so this answer is withheld"],
+                }
+            return status, payload
 
         # -- verbs
 

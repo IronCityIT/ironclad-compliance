@@ -421,6 +421,62 @@ which failed 11. ruff format and lint pass; mypy reports only the known Windows
 the MariaDB persistence job 224 passed, 0 skipped, so the three MariaDB seal
 cases ran against a real server.
 
+**An access log for `ironclad serve`, 2026-09-26 (eleventh pass).** The
+register's history says who changed a record, and nothing said who *read*
+one, or who was *refused*. A partner's token probing another tenant's register
+left `GET ... 403` on stderr with no name attached. HIPAA's audit-controls
+standard (164.312(b)) asks for a record of activity, reads and refusals
+included, before Sage staff and integration partners hold tokens.
+`ironclad serve --access-log FILE` (`ironclad/api/access_log.py`) now appends
+one JSON line per API request, before the answer is sent. Each line holds the
+UTC time, the token's user and tenant (`null` for no recognised token), the
+method, the path and the status. Never the query string, the body or any
+header. Health checks and static files are not recorded.
+
+- **Hash-chained** like the policy audit trail: `seq`, the previous line's
+  digest and its own, so an edited, deleted, reordered or renumbered line
+  breaks the chain. `ironclad access-log verify FILE` prints the entries, the
+  first broken line and the head digest; it exits 4 if the chain is broken
+  and 2 if the file is unreadable.
+- **Fail closed.** The server re-checks the file at start and refuses a
+  broken one (exit 2), rather than burying the break under new lines. If a
+  line cannot be written, the caller gets 503 and nothing else. A write that
+  already landed stays landed, and the register history names its author.
+- One lock across handler threads, and `fsync` per line. One server per
+  file. Rotation is: stop the server, move the file, start it again.
+
+No route, stored field, rule or schema changed. Runbook: `HANDOFF.md` §17,
+"Who used the register, and who was refused". Reference: `docs/http-api.md`,
+"Access log".
+
+Tests: 19 new cases. Fourteen in `tests/test_access_log.py` cover the chain:
+written and reopened, a 403 turned into a 200, a line removed, a line removed
+and renumbered with its hash recomputed, wrong keys, a line cut off mid-write,
+20 concurrent writers and the verify command. Five in
+`tests/test_http.py::TestAccessLog` run on a real socket: a create, a read, a
+cross-tenant 403 named `mallory@beta.example`/`beta`, an anonymous 401 and a
+404, each one attributed line; no query, body or token in the file; health
+and static not logged; an unrecordable answer withheld as 503; `serve`
+refusing a broken log. Seven mutations each fail a test by name:
+
+- the principal not carried to the log;
+- health logged;
+- the answer sent unrecorded;
+- the query string logged;
+- the chain link unchecked;
+- a broken log opened;
+- the digest unchecked.
+
+A first run of the "broken log opened" mutation hung, because `serve` started
+for real. The test now fails fast if serving begins.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): the whole
+suite ran 1078 tests: 1013 passed, 55 skipped, 10 failed. The same 10 fail on
+the untouched tree (1059 run, 994 passed), compared set for set. ruff format
+and lint pass; mypy reports only the known Windows `fcntl` errors in
+`policy_store.py`; white-label, secret-literal and `git diff --check` gates
+pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

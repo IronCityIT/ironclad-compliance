@@ -759,6 +759,22 @@ or gone since; `compare-seals` does the same between two seal files with no
 store access, for an auditor who takes seals over `GET .../oversight/seal`. A
 seal file edited after it was taken fails its own digest and is exit 2.
 
+### Who used the register, and who was refused
+
+`ironclad serve --access-log /srv/ironclad/logs/access.log` records every API
+request with the token's user and tenant, the path and the status, refusals
+included (`docs/http-api.md`, "Access log"). To review it:
+
+```sh
+ironclad access-log verify /srv/ironclad/logs/access.log     # exit 4 if edited
+grep '"status":403' /srv/ironclad/logs/access.log             # refused, by name
+```
+
+Copy the printed `head` into the review record at each review. If the server
+refuses to start because the log is not a whole chain, do not repair it: move
+it aside with its verdict, start a new file, and treat the break as an
+incident. Rotation is the same move while the server is stopped.
+
 ### Verify an auditor package
 
 First the files: `sha256sum -c SHA256SUMS` in the package directory. Every

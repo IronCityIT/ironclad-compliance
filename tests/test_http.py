@@ -1404,3 +1404,121 @@ class TestOversightRegister:
             httpd.server_close()
         assert status == 503
         assert "does not hold the register" in body["errors"][0]
+
+
+# ------------------------------------------------------------ access log
+
+
+class TestAccessLog:
+    """`serve --access-log`: every API answer attributed, refusals included."""
+
+    @pytest.fixture
+    def logged(self, tmp_path: Path, results: FileResultStore, token_file: Path, secrets_for):
+        from ironclad.api.access_log import AccessLog
+
+        log = AccessLog(tmp_path / "access.log")
+        app = App(
+            results=results,
+            policy_root=tmp_path,
+            authenticator=TokenFileAuthenticator(token_file),
+            quiet=True,
+            access_log=log,
+        )
+        httpd = serve(app, port=0)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        port = int(httpd.server_address[1])
+
+        def client(name: str = "") -> Client:
+            return Client(port, secrets_for[name] if name else "")
+
+        try:
+            yield client, log
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            log.close()
+
+    @staticmethod
+    def _entries(log) -> list[dict[str, Any]]:
+        return [json.loads(line) for line in log.path.read_text(encoding="utf-8").splitlines()]
+
+    def test_reads_writes_and_refusals_are_each_one_attributed_line(self, logged) -> None:
+        from ironclad.api.access_log import verify_file
+
+        client, log = logged
+        assert (
+            client("acme-manager").post(REGISTER, {"fields": {"name": "Clearinghouse"}})[0] == 200
+        )
+        assert client("acme-viewer").get(REGISTER + "?q=clearing")[0] == 200
+        assert client("beta-manager").get(REGISTER)[0] == 403
+        assert client().get(REGISTER)[0] == 401
+        assert client("acme-viewer").get("/api/v1/nowhere")[0] == 404
+
+        seen = [
+            (e["user"], e["user_tenant"], e["method"], e["path"], e["status"])
+            for e in self._entries(log)
+        ]
+        assert seen == [
+            ("alice@acme.example", "acme", "POST", REGISTER, 200),
+            ("vic@acme.example", "acme", "GET", REGISTER, 200),
+            # The probe from another tenant is named, with the tenant it holds.
+            ("mallory@beta.example", "beta", "GET", REGISTER, 403),
+            (None, None, "GET", REGISTER, 401),
+            ("vic@acme.example", "acme", "GET", "/api/v1/nowhere", 404),
+        ]
+        assert verify_file(log.path)["verified"] is True
+
+    def test_no_query_body_or_token_reaches_the_log(self, logged, secrets_for) -> None:
+        client, log = logged
+        client("acme-manager").post(REGISTER, {"fields": {"name": "Sensitive Clinic Name"}})
+        client("acme-viewer").get(REGISTER + "?filter=patient-lookup")
+        raw = log.path.read_text(encoding="utf-8")
+        assert "Sensitive Clinic Name" not in raw
+        assert "patient-lookup" not in raw
+        assert all(token not in raw for token in secrets_for.values())
+
+    def test_health_and_static_paths_are_not_logged(self, logged) -> None:
+        client, log = logged
+        assert client().get("/api/v1/health")[0] == 200
+        client().get("/index.html")
+        assert self._entries(log) == []
+
+    def test_an_answer_that_cannot_be_recorded_is_withheld(self, logged) -> None:
+        client, log = logged
+        log.close()
+        status, body, _ = client("acme-viewer").get(REGISTER)
+        assert status == 503
+        assert "access log cannot be written" in body["errors"][0]
+        assert "records" not in body["data"]
+
+    def test_serve_refuses_to_start_on_a_broken_log(
+        self, tmp_path: Path, token_file, capsys, monkeypatch
+    ):
+        from ironclad.cli import main
+
+        # Were the log accepted, the command would serve forever; fail instead.
+        def no_serving(*_: Any, **__: Any) -> None:
+            raise AssertionError("serve started on a broken access log")
+
+        monkeypatch.setattr("ironclad.api.http.serve", no_serving)
+        broken = tmp_path / "access.log"
+        broken.write_text('{"seq": 1}\n', encoding="utf-8")
+        policy_root = tmp_path / "policies"
+        policy_root.mkdir()
+        code = main(
+            [
+                "serve",
+                "--to",
+                str(tmp_path / "results"),
+                "--policy-root",
+                str(policy_root),
+                "--tokens",
+                str(token_file),
+                "--access-log",
+                str(broken),
+                "--port",
+                "0",
+            ]
+        )
+        assert code == 2
+        assert "not a whole chain at line 1" in capsys.readouterr().err

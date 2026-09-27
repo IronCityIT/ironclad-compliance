@@ -29,7 +29,7 @@ EOF
 IRONCLAD_STORE=/srv/ironclad/results \
   ironclad serve --policy-root /srv/ironclad/policies \
                  --tokens /srv/ironclad/tokens.json \
-                 --static dashboard/public
+                 --static dashboard/public                  --access-log /srv/ironclad/logs/access.log
 ```
 
 - `--policy-root` holds `<tenant>/policy.json`, its audit sidecar and a
@@ -48,6 +48,30 @@ IRONCLAD_STORE=/srv/ironclad/results \
   closed. A browser reconnects; a client that never finishes its request does
   not keep a thread. (`READ_TIMEOUT_SECONDS`; the proxy in front should have
   its own, shorter, client limits.)
+
+## Access log
+
+With `--access-log FILE` the server appends one line per API request, before
+the answer is sent: when (UTC), the token's `user` and `user_tenant` (both
+`null` for a request with no recognised token), the method, the path and the
+status. Reads, writes and refusals alike, so a partner's token probing another
+tenant's register is recorded by name with the 403 it got. Health checks and
+the dashboard's static files are not recorded. The query string, the body and
+every header, the token included, never are: the path names a tenant and a
+record id, and nothing a record says.
+
+Each line carries a `seq`, the previous line's digest and its own, like the
+policy audit trail, so a line edited, deleted or reordered breaks the chain
+from there on. `ironclad access-log verify FILE` prints the number of entries,
+the first broken line and the head digest, and exits 4 if the chain is broken
+(2 if the file cannot be read). The server re-checks the file when it starts
+and refuses to append to a broken one: move it aside (it is the evidence) and
+start a new file. As with the register seal, the chain proves nothing on its
+own; copy the head digest somewhere the server's operators cannot write.
+
+If a line cannot be written, the caller gets 503 and nothing else. A write that
+had already landed stays landed and is named in the register's own history;
+nothing is read out of the server without a line. One server per file.
 
 ## Authentication
 

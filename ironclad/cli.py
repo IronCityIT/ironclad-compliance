@@ -451,6 +451,31 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8787)
     serve.add_argument("--quiet", action="store_true", help="no per-request log lines")
+    serve.add_argument(
+        "--access-log",
+        default="",
+        help=(
+            "append a hash-chained line per API request (who, what, the status) to this "
+            "file; refused at start if the file is not a whole chain"
+        ),
+    )
+
+    access = sub.add_parser(
+        "access-log",
+        help="check an access log written by `serve --access-log`",
+    )
+    access_sub = access.add_subparsers(dest="access_command", required=True)
+    access_verify = access_sub.add_parser(
+        "verify",
+        help="re-check every line's digest and print the verdict",
+        description=(
+            "Prints the number of entries, the verdict, the first broken line if any, "
+            "and the head digest to record somewhere else. Exit "
+            f"{EXIT_FINDINGS} if a line was edited, removed or reordered, "
+            f"{EXIT_BAD_INPUT} if the file cannot be read."
+        ),
+    )
+    access_verify.add_argument("log", help="the access-log file")
 
     hash_cmd = sub.add_parser(
         "hash-token",
@@ -1106,12 +1131,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"store is not writable: {health.get('detail', '')}", file=sys.stderr)
         return EXIT_BAD_INPUT
 
+    access_log = None
+    if args.access_log:
+        from ironclad.api.access_log import AccessLog, AccessLogError  # noqa: PLC0415
+
+        try:
+            access_log = AccessLog(args.access_log)
+        except AccessLogError as exc:
+            print(f"access log refused: {exc}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+
     app = App(
         results=store,
         policy_root=policy_root,
         authenticator=authenticator,
         static_root=static,
         quiet=args.quiet,
+        access_log=access_log,
     )
     server = serve(app, host=args.host, port=args.port)
     host, port = str(server.server_address[0]), int(server.server_address[1])
@@ -1125,7 +1161,26 @@ def cmd_serve(args: argparse.Namespace) -> int:
         pass
     finally:
         server.server_close()
+        if access_log is not None:
+            access_log.close()
     return EXIT_OK
+
+
+def cmd_access_log(args: argparse.Namespace) -> int:
+    """Verify an access log's chain. The only subcommand, for now."""
+    from ironclad.api.access_log import AccessLogError, verify_file  # noqa: PLC0415
+
+    path = Path(args.log)
+    if not path.is_file():
+        print(f"access log not found: {path}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    try:
+        verdict = verify_file(path)
+    except AccessLogError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_BAD_INPUT
+    print(json.dumps(verdict, indent=2))
+    return EXIT_OK if verdict["verified"] else EXIT_FINDINGS
 
 
 def cmd_hash_token() -> int:
@@ -1343,6 +1398,7 @@ def main(argv: list[str] | None = None) -> int:
         "exception": lambda: cmd_exception(args),
         "oversight": lambda: cmd_oversight(args),
         "serve": lambda: cmd_serve(args),
+        "access-log": lambda: cmd_access_log(args),
         "hash-token": lambda: cmd_hash_token(),
     }
 
