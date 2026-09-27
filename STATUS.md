@@ -155,6 +155,29 @@ name. Local evidence: `npm --prefix dashboard test` 86/87 (the one failure is th
 same environmental `api.test.js`); `node --check` on the page; white-label and
 secret-literal gates pass.
 
+**Register export, 2026-09-26 (fifth pass).** An auditor inventorying business
+associates, or Sage staff working the queue offline, had to copy cards by hand.
+The workspace now has **Download register (CSV)**, open to every tenant member
+(it holds only what they can already read). `registerCsv()` in
+`oversight-core.js` writes one row per record of both kinds — `record_type`,
+`id`, every field in `oversightFields()`, then `attention_level` and the
+review-queue findings — sorted by kind then name, with retired records kept
+(the export is the inventory, not the queue) and timestamps as ISO UTC. RFC 4180
+quoting with CRLF rows; any cell starting `=`, `+`, `-`, `@`, tab or CR is
+prefixed with `'` so contributor-typed text is never evaluated as a spreadsheet
+formula (OWASP CSV injection). The file is named
+`oversight-register-<tenant>-<date>.csv` with the tenant id reduced to
+`[A-Za-z0-9_-]`, and the button stays disabled until both kinds have loaded, so
+a download is never half the register. No write path, rule or schema changed.
+Five new cases in `dashboard/test/oversight.test.js`, parsed back with a small
+RFC 4180 reader rather than compared as bytes; five mutations (dropping the
+formula guard, dropping CR/LF from the quoting trigger, writing an unreadable
+stamp as `Invalid Date`, un-excluding retired records from the queue, enabling
+the button before both kinds load) each fail a test by name. Local evidence:
+`npm --prefix dashboard test` 91/92 (the one failure is the same environmental
+`api.test.js`, which spawns `python3`); `node --check` on the page and core;
+white-label, secret-literal and `git diff --check` gates pass.
+
 Still open for this workspace: nothing loads `tenants/sage-spine/seed.json`
 into a store — it is data and a test fixture, not a migration (loading it
 needs a service credential, out of the REVIEW ONLY posture); the page uses the Firebase

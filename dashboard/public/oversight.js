@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, writeBatch, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { buildRecord, renderRecords, renderHistory, renderAttention, isoToday, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
+import { buildRecord, renderRecords, renderHistory, renderAttention, registerCsv, exportFileName, isoToday, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
 
 const $ = (id) => document.getElementById(id);
 const config = window.ICIT_CONFIG;
@@ -11,6 +11,8 @@ const db = getFirestore(app);
 const EDIT_ROLES = new Set(["owner", "compliance_manager", "contributor"]);
 const APPROVE_ROLES = new Set(["owner", "compliance_manager"]);
 const KINDS = ["partners", "integrations"];
+// Leads a CSV download so spreadsheet software reads it as UTF-8.
+const BOM = String.fromCharCode(0xfeff);
 
 // Records as last delivered by each snapshot, by kind then id. Edit opens from
 // here, so the revision it writes is the one the user was looking at.
@@ -78,9 +80,25 @@ onAuthStateChanged(auth, async (user) => {
     $("governance-note").hidden = false;
   }
 
+  // Export only once both kinds have loaded, so a download is never half the
+  // register. It is built from what this member can already read.
+  const loaded = new Set();
+  $("export-csv").addEventListener("click", () => {
+    const today = isoToday();
+    const csv = registerCsv(Object.fromEntries(KINDS.map((k) => [k, [...records[k].values()]])), today);
+    const url = URL.createObjectURL(new Blob([BOM, csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFileName(clientId, today);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
+
   for (const kind of KINDS) {
     onSnapshot(query(collection(db, "clients", clientId, kind)), (snap) => {
       records[kind] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+      loaded.add(kind);
+      $("export-csv").disabled = loaded.size < KINDS.length;
       const sorted = [...records[kind].values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
       $(kind).innerHTML = renderRecords(sorted, kind, { canEdit });
       // Recomputed from both kinds on every snapshot, with today's date, so

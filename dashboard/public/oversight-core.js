@@ -232,3 +232,55 @@ export function renderAttention(byKind, today) {
     + `<ul>${findings.map((f) => `<li class="finding-${f.level}">${f.level === "high" ? "High: " : ""}${escapeHtml(f.message)}</li>`).join("")}</ul></li>`);
   return `${summary}<ul class="attention">${items.join("")}</ul>`;
 }
+
+// The register as a spreadsheet: the columns an auditor asks for when
+// inventorying business associates, one row per record, with the review
+// queue's findings alongside. Bookkeeping stamps are written as UTC.
+export const EXPORT_COLUMNS = ["record_type", "id", ...RECORD_FIELDS, "attention_level", "attention"];
+
+// A cell a spreadsheet would evaluate (=, +, -, @, or a leading tab or CR) is
+// prefixed with an apostrophe so it is shown as text (OWASP CSV injection).
+// Register text is typed by contributors, so it is not trusted as a formula.
+function csvCell(v) {
+  let s = String(v ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportValue(record, field) {
+  const v = record[field];
+  if (typeof v?.toDate === "function" || v instanceof Date) {
+    const d = typeof v.toDate === "function" ? v.toDate() : v;
+    return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  }
+  return v ?? "";
+}
+
+/**
+ * RFC 4180 CSV (CRLF) of every record of every kind, sorted by kind then name,
+ * with each record's highest finding level and its findings as of `today`.
+ * Retired records are included: the export is the inventory, not the queue.
+ */
+export function registerCsv(byKind, today) {
+  const rows = [EXPORT_COLUMNS];
+  for (const [kind, list] of Object.entries(byKind)) {
+    const sorted = [...list].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    for (const r of sorted) {
+      const findings = attentionFindings(r, today);
+      const level = findings.length ? findings[0].level : "";
+      rows.push([
+        KIND_LABELS[kind] ?? kind, r.id ?? "",
+        ...RECORD_FIELDS.map((f) => exportValue(r, f)),
+        level, findings.map((f) => f.message).join(" | "),
+      ]);
+    }
+  }
+  return `${rows.map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
+}
+
+// A download name that carries the tenant and the date and nothing a
+// filesystem would object to.
+export function exportFileName(clientId, today) {
+  const safe = String(clientId ?? "").replace(/[^A-Za-z0-9_-]/g, "") || "tenant";
+  return `oversight-register-${safe}-${today}.csv`;
+}

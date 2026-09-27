@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -254,4 +254,81 @@ test("the review queue escapes stored values and says when nothing is due",()=>{
   assert.match(renderAttention({partners:[clean],integrations:[]},TODAY),/Nothing needs attention as of 2026-09-26/);
   assert.match(js,/renderAttention\(/,"the page renders the queue");
   assert.match(html,/id="attention"/,"the page has somewhere to render it");
+});
+
+// The register export. A minimal RFC 4180 reader, so the cases check what a
+// spreadsheet would see rather than the exact bytes.
+function parseCsv(src){
+  const rows=[];let row=[],cell="",quoted=false;
+  for(let i=0;i<src.length;i++){
+    const c=src[i];
+    if(quoted){
+      if(c==='"'&&src[i+1]==='"'){cell+='"';i++;}
+      else if(c==='"') quoted=false;
+      else cell+=c;
+    }else if(c==='"') quoted=true;
+    else if(c===","){row.push(cell);cell="";}
+    else if(c==="\r"&&src[i+1]==="\n"){row.push(cell);rows.push(row);row=[];cell="";i++;}
+    else cell+=c;
+  }
+  assert.equal(cell+row.length,"0","ends on a CRLF");
+  return rows;
+}
+
+test("the register exports every field the rules allow, plus its findings",()=>{
+  assert.deepEqual(EXPORT_COLUMNS,["record_type","id",...RECORD_FIELDS,"attention_level","attention"]);
+  const [head,...rows]=parseCsv(registerCsv({partners:[{id:"p1",...clean}],integrations:[{id:"i1",...clean,name:"Feed",baa_status:"Pending review",review_due:""}]},TODAY));
+  assert.deepEqual(head,EXPORT_COLUMNS);
+  assert.equal(rows.length,2);
+  const at=(row,col)=>row[EXPORT_COLUMNS.indexOf(col)];
+  assert.deepEqual(rows.map(r=>at(r,"record_type")),["Partner","Integration"]);
+  assert.equal(at(rows[0],"attention_level"),"");
+  assert.equal(at(rows[0],"baa_document_ref"),"Contract 42");
+  assert.equal(at(rows[1],"attention_level"),"high");
+  assert.match(at(rows[1],"attention"),/^Handles PHI without an executed BAA \(BAA: Pending review\)\. \| No review date set\.$/);
+});
+
+test("the export keeps retired records, sorts by name, and writes stamps as UTC",()=>{
+  const stamp={toDate:()=>new Date("2026-09-20T14:05:00Z")};
+  const csv=registerCsv({partners:[{...clean,name:"Zeta",status:"Retired",baa_status:""},{...clean,name:"Alpha",updated_at:stamp,created_at:new Date("bad")}],integrations:[]},TODAY);
+  const [,a,z]=parseCsv(csv);
+  const at=(row,col)=>row[EXPORT_COLUMNS.indexOf(col)];
+  assert.deepEqual([at(a,"name"),at(z,"name")],["Alpha","Zeta"]);
+  assert.equal(at(z,"attention"),"","a retired record is inventory, not queue");
+  assert.equal(at(a,"updated_at"),"2026-09-20T14:05:00.000Z");
+  assert.equal(at(a,"created_at"),"","an unreadable stamp is left blank, not 'Invalid Date'");
+});
+
+test("the export quotes delimiters and neutralises spreadsheet formulas",()=>{
+  const notes='Line one, "quoted"\r\nline two';
+  const port=["HTTPS/443","DICOM/104"].join(String.fromCharCode(13,10));
+  const csv=registerCsv({partners:[{...clean,name:"=HYPERLINK(\"http://x\",\"y\")",notes,business_owner:"+1 cmd",technical_owner:"-2",phi_scope:"@SUM(A1)",assurance:"\tTab",port_protocol:port}],integrations:[]},TODAY);
+  const rows=parseCsv(csv);
+  assert.equal(rows.length,2,"a line break inside a cell does not start a row");
+  const [,row]=rows;
+  const at=(col)=>row[EXPORT_COLUMNS.indexOf(col)];
+  assert.equal(at("notes"),notes,"commas, quotes and line breaks survive a round trip");
+  assert.equal(at("port_protocol"),port,"a line break alone is quoted too");
+  assert.equal(at("name"),"'=HYPERLINK(\"http://x\",\"y\")");
+  assert.equal(at("business_owner"),"'+1 cmd");
+  assert.equal(at("technical_owner"),"'-2");
+  assert.equal(at("phi_scope"),"'@SUM(A1)");
+  assert.equal(at("assurance"),"'\tTab");
+  assert.equal(at("review_due"),"2027-03-01","an ISO date is not mistaken for a formula");
+});
+
+test("every Sage Spine seed record exports with its missing BAA; the file is named for the tenant",()=>{
+  const [,...rows]=parseCsv(registerCsv({partners:sage.oversight.partners,integrations:sage.oversight.integrations},TODAY));
+  assert.equal(rows.length,sage.oversight.partners.length+sage.oversight.integrations.length);
+  for(const r of rows) assert.match(r[EXPORT_COLUMNS.indexOf("attention")],/Handles PHI without an executed BAA/,r[EXPORT_COLUMNS.indexOf("name")]);
+  assert.equal(exportFileName("sage-spine",TODAY),"oversight-register-sage-spine-2026-09-26.csv");
+  assert.equal(exportFileName("../../etc",TODAY),"oversight-register-etc-2026-09-26.csv");
+  assert.equal(exportFileName("",TODAY),"oversight-register-tenant-2026-09-26.csv");
+});
+
+test("the page offers the export only once both kinds have loaded",()=>{
+  assert.match(html,/<button id="export-csv"[^>]*disabled/);
+  assert.match(js,/registerCsv\(/);
+  assert.match(js,/\$\("export-csv"\)\.disabled = loaded\.size < KINDS\.length/);
+  assert.match(js,/URL\.revokeObjectURL/);
 });
