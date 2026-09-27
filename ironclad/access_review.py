@@ -43,6 +43,12 @@ otherwise everything up to the review date. The token file shows only who
 holds access today; a partner granted and offboarded inside one quarter is
 in no packet's entries, and is in this list. A grant whose issuer is its
 holder is a notice: nobody else approved that access.
+
+A count is only as useful as what it counts. The manifest's summary lists
+each high finding and notice behind its `high` and `notices` (`findings`):
+the file it is in, the record, holder, token or chain it is about, and the
+messages. The reviewer starts from that list instead of searching six files
+for what the numbers refer to, and it is covered by the manifest's digest.
 """
 
 from __future__ import annotations
@@ -254,6 +260,112 @@ def _verified(what: str, chain: tuple[dict[str, Any], list[dict[str, Any]]] | No
         raise PacketError(f"the {what} is not a whole chain; no review is built on it")
 
 
+def findings(
+    queue: dict[str, Any],
+    access: dict[str, Any],
+    sweep: dict[str, Any],
+    tokens: dict[str, Any],
+    linked: dict[str, Any] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Each high finding and notice the packet counts, with the file it is in.
+
+    The summary's `high` and `notices` are the lengths of these lists, so a
+    count always comes with what it counts: `part` (the packet file to read),
+    `subject` (the record, holder, token or chain) and `messages`. A token
+    entry with a high finding and a notice is in both lists, each with its own
+    messages, as `tokens review` counts it. Nothing here names anyone the
+    parts do not already name.
+    """
+    high: list[dict[str, Any]] = []
+    notices: list[dict[str, Any]] = []
+
+    def add(level: str, part: str, subject: str, messages: list[str]) -> None:
+        (high if level == "high" else notices).append(
+            {"part": part, "subject": subject, "messages": messages}
+        )
+
+    for item in queue["items"]:
+        add(
+            item["level"],
+            "review-queue.json",
+            f"{item['kind']}/{item['id']} ({item['name']})",
+            [f["message"] for f in item["findings"]],
+        )
+    for item in access["items"]:
+        if item["level"] != "ok":
+            add(
+                item["level"],
+                "partner-access.json",
+                f"{item['user_id']} for {item['on_behalf_of']} ({item['digest_prefix']})",
+                [f["message"] for f in item["findings"]],
+            )
+    if not sweep["verified"]:
+        add(
+            "high",
+            "register-verify.json",
+            "register history",
+            [f"{i['kind']}/{i['id']}: {i['detail']}" for i in sweep["items"] if not i["verified"]],
+        )
+    for item in tokens["items"]:
+        subject = f"{item.get('user_id', '')} ({item.get('digest_prefix', '')})"
+        for level in ("high", "notice"):
+            messages = [f["message"] for f in item["findings"] if f["level"] == level]
+            if messages:
+                add(level, "token-review.json", subject, messages)
+    ledger = tokens.get("ledger")
+    if ledger is not None:
+        for grant in ledger["unrecorded"]:
+            add(
+                "notice",
+                "token-review.json",
+                f"{grant['user_id']} ({grant['digest_prefix']})",
+                [grant["message"]],
+            )
+        for change in ledger["changes"]["items"]:
+            if change["self_granted"]:
+                add(
+                    "notice",
+                    "token-review.json",
+                    f"{change['user_id']} ({change['digest_prefix']})",
+                    [f"granted at {change['at']} by its own holder; nobody else approved it"],
+                )
+    outside = tokens.get("refused_from_outside") or {}
+    for caller, level, who in (
+        ("other_tenant", "high", "other tenants' tokens"),
+        ("unauthenticated", "notice", "no token"),
+    ):
+        group = outside.get(caller)
+        if group:
+            add(
+                level,
+                "token-review.json",
+                f"requests refused to {who}",
+                [
+                    f"{group['requests']} request(s) from {group['callers']} caller(s), "
+                    f"{group['first']} to {group['last']}"
+                ],
+            )
+    if linked is not None:
+        for item in linked["register"]["items"]:
+            if not item["verified"]:
+                add(
+                    "high",
+                    CONTINUITY,
+                    f"{item['kind']}/{item['id']}",
+                    [f"since the previous packet: {item['detail']}"],
+                )
+        for chain in ("access_log", "grant_ledger"):
+            held = linked.get(chain)
+            if held and held["extended"] is not True:
+                add(
+                    "high" if held["extended"] is False else "notice",
+                    CONTINUITY,
+                    chain.replace("_", " "),
+                    [held["reason"] or f"anchor {held['anchor']} is not in today's chain"],
+                )
+    return {"high": high, "notices": notices}
+
+
 def build_packet(
     store: Any,
     document: object,
@@ -320,7 +432,7 @@ def build_packet(
     }
     if linked is not None:
         contents[CONTINUITY] = _json_bytes(linked)
-    summary = {
+    summary: dict[str, Any] = {
         "register": {"records": export["records"], "verified": sweep["verified"]},
         "review_queue": {"records": queue["records"], "high": queue["high"]},
         "partner_access": {
@@ -337,8 +449,6 @@ def build_packet(
             **({"dormant": tokens["dormant"]} if "dormant" in tokens else {}),
         },
     }
-    high = queue["high"] + access["high"] + tokens["high"] + (0 if sweep["verified"] else 1)
-    notices = (queue["records"] - queue["high"]) + access["notices"] + tokens["notices"]
     if "ledger" in tokens:
         changes = tokens["ledger"]["changes"]
         summary["access_changes"] = {
@@ -349,14 +459,12 @@ def build_packet(
         summary["refused_from_outside"] = {
             caller: group["requests"] if group else 0 for caller, group in outside.items()
         }
-        high += 1 if outside["other_tenant"] else 0
-        notices += 1 if outside["unauthenticated"] else 0
     if linked is not None:
         summary["continuity"] = {k: linked[k] for k in ("verified", "broken", "unchecked")}
-        high += linked["broken"]
-        notices += linked["unchecked"]
-    summary["high"] = high
-    summary["notices"] = notices
+    found = findings(queue, access, sweep, tokens, linked)
+    summary["high"] = len(found["high"])
+    summary["notices"] = len(found["notices"])
+    summary["findings"] = found
     manifest: dict[str, Any] = {
         "format": PACKET_FORMAT,
         "tenant_id": tenant_id,
@@ -566,6 +674,7 @@ __all__ = [
     "PacketError",
     "build_packet",
     "continuity",
+    "findings",
     "packet_name",
     "refused_from_outside",
     "tenant_token_review",

@@ -612,8 +612,151 @@ class TestContinuity:
         assert problem.startswith("the previous packet does not verify: register.csv")
 
 
+class TestTheFindingsIndex:
+    """Each counted finding is listed in the manifest with the file to read it in."""
+
+    @staticmethod
+    def index(packet: dict[str, Any], level: str) -> list[tuple[str, str]]:
+        return [(f["part"], f["subject"]) for f in packet["manifest"]["summary"]["findings"][level]]
+
+    def test_every_count_comes_with_what_it_counts(self, store: Any, tmp_path: Path) -> None:
+        log = write_log(
+            tmp_path / "access.log",
+            ("dana@drchrono.example", "sage-spine", 200, "2026-09-20T10:00:00"),
+        )
+        packet = build(store, two_tenants(), access_log=access_log.read_file(log))
+        summary = packet["manifest"]["summary"]
+        high, notices = self.index(packet, "high"), self.index(packet, "notices")
+        assert (len(high), len(notices)) == (summary["high"], summary["notices"]) == (7, 1)
+        # The six seeded records lack a BAA, and Dana's token acts for one of them.
+        assert [part for part, _ in high] == ["review-queue.json"] * 6 + ["partner-access.json"]
+        assert "partners/drchrono (DrChrono)" in [subject for _, subject in high]
+        dana = load(packet, "partner-access.json")["items"][0]["digest_prefix"]
+        assert high[-1][1] == f"dana@drchrono.example for partners/drchrono ({dana})"
+        (queued,) = [
+            f
+            for f in summary["findings"]["high"]
+            if f["subject"].startswith("integrations/drchrono-to-primo")
+        ]
+        assert queued["messages"] == [
+            "Handles PHI without an executed BAA (BAA: Pending review).",
+            "No review date set.",
+        ]
+        # Staff made no request since the log began: dormant, a notice.
+        (staff,) = summary["findings"]["notices"]
+        assert staff["part"] == "token-review.json"
+        assert staff["subject"].startswith("staff@sage.example (")
+        assert "confirm the access is still needed" in staff["messages"][0]
+        # The manifest is covered by its digest, so the index is part of the record.
+        assert load(packet, "manifest.json")["summary"]["findings"] == summary["findings"]
+
+    def test_a_token_with_a_high_finding_and_a_notice_is_in_both(self, store: Any) -> None:
+        document = two_tenants()
+        document["tokens"][1]["expires_at"] = "2026-10-01"  # expiring, a notice
+        document["tokens"][1]["on_behalf_of"] = "nowhere"  # malformed, high
+        packet = build(store, document)
+        staff = [
+            (level, f["messages"])
+            for level in ("high", "notices")
+            for f in packet["manifest"]["summary"]["findings"][level]
+            if f["part"] == "token-review.json" and f["subject"].startswith("staff@sage.example")
+        ]
+        assert [level for level, _ in staff] == ["high", "notices"]
+        assert [m for m in staff[0][1] if "cannot hold it to a register record" in m]
+        assert staff[1][1] == ["expires 2026-10-01; renew or let it lapse"]
+
+    def test_grants_nobody_else_approved_or_left_unrecorded_are_listed(self, store: Any) -> None:
+        document = two_tenants()
+        ledger = ledger_of(document)
+        document["tokens"] = [document["tokens"][0]]  # staff's entry removed by hand
+        ledger.append({**TestAccessChanges.line("issue", "Bill", "2026-09-02T09:00:00Z"),
+                       "sha256": "c" * 64})  # fmt: skip
+        packet = build(store, document, ledger=({"verified": True, "entries": 4, "head": ""},
+                                                ledger))  # fmt: skip
+        notices = packet["manifest"]["summary"]["findings"]["notices"]
+        assert [(f["part"], f["subject"]) for f in notices] == [
+            ("token-review.json", f"staff@sage.example ({ledger[1]['sha256'][:12]})"),
+            ("token-review.json", f"Bill ({'c' * 12})"),
+            ("token-review.json", f"Bill ({'c' * 12})"),
+        ]
+        assert "no revocation on record" in notices[0]["messages"][0]
+        assert "no revocation on record" in notices[1]["messages"][0]
+        assert notices[2]["messages"] == [
+            "granted at 2026-09-02T09:00:00Z by its own holder; nobody else approved it"
+        ]
+        assert packet["manifest"]["summary"]["notices"] == 3
+
+    def test_refusals_from_outside_are_listed_without_naming_anyone(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        log = AccessLog(tmp_path / "access.log")
+        for user, tenant, status in (
+            ("nurse@other.example", "other-clinic", 403),
+            ("nurse@other.example", "other-clinic", 403),
+            (None, None, 401),
+        ):
+            log.record(
+                user=user, user_tenant=tenant, method="GET",
+                path="/api/v1/tenants/sage-spine/audit", status=status,
+                at=datetime(2026, 9, 22, 9, tzinfo=timezone.utc),
+            )  # fmt: skip
+        log.close()
+        packet = build(store, {"tokens": []}, access_log=access_log.read_file(log.path))
+        found = packet["manifest"]["summary"]["findings"]
+        outside = [
+            (level, f["subject"], f["messages"])
+            for level in ("high", "notices")
+            for f in found[level]
+            if f["subject"].startswith("requests refused")
+        ]
+        assert outside == [
+            ("high", "requests refused to other tenants' tokens",
+             ["2 request(s) from 1 caller(s), 2026-09-22T09:00:00.000Z to "
+              "2026-09-22T09:00:00.000Z"]),
+            ("notices", "requests refused to no token",
+             ["1 request(s) from 1 caller(s), 2026-09-22T09:00:00.000Z to "
+              "2026-09-22T09:00:00.000Z"]),
+        ]  # fmt: skip
+        text = json.dumps(found)
+        assert "other-clinic" not in text and "@other.example" not in text
+
+    def test_what_changed_since_the_last_packet_is_listed(self, store: Any, tmp_path: Path) -> None:
+        spring = TestContinuity()
+        earlier, _ = spring.first(store, tmp_path, spring.spring_log(tmp_path))
+        entry = (
+            tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / "drchrono" / "1.json"
+        )
+        data = json.loads(entry.read_text(encoding="utf-8"))
+        entry.write_text(json.dumps({**data, "notes": "Rewritten."}), encoding="utf-8")
+        # The log the spring packet anchored is not given: unchecked, a notice.
+        packet = build(store, two_tenants(), previous=earlier)
+        found = packet["manifest"]["summary"]["findings"]
+        assert [(f["subject"], f["messages"]) for f in found["high"]
+                if f["part"] == access_review.CONTINUITY] == [
+            ("partners/drchrono", ["since the previous packet: revision 1 changed since the seal"])
+        ]  # fmt: skip
+        assert [(f["subject"], f["messages"]) for f in found["notices"]
+                if f["part"] == access_review.CONTINUITY] == [
+            ("access log", ["not given for this review"])
+        ]  # fmt: skip
+
+    def test_a_register_history_that_does_not_verify_is_listed(self, store: Any) -> None:
+        sweep = {"verified": False, "items": [
+            {"kind": "partners", "id": "drchrono", "verified": False,
+             "detail": "revision 1 does not hash to its entry"},
+            {"kind": "partners", "id": "primo", "verified": True, "detail": ""},
+        ]}  # fmt: skip
+        empty: dict[str, Any] = {"items": []}
+        found = access_review.findings(empty, empty, sweep, {"items": []}, None)
+        assert found == {
+            "high": [{"part": "register-verify.json", "subject": "register history",
+                      "messages": ["partners/drchrono: revision 1 does not hash to its entry"]}],
+            "notices": [],
+        }  # fmt: skip
+
+
 class TestTheCommands:
-    AUDIT = ("--tenant", "sage-spine", "--actor", "aud-1", "--role", "auditor",
+    AUDIT =("--tenant", "sage-spine", "--actor", "aud-1", "--role", "auditor",
              "--as-of", TODAY)  # fmt: skip
     ISSUE = ("--role", "contributor", "--expires", "2026-12-31", "--actor", "bill",
              "--as-of", TODAY)  # fmt: skip
@@ -671,6 +814,9 @@ class TestTheCommands:
         assert (item["requests"], item["granted_by"]) == (1, "bill")
         # The CSV's CRLF rows are filed as they are.
         assert b"\r\n" in (path / "register.csv").read_bytes()
+        # What the counts refer to is printed at filing, as the manifest holds it.
+        assert filed["summary"]["findings"] == manifest["summary"]["findings"]
+        assert len(filed["summary"]["findings"]["high"]) == filed["summary"]["high"] > 0
 
         code, verdict, _ = cli("oversight", "verify-packet", str(path), "--digest", filed["digest"])
         assert (code, verdict["verified"]) == (0, True)

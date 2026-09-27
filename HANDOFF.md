@@ -986,6 +986,15 @@ issuer is its own holder (`--actor` the same as `--user`) is a notice, since
 nobody else approved that access. The manifest summary carries the counts
 under `access_changes`.
 
+Start the review from the manifest's `summary.findings`. Its `high` and
+`notices` lists hold one entry for each finding the summary counts, so their
+lengths are the counts. Each entry names the file to read (`part`), what it is
+about (a record, a holder and link, a token by user and digest prefix, a
+chain, or the merged refusals from outside) and its `messages`. A token with
+a high finding and a notice is listed under both. The list is in the
+manifest, so the recorded digest covers it, and `review-packet` prints it at
+filing.
+
 It exits 4 with nothing written if the log or ledger is not a whole chain. It
 exits 2 if an input is unreadable, `--dormant-days` is below 1, or a packet for
 that tenant and date is already filed. A filed packet is never overwritten.
