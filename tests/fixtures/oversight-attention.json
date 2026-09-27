@@ -72,6 +72,18 @@
       {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."},
       {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."},
       {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "an active relationship whose data access is unknown", "patch": {"data_access": "Unknown"}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "an active relationship with its data access cleared", "patch": {"data_access": null}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "active with data access unknown and no BAA: the BAA check cannot fire, this does", "patch": {"data_access": "Unknown", "baa_status": "Pending review", "baa_execution_date": ""}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "data access unknown while onboarding is only the notice", "patch": {"status": "Onboarding", "data_access": "Unknown"}, "expected": [
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a retired relationship of unknown data access needs no attention", "patch": {"status": "Retired", "data_access": "Unknown"}, "expected": []},
+    {"name": "active, unrated and of unknown data access: the rating first", "patch": {"risk": "Unrated", "data_access": "Unknown"}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."},
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
     {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
     {"name": "PHI with no data flow direction recorded", "patch": {"data_flow_direction": ""}, "expected": [

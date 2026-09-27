@@ -106,8 +106,9 @@ IRONCLAD_STORE=/srv/ironclad/results \
   in the tenant that has one to its record. High: the record is missing or
   retired, or still at `Pending information` (`record-pending`: access ahead
   of any review of the relationship), or it handles PHI without an executed BAA, is
-  `Active` with no executed agreement (`agreement-not-executed`) or no risk
-  rating (`active-unrated`), claims a BAA without
+  `Active` with no executed agreement (`agreement-not-executed`), no risk
+  rating (`active-unrated`) or no established data access
+  (`active-access-unknown`), claims a BAA without
   its evidence or dated after today, or has a lapsed review or assurance,
   or the token holds `owner` or `compliance_manager` (`approver-role`: the
   register's approver roles, so a partner could approve its own record), or
@@ -335,7 +336,10 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   `Active` relationship whose agreement is neither `Executed` nor `Not
   required` (`agreement-not-executed`), an `Active` relationship never
   risk-rated (`active-unrated`: the rating decides whether a dated assurance
-  is owed, so an unrated live relationship escapes that check), a review
+  is owed, so an unrated live relationship escapes that check), an `Active`
+  relationship whose data access is `Unknown` or blank
+  (`active-access-unknown`: whether a BAA is owed turns on PHI, so the BAA
+  check cannot fire on it), a review
   overdue or assurance expired (high); PHI with no PHI scope recorded (what
   the BAA's minimum necessary is measured against), PHI with no data flow
   direction recorded (`phi-flow-unrecorded`: whether PHI leaves the practice,
@@ -343,7 +347,7 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   30 days, no review date, a review scheduled more than 365 days after
   `as_of` (`review-too-distant`: ICIT policy, `REVIEW_HORIZON_DAYS`; a review
   set years out would never read as overdue), risk unrated on a record not yet
-  `Active`, data access unknown, no business
+  `Active`, data access unknown on a record not yet `Active`, no business
   owner, a High or Critical rating with no assurance expiry recorded
   (`assurance-undated`: without one the expiry checks can never fire), an
   assurance expiry recorded with no assurance named (`assurance-unnamed`: the

@@ -289,6 +289,24 @@ class TestTheReviewQueue:
         assert "risk-unrated" not in [f["code"] for f in found]
         assert "active-unrated" in oversight.ACCESS_CODES
 
+    def test_no_sage_seed_record_is_active_with_unknown_data_access(self) -> None:
+        # DrChrono, the seed's one Active record, handles PHI.
+        unknown = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "active-access-unknown"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert unknown == []
+        drchrono = {**SEED["oversight"]["partners"][0], "data_access": "Unknown"}
+        assert drchrono["status"] == "Active"
+        found = oversight.attention_findings(drchrono, "2026-09-26")
+        assert ("high", "active-access-unknown") in [(f["level"], f["code"]) for f in found]
+        assert "data-access-unknown" not in [f["code"] for f in found]
+        assert "phi-without-baa" not in [f["code"] for f in found]
+        assert "active-access-unknown" in oversight.ACCESS_CODES
+
     def test_every_sage_seed_record_surfaces_its_missing_baa(self) -> None:
         for kind in oversight.KINDS:
             for entry in SEED["oversight"][kind]:

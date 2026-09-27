@@ -289,6 +289,18 @@ test("an Active relationship never risk-rated is high, not the notice",()=>{
   assert.deepEqual(codes({...clean,status:"Retired",risk:"Unrated"}),[],"retired records need no attention");
 });
 
+test("an Active relationship of unknown data access is high, not the notice",()=>{
+  for(const data_access of ["Unknown","",undefined]){
+    const f=attentionFindings({...clean,data_access},TODAY);
+    assert.deepEqual(f.map(x=>[x.level,x.code]),[["high","active-access-unknown"]],String(data_access));
+  }
+  assert.deepEqual(codes({...clean,data_access:"Unknown",baa_status:"Pending review",baa_execution_date:""}),["active-access-unknown"],"the BAA check cannot fire without PHI");
+  for(const status of ["Pending information","Onboarding","Under review","Offboarding"]){
+    assert.deepEqual(codes({...clean,status,data_access:"Unknown"}),["data-access-unknown"],status);
+  }
+  assert.deepEqual(codes({...clean,status:"Retired",data_access:"Unknown"}),[],"retired records need no attention");
+});
+
 test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{
   const edge=new Date(`${TODAY}T00:00:00Z`);edge.setUTCDate(edge.getUTCDate()+ATTENTION_WINDOW_DAYS);
   const inWindow=edge.toISOString().slice(0,10);

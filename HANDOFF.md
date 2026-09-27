@@ -766,7 +766,13 @@ the relationship live without assessing it, and the rating is what decides
 whether it owes a dated assurance (`assurance-undated`), so nothing else
 would ask. It is an access code, so a partner token for such a record is
 high in `oversight access`. Records not yet `Active` keep the notice. No
-Sage seed record carries it (DrChrono, the one Active record, is rated High). PHI
+Sage seed record carries it (DrChrono, the one Active record, is rated High).
+An `Active` record whose data access is `Unknown` (or blank) is high
+(`active-access-unknown`) in place of the `data-access-unknown` notice:
+whether the relationship owes a BAA turns on whether it handles PHI, so
+`phi-without-baa` cannot fire on a live relationship nobody has scoped. It
+is an access code too. Records not yet `Active` keep the notice. No Sage
+seed record carries it (DrChrono handles PHI). PHI
 with no data flow direction recorded is a notice (`phi-flow-unrecorded`):
 whether PHI leaves the practice, arrives, or both is what transmission
 security is assessed on. The Sage seed's three partners carry it until
@@ -963,8 +969,9 @@ High, and the partner's access should end until it is fixed: the record is
 missing or retired, it is still at `Pending information` (`record-pending`:
 the status a contributor's proposal starts at, so the token runs ahead of any
 review of the relationship), it handles PHI without an executed BAA, it is
-`Active` with no executed agreement (`agreement-not-executed`) or with no
-risk rating (`active-unrated`), it claims a BAA
+`Active` with no executed agreement (`agreement-not-executed`), with no
+risk rating (`active-unrated`) or with no established data access
+(`active-access-unknown`), it claims a BAA
 without an execution date or document reference, its review or assurance
 has lapsed, the token holds `owner` or `compliance_manager` (`approver-role`:
 those roles set the record's status, risk and BAA status, so the partner

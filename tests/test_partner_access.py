@@ -203,6 +203,24 @@ class TestPartnerAccess:
         (item,) = result["items"]
         assert (item["level"], codes(item), result["high"]) == ("high", ["active-unrated"], 1)
 
+    def test_an_active_partner_of_unknown_data_access_is_high(self, store: Any) -> None:
+        # Unknown data access hides whether a BAA is owed: phi-without-baa cannot fire.
+        record_id = add(
+            store,
+            "partners",
+            {**GOVERNED, "data_access": "Unknown", "baa_status": "Pending review",
+             "baa_execution_date": ""},
+        )  # fmt: skip
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (item["level"], codes(item), result["high"]) == (
+            "high",
+            ["active-access-unknown"],
+            1,
+        )
+
     def test_an_agreement_ruled_not_required_is_clean(self, store: Any) -> None:
         record_id = add(store, "partners", {**GOVERNED, "agreement_status": "Not required"})
         document: dict[str, Any] = {"tokens": []}

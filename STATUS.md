@@ -2031,6 +2031,60 @@ green at `378c74b` (run 36328257014, `pull_request`; the duplicate `push`
 run 36328253595 was cancelled): all six jobs, pytest 1323 passed, 57 skipped
 on 3.10 and 3.12, persistence 293, dashboard 111/111, Firestore rules 91/91.
 
+**An Active relationship of unknown data access is high, 2026-09-27.** Data
+access `Unknown` (or blank) was a `data-access-unknown` notice whatever the
+status. Whether a relationship owes a BAA turns on whether it handles PHI:
+`phi-without-baa` fires only on `data_access` `PHI`. So an `Active` record
+at `Unknown` with no BAA read as a notice, and a partner token acting for it
+reviewed clean in `oversight access`. Setting a live PHI partner's data
+access to `Unknown` made its missing BAA disappear from both.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`active-access-unknown` (**high**) when `status` is `Active` and
+`data_access` is `Unknown` or blank: "Active with data access not
+established." It takes the place of the `data-access-unknown` notice on that
+record, and follows `active-unrated` when both apply. Records not yet
+`Active` keep the notice; retired records need no attention. It is an
+`ACCESS_CODE`, so a partner token for such a record is high in `oversight
+access` and fails `--fail-on high`. The export's attention column and the
+packet's findings index carry it through the same function. No Sage seed
+record carries it: DrChrono, the seed's one `Active` record, handles PHI.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue and
+`oversight access`) and `HANDOFF.md` §17.
+
+Tests (8 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 6 new cases
+  (72, up from 66). `Unknown` and cleared data access on an `Active` record
+  raise it. So does `Unknown` with the BAA pending review: `phi-without-baa`
+  cannot fire, and this finding does. Onboarding keeps the notice. Retired
+  is clean. Unrated and unknown together list the rating first.
+- `tests/test_oversight.py`: no Sage seed record carries it. DrChrono set to
+  `Unknown` raises it, not the notice and not `phi-without-baa`. The code is
+  in `ACCESS_CODES`.
+- `tests/test_partner_access.py`: a token for an `Active` partner of unknown
+  data access with no executed BAA is high with `active-access-unknown` alone.
+- `dashboard/test/oversight.test.js`: the rule on the page for `Unknown`,
+  blank and missing data access, the unexecuted-BAA case, and the notice for
+  each status that is not yet `Active`.
+
+Two mutations each fail named tests. With the check disabled on the server,
+6 fail: four positive table cases, the seed test and the access test. With
+it disabled on the page, 2 page tests fail: the new rule test and the
+review-queue table.
+
+Local gates on Windows, 2026-09-27: pytest 1388 collected, 57 skipped, 10
+failed. Untouched `23c647a` in a worktree: 1380 collected, 57 skipped, 10
+failed. The failure sets are identical (Windows-only: `fcntl`, symlinks,
+CRLF, the 20-writer lock test). None is in `tests/test_oversight.py` or
+`tests/test_partner_access.py`. Page tests (`oversight.test.js`,
+`render.test.js`) 99/99. `mypy --platform linux` clean, `ruff check` and
+`ruff format --check` clean, `scripts/check_white_label.sh` passes. CI for
+the parent `23c647a` was green (run 36328434656, `pull_request`; the
+duplicate `push` run 36328430900 was cancelled).
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
