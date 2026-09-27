@@ -11,6 +11,11 @@ ironclad = "ironclad.cli:main"
 [tool.setuptools.packages.find]
 include = ["ironclad*"]
 
+# The store reads its DDL at import (rows.py derives column bounds from it), so
+# a wheel without the .sql files cannot import `ironclad.store` at all.
+[tool.setuptools.package-data]
+"ironclad.store" = ["*.sql"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

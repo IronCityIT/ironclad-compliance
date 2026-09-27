@@ -166,7 +166,7 @@ jobs:
       - name: Test the store against a real MariaDB
         env:
           IRONCLAD_TEST_DSN: mysql://ironclad:${{ github.run_id }}-ci@127.0.0.1:3306/ironclad_test
-        run: pytest tests/test_store.py -v
+        run: pytest tests/test_store.py tests/test_oversight.py -v
 
       # The whole product, against a real database: ingest the sample evidence,
       # assess it, render the deliverables, publish, and read the record back.

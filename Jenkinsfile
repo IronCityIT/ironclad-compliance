@@ -173,7 +173,7 @@ pipeline {
                 echo "IRONCLAD_TEST_DSN is not bound; no MariaDB to test against"; exit 66; }
               pip install --quiet PyMySQL
               python -m ironclad.cli store init --to "$IRONCLAD_TEST_DSN"
-              pytest tests/test_store.py -q
+              pytest tests/test_store.py tests/test_oversight.py -q
               python scripts/end_to_end.py --store "$IRONCLAD_TEST_DSN" \
                 --artifacts "$WORKSPACE/.ironclad-artifacts"
             ''',

@@ -179,12 +179,60 @@ the button before both kinds load) each fail a test by name. Local evidence:
 white-label, secret-literal and `git diff --check` gates pass. In CI (run
 36284444931) the dashboard suite is 100/100, `api.test.js` included.
 
-Still open for this workspace: nothing loads `tenants/sage-spine/seed.json`
-into a store — it is data and a test fixture, not a migration (loading it
-needs a service credential, out of the REVIEW ONLY posture); the page uses the Firebase
-path that is being retired (§ architecture note above), so it moves with B6 —
-`HANDOFF.md` now records that the SQL replacement must keep a same-transaction,
-immutable per-record change log.
+**The register off Firebase, 2026-09-26 (sixth pass).** Everything above was
+enforced only by `firestore.rules`, on the path the architecture retires, and
+`HANDOFF.md` recorded what the replacement owed: the same checks and an
+immutable per-record change log written in the same transaction as the record.
+That replacement now exists on the target stores. `ironclad/oversight.py` is the
+rules' create/update predicates as Python: closed fields, closed vocabularies,
+ISO dates, bounded text; a contributor proposes unrated and cannot move a
+rating; readers and other tenants cannot write; stamps (`tenant_id`,
+`revision`, `created_*`, `updated_*`) come from the server and a caller who
+supplies one is refused. Both stores gained `put_oversight` / `get_oversight` /
+`list_oversight` / `oversight_history` / `verify_oversight`:
+
+- **Volume**: each revision is a file `oversight/<kind>/<id>/<n>.json`, created
+  with an exclusive hard link, so the history *is* the record — there is no
+  moment one exists without the other, and a second writer at the same
+  revision is refused (including one that passed the revision check just
+  before the first landed).
+- **MariaDB** (`ironclad/store/oversight_schema.sql`, applied by `store init`):
+  the history row (key: tenant, kind, record, revision) and the record row move
+  in one transaction; the record moves only from the revision before, so a
+  skipped or stale revision rolls both back. No trigger enforces append-only —
+  the NAS server runs with binary logging, where creating one needs SUPER; the
+  production grant must be SELECT/INSERT only on `oversight_history`
+  (`HANDOFF.md`).
+- `verify_oversight` re-checks a record's history: revisions 1..n with no gap,
+  one tenant, one creation stamp, and the record equal to its last entry.
+- `load_seed` loads `tenants/sage-spine/seed.json` as an approver's revision-1
+  entries, idempotently (a second load skips all six).
+
+The Python vocabularies are parsed out of `firestore.rules` and asserted equal,
+so the two cannot drift while both exist. 72 cases in `tests/test_oversight.py`:
+53 run locally (policy, rules parity, Sage seed, volume contract), 19 are the
+MariaDB contract and run in CI (`ci.yml`'s persistence job and the Jenkins persistence gate now run `tests/test_oversight.py` beside `tests/test_store.py`; before this, those cases would have been skipped there too). Seven mutations each fail a test by name
+(contributor moves a rating, volume allows a skipped revision, volume overwrites
+a taken revision, the store trusts the record, verify ignores the creation
+stamp, a vocabulary drifts from the rules, a caller forges a stamp); the
+overwrite mutation first survived, and the race test was added for it.
+
+Found on the way: **the wheel shipped no `.sql` file**, and `ironclad/store/rows.py`
+reads `schema.sql` at import, so `ironclad.store` could not be imported from an
+installed wheel. `pyproject.toml` now declares the package data; a wheel built
+and installed into a clean venv imports `ironclad.store` and has both files.
+
+Local evidence (Windows 11, Python 3.12 venv): `pytest` 469 passed, 46 skipped,
+and the same 16 failures + 10 collection errors as the untouched tree
+(`fcntl`, symlinks — compared set for set); ruff format/lint pass; mypy clean
+but for the known Windows-only `fcntl` in `policy_store.py`; `npm --prefix
+dashboard test` 91/92 (the environmental `api.test.js`); white-label,
+secret-literal, catalog and `git diff --check` gates pass.
+
+Still open for this workspace: the page still writes Firestore; switching it to
+the store needs `ironclad serve` routes for the register and a browser sign-in
+to them (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
+the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
 
 Local evidence for the change-history pass, 2026-09-26: `npm --prefix dashboard
 test` 70/71 (same environmental `api.test.js` failure as below); `node --check`

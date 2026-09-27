@@ -674,9 +674,10 @@ class TestMariaDB(StoreContract):
         return store
 
     def test_the_schema_applies_twice(self, tmp_path: Path) -> None:
+        # The result tables, then the partner/integration register's two.
         store = MariaDBResultStore(TEST_DSN)
-        assert len(store.init_schema()) == len(TABLES)
-        assert len(store.init_schema()) == len(TABLES)
+        assert len(store.init_schema()) == len(TABLES) + 2
+        assert len(store.init_schema()) == len(TABLES) + 2
 
     def test_health_names_the_server_without_the_password(self, tmp_path: Path) -> None:
         health = self.store(tmp_path).health()

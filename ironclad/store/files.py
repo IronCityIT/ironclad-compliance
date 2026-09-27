@@ -8,6 +8,7 @@ takes:
     <root>/<tenant_id>/assessments/<assessment_id>/assessment.json
     <root>/<tenant_id>/assessments/<assessment_id>/rows/<table>.json
     <root>/<tenant_id>/audit.jsonl
+    <root>/<tenant_id>/oversight/<kind>/<record_id>/<revision>.json
 
 Two reasons this is not a stopgap. Artifact files — reports, auditor packages,
 evidence — belong on a volume rather than in a database whatever else happens,
@@ -30,6 +31,13 @@ from pathlib import Path
 from typing import Any
 
 from ironclad.ids import is_safe_document_id
+from ironclad.oversight import (
+    StaleRevisionError,
+    check_kind,
+    check_record_id,
+    check_stored,
+    verify_history,
+)
 from ironclad.store.base import StoreError, verify_stored_chains
 from ironclad.store.rows import TABLES, rows_from_document
 
@@ -207,6 +215,99 @@ class FileResultStore:
     def verify_audit_chain(self, tenant_id: str) -> dict[str, Any]:
         """Re-verify every assessment's chain in this tenant's trail, as stored."""
         return verify_stored_chains(self._read_audit(tenant_id), tenant_id)
+
+    # ------------------------------------------------- partner/integration register
+
+    def _oversight_dir(self, tenant_id: str, kind: str, record_id: str | None = None) -> Path:
+        base = self._tenant_dir(tenant_id) / "oversight" / check_kind(kind)
+        return base if record_id is None else base / check_record_id(record_id)
+
+    def put_oversight(
+        self, tenant_id: str, kind: str, record_id: str, record: dict[str, Any]
+    ) -> None:
+        """Store the next revision of one record, and its history, as one step.
+
+        On a volume the history *is* the record: each revision is a file named
+        for its number, created exclusively, and the current record is the
+        highest. So there is no moment at which a record exists without its
+        entry, and two writers at the same revision cannot both land — the
+        second `link` finds the name taken and is refused as stale.
+        """
+        check_stored(tenant_id, record)
+        directory = self._oversight_dir(tenant_id, kind, record_id)
+        revision = int(record["revision"])
+        latest = self._oversight_revisions(directory)
+        current = latest[-1] if latest else 0
+        if revision != current + 1:
+            raise StaleRevisionError(
+                f"{kind}/{record_id} is at revision {current}; revision {revision} cannot follow it"
+            )
+        directory.mkdir(parents=True, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=directory, delete=False, suffix=".tmp"
+        )
+        try:
+            with handle:
+                handle.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            # A hard link fails if the name exists, and appears whole or not
+            # at all: an exclusive, atomic create of a complete file.
+            os.link(handle.name, directory / f"{revision}.json")
+        except FileExistsError as exc:
+            raise StaleRevisionError(
+                f"{kind}/{record_id} revision {revision} was saved by someone else first"
+            ) from exc
+        except OSError as exc:
+            raise StoreError(f"cannot write {kind}/{record_id}: {exc}") from exc
+        finally:
+            Path(handle.name).unlink(missing_ok=True)
+
+    @staticmethod
+    def _oversight_revisions(directory: Path) -> list[int]:
+        if not directory.is_dir():
+            return []
+        return sorted(int(p.stem) for p in directory.glob("*.json") if p.stem.isdigit())
+
+    def _oversight_entry(self, directory: Path, revision: int) -> dict[str, Any]:
+        path = directory / f"{revision}.json"
+        try:
+            entry: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise StoreError(f"{path} is not a readable register entry") from exc
+        return entry
+
+    def get_oversight(self, tenant_id: str, kind: str, record_id: str) -> dict[str, Any] | None:
+        directory = self._oversight_dir(tenant_id, kind, record_id)
+        revisions = self._oversight_revisions(directory)
+        return self._oversight_entry(directory, revisions[-1]) if revisions else None
+
+    def list_oversight(self, tenant_id: str, kind: str) -> list[dict[str, Any]]:
+        """Every record of one kind in one tenant, current revision, by name."""
+        base = self._oversight_dir(tenant_id, kind)
+        if not base.is_dir():
+            return []
+        found = []
+        for directory in base.iterdir():
+            revisions = self._oversight_revisions(directory)
+            if revisions:
+                found.append(
+                    {"id": directory.name, **self._oversight_entry(directory, revisions[-1])}
+                )
+        found.sort(key=lambda r: (str(r.get("name", "")).lower(), r["id"]))
+        return found
+
+    def oversight_history(self, tenant_id: str, kind: str, record_id: str) -> list[dict[str, Any]]:
+        """Every revision of one record, oldest first, exactly as written."""
+        directory = self._oversight_dir(tenant_id, kind, record_id)
+        return [self._oversight_entry(directory, n) for n in self._oversight_revisions(directory)]
+
+    def verify_oversight(self, tenant_id: str, kind: str, record_id: str) -> dict[str, Any]:
+        return verify_history(
+            self.get_oversight(tenant_id, kind, record_id),
+            self.oversight_history(tenant_id, kind, record_id),
+            tenant_id,
+        )
 
     # ----------------------------------------------------------------- health
 

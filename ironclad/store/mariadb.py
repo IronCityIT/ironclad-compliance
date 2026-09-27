@@ -24,10 +24,19 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from ironclad.oversight import (
+    OversightError,
+    StaleRevisionError,
+    check_kind,
+    check_record_id,
+    check_stored,
+    verify_history,
+)
 from ironclad.store.base import StoreError, verify_stored_chains
 from ironclad.store.rows import RowSet, rows_from_document
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+OVERSIGHT_SCHEMA_PATH = Path(__file__).with_name("oversight_schema.sql")
 DEFAULT_PORT = 3306
 
 
@@ -123,7 +132,10 @@ class MariaDBResultStore:
 
     def init_schema(self) -> list[str]:
         """Apply schema.sql. Safe to re-run; returns the statements applied."""
-        applied = statements_in(SCHEMA_PATH.read_text(encoding="utf-8"))
+        applied = [
+            *statements_in(SCHEMA_PATH.read_text(encoding="utf-8")),
+            *statements_in(OVERSIGHT_SCHEMA_PATH.read_text(encoding="utf-8")),
+        ]
         connection = self._connect()
         try:
             with connection.cursor() as cursor:
@@ -380,6 +392,118 @@ class MariaDBResultStore:
             "SELECT * FROM audit_events WHERE tenant_id = %s ORDER BY id", (tenant_id,)
         )
         return verify_stored_chains(events, tenant_id)
+
+    # ------------------------------------------------- partner/integration register
+
+    def put_oversight(
+        self, tenant_id: str, kind: str, record_id: str, record: dict[str, Any]
+    ) -> None:
+        """Store the next revision of one record and its history row, together.
+
+        The history insert goes first: its key is the revision, so a second
+        writer at the same revision fails there. The record row then moves
+        only from the revision before, so a write that skips a revision, or
+        lands on a record that moved on, changes no row and is refused. Either
+        refusal rolls back both.
+        """
+        check_stored(tenant_id, record)
+        check_kind(kind)
+        check_record_id(record_id)
+        revision = int(record["revision"])
+        text = json.dumps(record, sort_keys=True)
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                try:
+                    cursor.execute(
+                        "INSERT INTO oversight_history (tenant_id, kind, record_id, revision, "
+                        "updated_by, updated_at, record) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (
+                            tenant_id,
+                            kind,
+                            record_id,
+                            revision,
+                            record["updated_by"],
+                            record["updated_at"],
+                            text,
+                        ),
+                    )
+                except _driver().err.IntegrityError as exc:
+                    raise StaleRevisionError(
+                        f"{kind}/{record_id} revision {revision} was saved by someone else first"
+                    ) from exc
+                if revision == 1:
+                    cursor.execute(
+                        "INSERT IGNORE INTO oversight_records "
+                        "(tenant_id, kind, record_id, revision, name, record) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)",
+                        (tenant_id, kind, record_id, revision, record["name"], text),
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE oversight_records SET revision = %s, name = %s, record = %s "
+                        "WHERE tenant_id = %s AND kind = %s AND record_id = %s AND revision = %s",
+                        (revision, record["name"], text, tenant_id, kind, record_id, revision - 1),
+                    )
+                if cursor.rowcount != 1:
+                    raise StaleRevisionError(
+                        f"{kind}/{record_id} is not at revision {revision - 1}; "
+                        f"revision {revision} cannot follow it"
+                    )
+            connection.commit()
+        except Exception as exc:
+            connection.rollback()
+            if isinstance(exc, (StoreError, OversightError)):
+                raise
+            raise StoreError(
+                f"storing {kind}/{record_id} in {self.dsn} failed: {type(exc).__name__}"
+            ) from exc
+        finally:
+            connection.close()
+
+    def get_oversight(self, tenant_id: str, kind: str, record_id: str) -> dict[str, Any] | None:
+        found = self._query(
+            "SELECT record FROM oversight_records "
+            "WHERE tenant_id = %s AND kind = %s AND record_id = %s",
+            (tenant_id, check_kind(kind), check_record_id(record_id)),
+        )
+        return _register_entry(found[0]["record"]) if found else None
+
+    def list_oversight(self, tenant_id: str, kind: str) -> list[dict[str, Any]]:
+        """Every record of one kind in one tenant, current revision, by name."""
+        found = self._query(
+            "SELECT record_id, record FROM oversight_records WHERE tenant_id = %s AND kind = %s",
+            (tenant_id, check_kind(kind)),
+        )
+        records = [{"id": row["record_id"], **_register_entry(row["record"])} for row in found]
+        records.sort(key=lambda r: (str(r.get("name", "")).lower(), r["id"]))
+        return records
+
+    def oversight_history(self, tenant_id: str, kind: str, record_id: str) -> list[dict[str, Any]]:
+        """Every revision of one record, oldest first, exactly as written."""
+        found = self._query(
+            "SELECT record FROM oversight_history "
+            "WHERE tenant_id = %s AND kind = %s AND record_id = %s ORDER BY revision",
+            (tenant_id, check_kind(kind), check_record_id(record_id)),
+        )
+        return [_register_entry(row["record"]) for row in found]
+
+    def verify_oversight(self, tenant_id: str, kind: str, record_id: str) -> dict[str, Any]:
+        return verify_history(
+            self.get_oversight(tenant_id, kind, record_id),
+            self.oversight_history(tenant_id, kind, record_id),
+            tenant_id,
+        )
+
+
+def _register_entry(text: Any) -> dict[str, Any]:
+    try:
+        entry = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise StoreError("a stored register entry is not readable") from exc
+    if not isinstance(entry, dict):
+        raise StoreError("a stored register entry is not a record")
+    return entry
 
 
 def _loaded(value: Any, default: Any) -> Any:
