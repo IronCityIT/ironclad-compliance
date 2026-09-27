@@ -105,8 +105,39 @@ through `e.currentTarget` after the save was awaited, when that is already
 held by a test; both new dashboard tests were mutation-checked (dropping the
 history write, and reverting the reset, each fail by name).
 
-Still open for this workspace: no edit UI for an existing record and no history
-view (the data is there and readable by the tenant); the page uses the Firebase
+**Edit and history in the page, 2026-09-26 (third pass).** Every card now has
+**History** (any tenant member) and **Edit** (owner, compliance manager,
+contributor). History lists revisions newest first with who, when (UTC) and a
+field-by-field "from → to" against the previous revision; where the previous
+revision is missing it says so and shows the record as saved rather than
+inventing a diff. Edit reopens the record in the form and saves the next
+revision with its history entry in one batch: the creation stamp is kept,
+fields the form did not change carry over, and a contributor's governance
+fields (status, risk, agreement, BAA) stay exactly as stored even if a tampered
+form submits them. A save refused because someone else saved first is
+explained as a stale form. The form gained the four stored fields it could not
+show (port/protocol, network exposure, assurance, certificate expiry), an
+`Unknown`/`Not recorded` choice so an existing value is never silently blanked,
+and `maxlength` on every text field matching the bound in `firestore.rules`.
+
+The logic is in `dashboard/public/oversight-core.js`, free of Firebase, so it
+is tested directly: 16 cases in `dashboard/test/oversight.test.js` (was 7),
+including a field-list equality with `oversightFields()`, a maxlength-per-rule
+check, and escaping of every stored value in cards and history. Five mutations
+(dropping the contributor governance guard, unescaping `data-id`, re-stamping
+`created_at`, an off-by-one on a seeded record's revision, a notes maxlength
+above the rule) each fail a test by name. Three emulator cases now drive the
+page's own `buildRecord` rather than a hand-built write: contributor proposes →
+owner rates → contributor edits notes (the rating stands); two editors on one
+revision (the second is refused); a contributor edits a Sage Spine seed record
+(revision 1, seed fields carried). No JDK here, so those three are proven only
+in CI. Local evidence: `npm --prefix dashboard test` 79/80 (70/71 before; the one
+failure is the same environmental `api.test.js`); `node --check` on the rules
+suite; white-label and secret-literal gates pass.
+
+Still open for this workspace: nothing loads `tenants/sage-spine/seed.json`
+into a store — it is data and a test fixture, not a migration (loading it
+needs a service credential, out of the REVIEW ONLY posture); the page uses the Firebase
 path that is being retired (§ architecture note above), so it moves with B6 —
 `HANDOFF.md` now records that the SQL replacement must keep a same-transaction,
 immutable per-record change log.

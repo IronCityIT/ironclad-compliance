@@ -547,6 +547,66 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
     await assertSucceeds(revise(ref, { notes: "first edit after seeding" }, "owner"));
     assert.equal((await getDoc(ref)).data().revision, 1);
   });
+
+  // The cases above build writes by hand. These drive the page's own
+  // buildRecord (dashboard/public/oversight-core.js), so what the browser
+  // actually sends is what the rules are proven to accept or refuse.
+  const core = await import(require("node:url").pathToFileURL(path.join(REPO_ROOT, "dashboard", "public", "oversight-core.js")).href);
+  const uid = (roles) => `auth0|${ACME}-${roles.join("-")}`;
+  const pageSave = (ref, { form, prior = null, roles }) => {
+    const built = core.buildRecord({
+      form, prior, canApprove: roles.some((r) => ["owner", "compliance_manager"].includes(r)),
+      uid: uid(roles), clientId: ACME, stamp: serverTimestamp(),
+    });
+    assert.ok(built.record, built.error);
+    const batch = writeBatch(ref.firestore);
+    batch.set(ref, built.record);
+    batch.set(history(ref, built.record.revision), built.record);
+    return batch.commit();
+  };
+  const read = async (ref) => (await getDoc(ref)).data();
+
+  await t.test("the page's own writes: contributor proposes, owner rates, contributor edits notes", async () => {
+    const asContributor = ownIntegration(as(ACME, ["contributor"]), "page-flow");
+    const asOwner = ownIntegration(as(ACME, ["owner"]), "page-flow");
+    await assertSucceeds(pageSave(asContributor, { form: { name: "DrChrono to PRIMO", notes: "API feed", risk: "Critical" }, roles: ["contributor"] }));
+    assert.equal((await read(asOwner)).risk, "Unrated");
+    await assertSucceeds(pageSave(asOwner, { form: { name: "DrChrono to PRIMO", risk: "High", status: "Under review" }, prior: await read(asOwner), roles: ["owner"] }));
+    // The contributor's form does not submit governance fields (disabled) and
+    // a tampered one is ignored: the edit lands and the rating stands.
+    await assertSucceeds(pageSave(asContributor, { form: { name: "DrChrono to PRIMO", notes: "API feed, TLS 1.2", risk: "Low" }, prior: await read(asContributor), roles: ["contributor"] }));
+    const final = await read(asOwner);
+    assert.deepEqual([final.revision, final.risk, final.status, final.notes], [3, "High", "Under review", "API feed, TLS 1.2"]);
+    const entries = (await getDocs(collection(asOwner, "history"))).docs.map((d) => d.data());
+    assert.equal(entries.length, 3);
+    assert.match(core.renderHistory(entries), /Risk: Unrated → High/);
+  });
+
+  await t.test("two editors on the same revision: the second save is refused, not merged", async () => {
+    const a = ownPartner(as(ACME, ["owner"]), "page-race");
+    const b = ownPartner(as(ACME, ["compliance_manager"]), "page-race");
+    await assertSucceeds(pageSave(a, { form: { name: "PRIMO" }, roles: ["owner"] }));
+    const openedByA = await read(a);
+    const openedByB = await read(b);
+    await assertSucceeds(pageSave(a, { form: { name: "PRIMO", risk: "Medium" }, prior: openedByA, roles: ["owner"] }));
+    await assertFails(pageSave(b, { form: { name: "PRIMO", risk: "Low" }, prior: openedByB, roles: ["compliance_manager"] }));
+    assert.equal((await read(a)).risk, "Medium");
+  });
+
+  await t.test("a contributor can edit a Sage Spine seed record through the page", async () => {
+    const sage = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "tenants", "sage-spine", "seed.json"), "utf8"));
+    const seed = sage.oversight.integrations[0];
+    await env.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "clients", ACME, "integrations", "sage-seed"), {
+        ...seed, tenant_id: ACME, created_by: "seed", updated_by: "seed",
+        created_at: new Date("2026-09-01T00:00:00Z"), updated_at: new Date("2026-09-01T00:00:00Z"),
+      });
+    });
+    const ref = ownIntegration(as(ACME, ["contributor"]), "sage-seed");
+    await assertSucceeds(pageSave(ref, { form: { name: seed.name, technical_owner: "ICIT" }, prior: await read(ref), roles: ["contributor"] }));
+    const after = await read(ref);
+    assert.deepEqual([after.revision, after.risk, after.assurance, after.technical_owner], [1, seed.risk, seed.assurance, "ICIT"]);
+  });
 });
 
 test("anything outside the modelled tree is closed", async (t) => {

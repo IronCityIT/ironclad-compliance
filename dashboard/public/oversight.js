@@ -1,10 +1,124 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, writeBatch, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-const $=(id)=>document.getElementById(id); const config=window.ICIT_CONFIG; const app=initializeApp(config.firebase); const auth=getAuth(app); const db=getFirestore(app);
-const EDIT_ROLES=new Set(["owner","compliance_manager","contributor"]); const APPROVE_ROLES=new Set(["owner","compliance_manager"]);
-function fail(message){$("error").textContent=message;$("error").hidden=false}
-function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c])}
-function render(records,target){ if(!records.length){$(target).innerHTML='<div class="meta">No records yet.</div>';return} $(target).innerHTML=records.map(r=>`<article class="record"><div class="toolbar"><h3>${escapeHtml(r.name)}</h3><span class="chip risk-${escapeHtml(String(r.risk||'').toLowerCase())}">${escapeHtml(r.risk||'Unrated')}</span></div><div class="meta">${escapeHtml(r.status||'')} · Owner: ${escapeHtml(r.business_owner||'Unassigned')}${r.revision?` · Revision ${escapeHtml(r.revision)}`:''}</div><div class="chips"><span class="chip">${escapeHtml(r.data_access||'Data access unknown')}</span><span class="chip">${escapeHtml(r.agreement_status||'Agreement unknown')}</span>${r.integration_method?`<span class="chip">${escapeHtml(r.integration_method)}</span>`:''}${r.baa_status?`<span class="chip">BAA: ${escapeHtml(r.baa_status)}</span>`:''}${r.network_exposure?`<span class="chip">${escapeHtml(r.network_exposure)}</span>`:''}${r.review_due?`<span class="chip">Review ${escapeHtml(r.review_due)}</span>`:''}</div>${r.notes?`<p>${escapeHtml(r.notes)}</p>`:''}</article>`).join('') }
-function watch(clientId,name,target){onSnapshot(query(collection(db,"clients",clientId,name)),snap=>render(snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>String(a.name).localeCompare(String(b.name))),target),()=>fail(`Could not load ${name}.`))}
-onAuthStateChanged(auth,async user=>{if(!user){fail("No tenant session is active. Open the compliance dashboard and sign in first.");return} const token=await user.getIdTokenResult(); const clientId=String(token.claims.client_id||""); const roles=Array.isArray(token.claims.roles)?token.claims.roles:[]; if(!clientId){fail("Your account is not linked to a tenant.");return} $("identity").textContent=`${clientId} · ${roles.join(", ")||"viewer"}`; const canEdit=roles.some(r=>EDIT_ROLES.has(r)); const canApprove=roles.some(r=>APPROVE_ROLES.has(r)); $("edit-panel").hidden=!canEdit; if(canEdit&&!canApprove){ for(const name of ["risk","agreement_status","baa_status","status"]){ const el=document.querySelector(`[name="${name}"]`); if(el) el.disabled=true; } } watch(clientId,"partners","partners"); watch(clientId,"integrations","integrations"); if(!canEdit)return; $("oversight-form").onsubmit=async e=>{e.preventDefault(); const form=e.currentTarget; const fd=new FormData(form); const type=fd.get("record_type")==="integration"?"integrations":"partners"; const record={tenant_id:clientId,name:String(fd.get("name")||"").trim(),business_owner:String(fd.get("business_owner")||"").trim(),technical_owner:String(fd.get("technical_owner")||"").trim(),status:canApprove?String(fd.get("status")||"Pending information"):"Pending information",risk:canApprove?String(fd.get("risk")||"Unrated"):"Unrated",data_access:String(fd.get("data_access")||"Unknown"),phi_scope:String(fd.get("phi_scope")||"").trim(),data_flow_direction:String(fd.get("data_flow_direction")||""),agreement_status:canApprove?String(fd.get("agreement_status")||"Pending review"):"Pending review",baa_status:canApprove?String(fd.get("baa_status")||"Pending review"):"Pending review",baa_execution_date:String(fd.get("baa_execution_date")||""),baa_document_ref:String(fd.get("baa_document_ref")||"").trim(),review_due:String(fd.get("review_due")||""),integration_method:String(fd.get("integration_method")||"").trim(),port_protocol:String(fd.get("port_protocol")||"").trim(),network_exposure:String(fd.get("network_exposure")||"Unknown"),assurance:String(fd.get("assurance")||"").trim(),cert_expiration_date:String(fd.get("cert_expiration_date")||""),notes:String(fd.get("notes")||"").trim(),revision:1,created_at:serverTimestamp(),created_by:user.uid,updated_at:serverTimestamp(),updated_by:user.uid}; if(!record.name){fail("Name is required.");return} try{const ref=doc(collection(db,"clients",clientId,type)); const batch=writeBatch(db); batch.set(ref,record); batch.set(doc(ref,"history","1"),record); await batch.commit(); form.reset()}catch(err){fail(err?.message||"Record could not be saved.")}}});
+import { getFirestore, collection, doc, getDocs, writeBatch, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { buildRecord, renderRecords, renderHistory, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
+
+const $ = (id) => document.getElementById(id);
+const config = window.ICIT_CONFIG;
+const app = initializeApp(config.firebase);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const EDIT_ROLES = new Set(["owner", "compliance_manager", "contributor"]);
+const APPROVE_ROLES = new Set(["owner", "compliance_manager"]);
+const KINDS = ["partners", "integrations"];
+
+// Records as last delivered by each snapshot, by kind then id. Edit opens from
+// here, so the revision it writes is the one the user was looking at.
+const records = { partners: new Map(), integrations: new Map() };
+// The record being edited, or null when the form adds a new one.
+let editing = null;
+
+function fail(message) { $("error").textContent = message; $("error").hidden = false; }
+function clearError() { $("error").hidden = true; }
+
+function startEdit(kind, id) {
+  const prior = records[kind].get(id);
+  if (!prior) return;
+  editing = { kind, id, prior };
+  const form = $("oversight-form");
+  form.reset();
+  form.elements.record_type.value = kind === "integrations" ? "integration" : "partner";
+  form.elements.record_type.disabled = true;
+  for (const f of FORM_FIELDS) if (form.elements[f]) form.elements[f].value = String(prior[f] ?? "");
+  $("form-title").textContent = `Edit ${prior.name} (revision ${prior.revision ?? 0} → ${(prior.revision ?? 0) + 1})`;
+  $("save-button").textContent = "Save changes";
+  $("cancel-edit").hidden = false;
+  $("edit-panel").scrollIntoView({ behavior: "smooth" });
+}
+
+function endEdit() {
+  editing = null;
+  const form = $("oversight-form");
+  form.reset();
+  form.elements.record_type.disabled = false;
+  $("form-title").textContent = "Add oversight record";
+  $("save-button").textContent = "Save record";
+  $("cancel-edit").hidden = true;
+}
+
+async function showHistory(clientId, kind, id) {
+  const record = records[kind].get(id);
+  $("history-title").textContent = `Change history: ${record?.name ?? id}`;
+  $("history-body").innerHTML = '<div class="meta">Loading&hellip;</div>';
+  $("history-panel").hidden = false;
+  $("history-panel").scrollIntoView({ behavior: "smooth" });
+  try {
+    const snap = await getDocs(collection(db, "clients", clientId, kind, id, "history"));
+    $("history-body").innerHTML = renderHistory(snap.docs.map((d) => d.data()));
+  } catch {
+    $("history-body").innerHTML = `<div class="error">Could not load the history for ${escapeHtml(record?.name ?? id)}.</div>`;
+  }
+}
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { fail("No tenant session is active. Open the compliance dashboard and sign in first."); return; }
+  const token = await user.getIdTokenResult();
+  const clientId = String(token.claims.client_id || "");
+  const roles = Array.isArray(token.claims.roles) ? token.claims.roles : [];
+  if (!clientId) { fail("Your account is not linked to a tenant."); return; }
+  $("identity").textContent = `${clientId} · ${roles.join(", ") || "viewer"}`;
+  const canEdit = roles.some((r) => EDIT_ROLES.has(r));
+  const canApprove = roles.some((r) => APPROVE_ROLES.has(r));
+  $("edit-panel").hidden = !canEdit;
+  if (canEdit && !canApprove) {
+    for (const name of ["risk", "agreement_status", "baa_status", "status"]) {
+      const el = document.querySelector(`[name="${name}"]`);
+      if (el) el.disabled = true;
+    }
+    $("governance-note").hidden = false;
+  }
+
+  for (const kind of KINDS) {
+    onSnapshot(query(collection(db, "clients", clientId, kind)), (snap) => {
+      records[kind] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+      const sorted = [...records[kind].values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      $(kind).innerHTML = renderRecords(sorted, kind, { canEdit });
+    }, () => fail(`Could not load ${kind}.`));
+    $(kind).addEventListener("click", (e) => {
+      const button = e.target.closest("button[data-action]");
+      if (!button) return;
+      if (button.dataset.action === "history") showHistory(clientId, button.dataset.kind, button.dataset.id);
+      if (button.dataset.action === "edit" && canEdit) startEdit(button.dataset.kind, button.dataset.id);
+    });
+  }
+  $("close-history").addEventListener("click", () => { $("history-panel").hidden = true; });
+  if (!canEdit) return;
+
+  $("cancel-edit").addEventListener("click", endEdit);
+  $("oversight-form").onsubmit = async (e) => {
+    e.preventDefault();
+    clearError();
+    const form = e.currentTarget;
+    const current = editing;
+    const kind = current ? current.kind : (form.elements.record_type.value === "integration" ? "integrations" : "partners");
+    const built = buildRecord({
+      form: Object.fromEntries(new FormData(form)),
+      prior: current?.prior ?? null,
+      canApprove, uid: user.uid, clientId, stamp: serverTimestamp(),
+    });
+    if (built.error) { fail(built.error); return; }
+    const { record } = built;
+    try {
+      // The record and history/{revision} land together or not at all;
+      // firestore.rules refuses either one alone.
+      const ref = current ? doc(db, "clients", clientId, kind, current.id) : doc(collection(db, "clients", clientId, kind));
+      const batch = writeBatch(db);
+      batch.set(ref, record);
+      batch.set(doc(ref, "history", String(record.revision)), record);
+      await batch.commit();
+      endEdit();
+    } catch (err) {
+      fail(saveFailureMessage(err, current));
+    }
+  };
+});
