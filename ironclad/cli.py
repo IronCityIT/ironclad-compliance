@@ -791,11 +791,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tokens_revoke = tokens_sub.add_parser(
         "revoke",
-        help="remove entries: one user's in a tenant, one digest, or every expired one",
+        help=(
+            "remove entries: one user's in a tenant, every one acting for a register "
+            "record, one digest, or every expired one"
+        ),
         description=(
             "Remove token-file entries and print what was removed (digest prefixes, "
-            "never digests). Give --user with --tenant, or --digest-prefix as the review "
-            "prints it, or --expired. The next request with a removed token is 401. "
+            "never digests). Give --user with --tenant, or --on-behalf-of with --tenant "
+            "to offboard a partner or integration (every entry acting for that record, "
+            "whoever holds it, expired ones too; the register is not consulted, so a "
+            "record already retired or deleted can still be cut off), or "
+            "--digest-prefix as the review prints it, or --expired. The next request "
+            "with a removed token is 401. "
             "Each removal is appended to the ledger before the token file is replaced. "
             f"Exit {EXIT_BAD_INPUT}, writing nothing, if nothing matches or the ledger "
             "is not a whole chain."
@@ -804,6 +811,11 @@ def build_parser() -> argparse.ArgumentParser:
     tokens_revoke.add_argument("file", help="the token file")
     tokens_revoke.add_argument("--user", default="")
     tokens_revoke.add_argument("--tenant", default="")
+    tokens_revoke.add_argument(
+        "--on-behalf-of",
+        default="",
+        help="partners/<id> or integrations/<id>: every entry in --tenant acting for it",
+    )
     tokens_revoke.add_argument("--digest-prefix", default="")
     tokens_revoke.add_argument(
         "--expired", action="store_true", help="every entry past its expiry as of --as-of"
@@ -1909,6 +1921,7 @@ def _edit_tokens(args: argparse.Namespace) -> int:
                 tenant_id=args.tenant,
                 digest_prefix=args.digest_prefix,
                 expired_as_of=as_of if args.expired else None,
+                on_behalf_of=args.on_behalf_of,
             )
             _record_grant(ledger, "revoke", removed, args.actor, as_of)
             tokens.write_token_file(path, document)

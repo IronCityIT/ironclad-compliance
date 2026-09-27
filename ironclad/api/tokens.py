@@ -489,10 +489,13 @@ def revoke_tokens(
     tenant_id: str = "",
     digest_prefix: str = "",
     expired_as_of: date | None = None,
+    on_behalf_of: str = "",
 ) -> list[dict[str, Any]]:
     """Remove matching entries from `document` in place; return what was removed.
 
-    Exactly one selector: a user in a tenant, a digest prefix as the review
+    Exactly one selector: a user in a tenant, a register record in a tenant
+    (every entry acting for it, whoever holds it: offboarding a partner ends
+    all of its access in one ledgered act), a digest prefix as the review
     prints it (at least 12 hex characters, matching one entry), or every entry
     expired as of a date, which is what the review asks for when it reports
     one still in the file. Removing nothing is refused, so a mistyped name is
@@ -501,11 +504,23 @@ def revoke_tokens(
     entries = _entries_of(document)
     user, tenant = user_id.strip(), tenant_id.strip()
     prefix = digest_prefix.strip().lower()
-    by_user = bool(user or tenant)
-    if sum([by_user, bool(prefix), expired_as_of is not None]) != 1:
-        raise TokenFileError("name one of: a user and tenant, a digest prefix, or expired")
+    link = on_behalf_of.strip()
+    by_link = bool(link)
+    by_user = bool(user) or (bool(tenant) and not by_link)
+    if sum([by_user, by_link, bool(prefix), expired_as_of is not None]) != 1:
+        raise TokenFileError(
+            "name one of: a user and tenant, a register record and tenant, "
+            "a digest prefix, or expired"
+        )
     if by_user and not (user and tenant):
         raise TokenFileError("a revocation by user names both the user and the tenant")
+    if by_link and not tenant:
+        raise TokenFileError("a revocation by register record names the tenant too")
+    if by_link:
+        try:
+            parse_on_behalf_of(link)
+        except ValueError as exc:
+            raise TokenFileError(str(exc)) from None
     if prefix and not re.fullmatch(r"[0-9a-f]{12,64}", prefix):
         raise TokenFileError("a digest prefix is 12 to 64 hex characters")
 
@@ -514,6 +529,11 @@ def revoke_tokens(
             return _holds(entry, user, tenant)
         if not isinstance(entry, dict):
             return False
+        if by_link:
+            return (
+                str(entry.get("tenant_id", "")).strip() == tenant
+                and str(entry.get("on_behalf_of") or "").strip() == link
+            )
         if prefix:
             return str(entry.get("sha256", "")).strip().lower().startswith(prefix)
         try:

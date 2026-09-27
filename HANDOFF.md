@@ -832,6 +832,7 @@ and replace the file whole, so the running server never reads half of one.
 ironclad tokens issue  /srv/ironclad/tokens.json --user dana@partner.example --tenant sage-spine \
                        --role viewer --expires 2027-03-31 --actor bill   # prints the token once
 ironclad tokens revoke /srv/ironclad/tokens.json --user dana@partner.example --tenant sage-spine --actor bill
+ironclad tokens revoke /srv/ironclad/tokens.json --tenant sage-spine --on-behalf-of partners/drchrono                        --actor bill   # every entry acting for that partner: offboarding
 ironclad tokens revoke /srv/ironclad/tokens.json --digest-prefix 3f9a1c0b7d2e --actor bill
 ironclad tokens revoke /srv/ironclad/tokens.json --expired --actor bill  # what the review calls high
 ```
@@ -938,8 +939,11 @@ set to `Retired`, or the tenant's register does not hold it, the token is
 refused with `403` from the next request (the holder named in the access log,
 and under `member` in `access-log refusals`). So offboarding a partner is: set
 the record to `Offboarding` while access winds down, then `Retired`, which
-ends the access; then `tokens revoke` the entry so the file and ledger say so
-too. The other findings (BAA, lapsed review or assurance) are left to the
+ends the access; then `tokens revoke --tenant sage-spine --on-behalf-of
+partners/<id>` so the file and ledger say so too. That removes every entry in
+the tenant acting for the record, whoever holds it and expired ones included,
+one ledger line each carrying the link; it does not consult the register, so
+it works whatever the record's state, and removing nothing is exit 2. The other findings (BAA, lapsed review or assurance) are left to the
 review: the server does not end a grant on them.
 
 ### File the quarterly access review

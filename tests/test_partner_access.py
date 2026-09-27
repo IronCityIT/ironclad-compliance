@@ -20,7 +20,13 @@ import pytest
 
 from ironclad import oversight
 from ironclad.api import grant_ledger
-from ironclad.api.tokens import TokenFileError, issue_token, review_tokens, write_token_file
+from ironclad.api.tokens import (
+    TokenFileError,
+    issue_token,
+    review_tokens,
+    revoke_tokens,
+    write_token_file,
+)
 from ironclad.errors import AuthorizationError, IroncladError
 from ironclad.model.tenant import Principal, Role
 from ironclad.oversight import OversightError
@@ -656,3 +662,119 @@ class TestIssueHeldToTheRegister:
         code, _, err = cli("drchrono")
         assert code == 2 and "on_behalf_of 'drchrono'" in err and "--register" not in err
         assert self.nothing_written(tmp_path)
+
+
+class TestOffboardingRevokesByRecord:
+    """`tokens revoke --tenant T --on-behalf-of partners/<id>` ends a partner's access.
+
+    Every entry in the tenant acting for the record goes, whoever holds it and
+    whether or not it has expired, in one ledgered act; nothing else does. The
+    register is not consulted: cutting access off never waits on it.
+    """
+
+    @pytest.fixture
+    def document(self) -> dict[str, Any]:
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, DANA, "partners/drchrono")
+        lapsed = grant(document, "ops@drchrono.example", "partners/drchrono")
+        lapsed["expires_at"] = "2026-09-01"  # expired, and still in the file
+        grant(document, "p@primo.example", "partners/primo")
+        grant(document, STAFF)
+        grant(document, DANA, "partners/drchrono", tenant_id="other-clinic")
+        return document
+
+    def test_every_holder_in_the_tenant_goes_and_nothing_else(
+        self, document: dict[str, Any]
+    ) -> None:
+        removed = revoke_tokens(
+            document, tenant_id="sage-spine", on_behalf_of=" partners/drchrono "
+        )
+        assert [e["user_id"] for e in removed] == [DANA, "ops@drchrono.example"]
+        kept = [(e["user_id"], e["tenant_id"]) for e in document["tokens"]]
+        assert kept == [
+            ("p@primo.example", "sage-spine"),
+            (STAFF, "sage-spine"),
+            (DANA, "other-clinic"),
+        ]
+
+    @pytest.mark.parametrize(
+        ("selector", "message"),
+        [
+            ({"on_behalf_of": "partners/drchrono"}, "names the tenant too"),
+            (
+                {"on_behalf_of": "partners/drchrono", "tenant_id": "sage-spine", "user_id": DANA},
+                "name one of",
+            ),
+            (
+                {
+                    "on_behalf_of": "partners/drchrono",
+                    "tenant_id": "sage-spine",
+                    "expired_as_of": AS_OF,
+                },
+                "name one of",
+            ),
+            ({"on_behalf_of": "drchrono", "tenant_id": "sage-spine"}, "on_behalf_of 'drchrono'"),
+            ({"on_behalf_of": "integrations/drchrono", "tenant_id": "sage-spine"}, "no entry"),
+            ({"on_behalf_of": "partners/primo", "tenant_id": "other-clinic"}, "no entry"),
+        ],
+    )
+    def test_refusals_remove_nothing(
+        self, document: dict[str, Any], selector: dict[str, Any], message: str
+    ) -> None:
+        with pytest.raises(TokenFileError, match=message):
+            revoke_tokens(document, **selector)
+        assert len(document["tokens"]) == 5
+
+    def test_the_command_ledgers_each_removal_and_the_review_stays_clean(
+        self, store: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:  # fmt: skip
+        from ironclad.cli import main  # noqa: PLC0415 -- imports fcntl, POSIX only
+
+        monkeypatch.setenv("IRONCLAD_STORE", str(tmp_path / "volume"))
+        tokens = tmp_path / "tokens.json"
+        ledger = grant_ledger.default_path(tokens)
+        for user, link in ((DANA, "partners/drchrono"), ("ops@drchrono.example",
+                           "partners/drchrono"), (STAFF, "")):  # fmt: skip
+            extra = ["--on-behalf-of", link] if link else []
+            assert main(["tokens", "issue", str(tokens), "--user", user,
+                         *TestIssueHeldToTheRegister.ISSUE, *extra]) == 0  # fmt: skip
+        capsys.readouterr()
+        # Offboarded and retired: the register would now refuse a new grant,
+        # and the revocation does not ask it.
+        TestRetiringEndsAccess.set_status(store, "Retired")
+        monkeypatch.delenv("IRONCLAD_STORE")
+        code = main(["tokens", "revoke", str(tokens), "--tenant", "sage-spine",
+                     "--on-behalf-of", "partners/drchrono", "--actor", "bill",
+                     "--as-of", "2026-09-27"])  # fmt: skip
+        out = json.loads(capsys.readouterr().out)
+        assert code == 0
+        assert [e["user_id"] for e in out["removed"]] == [DANA, "ops@drchrono.example"]
+        assert all("sha256" not in e for e in out["removed"])
+        lines = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+        assert [(e["action"], e["on_behalf_of"]) for e in lines[3:]] == [
+            ("revoke", "partners/drchrono"),
+            ("revoke", "partners/drchrono"),
+        ]
+        assert out["ledger_anchor"].startswith("5:")
+        remaining = json.loads(tokens.read_text(encoding="utf-8"))
+        assert [e["user_id"] for e in remaining["tokens"]] == [STAFF]
+        review = review_tokens(remaining, AS_OF)
+        assert review["high"] == 0
+
+    def test_the_command_refuses_a_record_nobody_holds_and_writes_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from ironclad.cli import main  # noqa: PLC0415 -- imports fcntl, POSIX only
+
+        tokens = tmp_path / "tokens.json"
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, STAFF)
+        write_token_file(tokens, document)
+        before = tokens.read_bytes()
+        code = main(["tokens", "revoke", str(tokens), "--tenant", "sage-spine",
+                     "--on-behalf-of", "partners/drchrono", "--actor", "bill"])  # fmt: skip
+        err = capsys.readouterr().err
+        assert code == 2 and "no entry matches" in err and "nothing was written" in err
+        assert tokens.read_bytes() == before
+        assert not grant_ledger.default_path(tokens).exists()

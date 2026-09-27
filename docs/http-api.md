@@ -65,8 +65,11 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `issued_by`/`issued_at`; it refuses a grant with no end or more than 365
   days out (ours), an unknown role, a tenant that is not a tenant id, and a
   second entry for one user in one tenant (the log could not tell them apart).
-  `revoke` takes a user and tenant, a digest prefix as the review prints it,
-  or `--expired`, and refuses to remove nothing. Both hold
+  `revoke` takes a user and tenant, a register record and tenant
+  (`--on-behalf-of partners/<id>`: every entry acting for it, the partner's
+  offboarding in one ledgered act, without consulting the register), a digest
+  prefix as the review prints it, or `--expired`, and refuses to remove
+  nothing. Both hold
   `<file>.lock` for the edit and replace the file whole, so the server reads
   the old file or the new one; exit 2 and nothing written on any refusal.
 - Every `issue` and `revoke` is appended to the grant ledger,
@@ -111,8 +114,8 @@ IRONCLAD_STORE=/srv/ironclad/results \
   tenant, every request is `403` naming the link (`partners/drchrono is
   retired in the register`), and the access log names the holder, so
   `access-log refusals` lists them as a member still presenting it. Retiring
-  the relationship ends the access without a restart; `tokens revoke` still
-  removes the entry. The review's other findings (no BAA, a lapsed review,
+  the relationship ends the access without a restart; `tokens revoke
+  --tenant T --on-behalf-of partners/<id>` still removes every entry for it. The review's other findings (no BAA, a lapsed review,
   offboarding) do not refuse a request: they are for the reviewers. A link
   that is not `partners/<id>` or `integrations/<id>` authenticates nobody
   (`401`), and the store failing to answer is `503`.

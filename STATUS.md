@@ -1259,6 +1259,56 @@ secret-literal and `git diff --check` gates pass. No dashboard file or rule
 changed. In CI at `22af04a` (run 36303657549) all six jobs passed: pytest
 1219 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**Offboarding a partner revokes all of its access in one act, 2026-09-27.**
+The runbook's last offboarding step was "`tokens revoke` the entry", but
+`revoke` took only a user, a digest prefix or `--expired`. A partner with
+several holders (an ops account and a named user, say) was revoked one
+holder at a time, and a holder missed stayed in the file: refused by `serve`
+once the record is retired, and still high in `oversight access`, on the
+ledger as granted and never revoked. Now:
+
+- `tokens revoke FILE --tenant T --on-behalf-of partners/<id>` (or
+  `integrations/<id>`) removes every entry in `T` acting for that record,
+  whoever holds it, expired entries included. Each removal is its own
+  ledger line carrying the link, written before the file is replaced, as
+  for every revocation.
+- It does not consult the register. Cutting access off never waits on the
+  store, and it works whatever the record's state (live, retired, deleted).
+- Refused, with nothing written: a link without `--tenant`, a link together
+  with `--user` or `--expired`, a malformed link, or a record no entry in
+  the tenant acts for. The same record in another tenant is untouched.
+
+No route, stored field, token-file field, ledger field or access-log line
+changed. Runbook: `HANDOFF.md` §17, "Grant, renew and review a service
+token". Reference: `docs/http-api.md`, authentication.
+
+Tests: 9 new cases in `tests/test_partner_access.py::TestOffboardingRevokesByRecord`:
+
+- every holder in the tenant goes, an expired one included, and nothing else
+  (another partner, staff, the same link in another tenant);
+- six refusals that remove nothing;
+- the command, with the record already retired and no register named,
+  removes both holders, writes one `revoke` line each with the link, and
+  leaves a file the review calls clean;
+- the command refusing a record nobody holds leaves the file byte-identical
+  and writes no ledger.
+
+Five mutations each fail a test by name:
+
+- the tenant not checked;
+- a link without a tenant allowed;
+- the link's form not checked;
+- `--tenant` read as a user selector;
+- the CLI not passing the link.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1285
+tests, 1218 passed, 57 skipped, 10 failed. Untouched HEAD `3b64a25` in a
+worktree, run after it: 1276 tests, 1209 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. `mypy` (the CI invocation) reports
+only the known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file or rule
+changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
