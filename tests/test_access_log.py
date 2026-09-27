@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from ironclad.api.access_log import (
     GENESIS_HASH,
+    MAX_PATHS,
     ROTATION_FIELDS,
     AccessLog,
     AccessLogError,
     line_digest,
     read_files,
+    refusals,
     rotate,
     verify_file,
 )
@@ -466,3 +468,122 @@ class TestRotation:
         code, _, err = self._run(capsys, "access-log", "rotate", str(tmp_path / "none.log"),
                                  "--actor", "ops-1", "--to", str(tmp_path / "a.5"))  # fmt: skip
         assert code == 2 and "not found" in err
+
+
+class TestRefusals:
+    """Who was refused one tenant's workspace, from the verified log alone."""
+
+    SAGE = "/api/v1/tenants/sage-spine"
+
+    @staticmethod
+    def _log(path: Path, *lines: tuple[str | None, str | None, str, int, str]) -> Path:
+        log = AccessLog(path)
+        for user, tenant, where, status, day in lines:
+            log.record(
+                user=user, user_tenant=tenant, method="GET", path=where, status=status,
+                at=datetime.fromisoformat(day).replace(tzinfo=timezone.utc),
+            )  # fmt: skip
+        log.close()
+        return path
+
+    def test_callers_are_grouped_and_ranked(self, tmp_path: Path) -> None:
+        path = self._log(
+            tmp_path / "access.log",
+            ("staff@sage.example", "sage-spine", self.SAGE + "/assessments", 200,
+             "2026-09-20T10:00:00"),
+            (None, None, self.SAGE + "/assessments", 401, "2026-09-20T11:00:00"),
+            ("viewer@sage.example", "sage-spine", self.SAGE + "/oversight/partners", 403,
+             "2026-09-21T09:00:00"),
+            ("nurse@other.example", "other-clinic", self.SAGE + "/audit", 403,
+             "2026-09-22T09:00:00"),
+            ("nurse@other.example", "other-clinic", self.SAGE + "/assessments", 403,
+             "2026-09-23T09:00:00"),
+            (None, None, self.SAGE + "/audit", 401, "2026-09-24T09:00:00"),
+        )  # fmt: skip
+        _, entries = read_files([path])
+        report = refusals(entries, "sage-spine", date(2026, 9, 27))
+        assert {k: report[k] for k in ("requests", "refused", "high", "notices")} == {
+            "requests": 6,
+            "refused": 5,
+            "high": 1,
+            "notices": 2,
+        }
+        assert (report["from"], report["to"]) == (
+            "2026-09-20T10:00:00.000Z",
+            "2026-09-24T09:00:00.000Z",
+        )
+        assert [(g["caller"], g["user"], g["requests"], g["level"]) for g in report["callers"]] == [
+            ("other_tenant", "nurse@other.example", 2, "high"),
+            ("unauthenticated", None, 2, "notice"),
+            ("member", "viewer@sage.example", 1, "notice"),
+        ]
+        nurse = report["callers"][0]
+        assert (nurse["first"], nurse["last"], nurse["statuses"]) == (
+            "2026-09-22T09:00:00.000Z",
+            "2026-09-23T09:00:00.000Z",
+            [403],
+        )
+        assert nurse["paths"] == [self.SAGE + "/assessments", self.SAGE + "/audit"]
+
+    def test_only_this_workspace_up_to_the_date_counts(self, tmp_path: Path) -> None:
+        path = self._log(
+            tmp_path / "access.log",
+            # Another tenant's workspace, a prefix of this one's name, and no workspace.
+            (None, None, "/api/v1/tenants/other-clinic/audit", 401, "2026-09-20T10:00:00"),
+            (None, None, "/api/v1/tenants/sage-spine-2/audit", 401, "2026-09-20T10:00:00"),
+            (None, None, "/api/v1/me", 401, "2026-09-20T10:00:00"),
+            # Encoded, and still this workspace.
+            (None, None, "/api/v1/tenants/sage%2Dspine/audit", 401, "2026-09-21T10:00:00"),
+            # 23:30 in New York on the 27th is the 28th in UTC: after the review.
+            (None, None, self.SAGE + "/audit", 401, "2026-09-28T03:30:00"),
+        )  # fmt: skip
+        rotated = tmp_path / "access.log.1"
+        rotate(path, rotated, actor="ops-1")
+        _, entries = read_files([rotated, path])
+        report = refusals(entries, "sage-spine", date(2026, 9, 27))
+        assert (report["requests"], report["refused"]) == (1, 1)
+        assert report["callers"][0]["paths"] == ["/api/v1/tenants/sage%2Dspine/audit"]
+        assert refusals(entries, "sage-spine", date(2026, 9, 28))["refused"] == 2
+        assert refusals(entries, "other-clinic", date(2026, 9, 27))["refused"] == 1
+
+    def test_a_caller_trying_many_paths_is_one_group(self, tmp_path: Path) -> None:
+        probes = [
+            ("x@other.example", "other-clinic", f"{self.SAGE}/oversight/partners/p{n:02d}", 403,
+             "2026-09-22T09:00:00")
+            for n in range(MAX_PATHS + 5)
+        ]  # fmt: skip
+        _, entries = read_files([self._log(tmp_path / "access.log", *probes)])
+        (group,) = refusals(entries, "sage-spine", date(2026, 9, 27))["callers"]
+        assert group["requests"] == MAX_PATHS + 5
+        assert len(group["paths"]) == MAX_PATHS and group["more_paths"] == 5
+
+    def test_the_command(self, tmp_path: Path, capsys) -> None:
+        path = self._log(
+            tmp_path / "access.log",
+            (None, None, self.SAGE + "/audit", 401, "2026-09-21T10:00:00"),
+        )  # fmt: skip
+
+        def run(*argv: str) -> tuple[int, dict, str]:
+            code = main(["access-log", "refusals", *argv])
+            out, err = capsys.readouterr()
+            return code, (json.loads(out) if out.strip() else {}), err
+
+        base = (str(path), "--tenant", "sage-spine", "--as-of", "2026-09-27")
+        code, report, _ = run(*base)
+        assert (code, report["refused"], report["high"]) == (0, 1, 0)
+        assert report["anchor"] == f"1:{json.loads(_lines(path)[0])['hash']}"
+        assert run(*base, "--fail-on", "high")[0] == 0
+        assert run(*base, "--fail-on", "any")[0] == 4
+        other = self._log(
+            tmp_path / "other.log",
+            ("x@other.example", "other-clinic", self.SAGE + "/audit", 403, "2026-09-21T10:00:00"),
+        )  # fmt: skip
+        assert run(str(other), *base[1:], "--fail-on", "high")[0] == 4
+        # Refused, not reviewed: a broken chain, a bad tenant, a bad date, no file.
+        lines = _lines(path)
+        _rewrite(path, [lines[0].replace('"status":401', '"status":200')])
+        code, report, err = run(*base)
+        assert (code, report) == (4, {}) and "not a whole chain" in err
+        assert run(str(other), "--tenant", "Sage Spine")[0] == 2
+        assert run(str(other), "--tenant", "sage-spine", "--as-of", "2026-02-30")[0] == 2
+        assert run(str(tmp_path / "none.log"), "--tenant", "sage-spine")[0] == 2

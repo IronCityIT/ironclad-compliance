@@ -772,8 +772,16 @@ included (`docs/http-api.md`, "Access log"). To review it:
 ```sh
 ironclad access-log verify /srv/ironclad/logs/access.log     # exit 4 if edited
 ironclad access-log verify /srv/ironclad/logs/access.log --anchor 1532:9c1e...  # last review's
-grep '"status":403' /srv/ironclad/logs/access.log             # refused, by name
+ironclad access-log refusals /srv/ironclad/logs/access.log --tenant sage-spine     --fail-on high                                            # refused on Sage's workspace, by name
 ```
+
+`refusals` groups every 401 and 403 on the tenant's workspace by caller. A
+token issued for another tenant, refused on Sage's workspace, is high (exit 4
+under `--fail-on high`): isolation held, but treat it as a possible security
+incident, find the holder in `tokens review`, and record what was found. No
+recognised token, or a Sage member without the role, is a notice. Sage's
+review packet files the same refusals with the other tenant's callers merged
+and unnamed; this command is the only place their names appear.
 
 Copy the printed `anchor` (`N:DIGEST`, the last line's number and digest)
 into the review record at each review, and give the previous review's anchor
@@ -940,7 +948,10 @@ record as the runbooks above say. Record the printed `digest` somewhere the
 store's operators cannot write; it covers the whole manifest. The packet holds
 only the tenant: the token review runs on the whole file, so a digest shared
 with another tenant is still found, and is then cut down to the tenant's own
-entries, requests and grants.
+entries, requests and grants. With `--access-log`, `token-review.json` also
+holds `refused_from_outside`: requests for the tenant's workspace refused to
+other tenants' tokens (merged, unnamed, one high in the summary) and to no
+recognised token (one notice). `access-log refusals` above names them.
 
 It exits 4 with nothing written if the log or ledger is not a whole chain. It
 exits 2 if an input is unreadable, `--dormant-days` is below 1, or a packet for

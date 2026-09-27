@@ -183,6 +183,66 @@ class TestOneTenant:
         assert tokens["access_log"]["entries"] == 1
         assert tokens["ledger"]["entries"] == 2
 
+    def test_refusals_from_outside_are_filed_without_naming_anyone(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        log = AccessLog(tmp_path / "access.log")
+        for user, tenant, where, status in (
+            ("staff@sage.example", "sage-spine", "sage-spine/audit", 200),
+            ("nurse@other.example", "other-clinic", "sage-spine/audit", 403),
+            ("nurse@other.example", "other-clinic", "sage-spine/assessments", 403),
+            ("admin@other.example", "other-clinic", "sage-spine/audit", 403),
+            (None, None, "sage-spine/assessments", 401),
+            # Refused on the other tenant's own workspace: not Sage's to see.
+            (None, None, "other-clinic/audit", 401),
+        ):
+            log.record(
+                user=user, user_tenant=tenant, method="GET", path=f"/api/v1/tenants/{where}",
+                status=status, at=datetime(2026, 9, 22, 9, tzinfo=timezone.utc),
+            )  # fmt: skip
+        log.close()
+        packet = build(store, two_tenants(), access_log=access_log.read_file(log.path))
+        for name, data in packet["files"].items():
+            text = data.decode("utf-8")
+            assert "other-clinic" not in text and "@other.example" not in text, name
+        outside = load(packet, "token-review.json")["refused_from_outside"]
+        assert outside["other_tenant"] == {
+            "callers": 2,
+            "requests": 3,
+            "first": "2026-09-22T09:00:00.000Z",
+            "last": "2026-09-22T09:00:00.000Z",
+            "statuses": [403],
+            "paths": ["/api/v1/tenants/sage-spine/assessments", "/api/v1/tenants/sage-spine/audit"],
+            "more_paths": 0,
+            "level": "high",
+        }
+        assert (outside["unauthenticated"]["requests"], outside["unauthenticated"]["level"]) == (
+            1,
+            "notice",
+        )
+        summary = packet["manifest"]["summary"]
+        assert summary["refused_from_outside"] == {"other_tenant": 3, "unauthenticated": 1}
+        quiet = build(store, two_tenants())["manifest"]["summary"]
+        assert "refused_from_outside" not in quiet
+        # One high for the other tenant's callers, one notice for the unnamed one.
+        assert summary["high"] == quiet["high"] + 1
+        assert (
+            summary["notices"]
+            == quiet["notices"]
+            + 1
+            + summary["token_review"]["notices"]
+            - (quiet["token_review"]["notices"])
+        )
+
+    def test_a_quiet_workspace_files_no_refusals(self, store: Any, tmp_path: Path) -> None:
+        log = write_log(
+            tmp_path / "access.log",
+            ("staff@sage.example", "sage-spine", 200, "2026-09-20T10:00:00"),
+        )
+        tokens = load(build(store, two_tenants(), access_log=access_log.read_file(log)),
+                      "token-review.json")  # fmt: skip
+        assert tokens["refused_from_outside"] == {"other_tenant": None, "unauthenticated": None}
+
     def test_a_digest_shared_with_another_tenant_is_still_found(self, store: Any) -> None:
         document = two_tenants()
         document["tokens"][2]["sha256"] = document["tokens"][1]["sha256"]

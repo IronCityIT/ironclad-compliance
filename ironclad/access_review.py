@@ -32,7 +32,9 @@ tenant's entries and requests; the token review is run on the whole file (so
 a digest shared with another tenant is still found) and then cut down to the
 tenant's own entries, requests and grants before anything is written. The
 one whole-file figure kept is each chain's anchor (`N:DIGEST`), since that is
-what the operator recorded and what a later check must match.
+what the operator recorded and what a later check must match. Requests for
+the tenant's workspace refused to other tenants' tokens, or to no token, are
+filed too, with the callers merged and unnamed (`refused_from_outside`).
 """
 
 from __future__ import annotations
@@ -131,12 +133,51 @@ def tenant_token_review(
             ),
         }
         scoped["dormant"] = sum(1 for i in items if i.get("dormant"))
+        scoped["refused_from_outside"] = refused_from_outside(access_log, tenant_id, as_of)
     if ledger is not None:
         scoped["ledger"] = {
             "entries": sum(1 for line in ledger if line.get("tenant_id") == tenant_id),
             "unrecorded": unrecorded,
         }
     return scoped
+
+
+def refused_from_outside(
+    access_log: list[dict[str, Any]], tenant_id: str, as_of: date
+) -> dict[str, Any]:
+    """Requests for the tenant's workspace refused to anyone outside it, unnamed.
+
+    `access_log.refusals` names every caller; the operator reads that. The
+    tenant's packet may not: who holds another tenant's token is that
+    tenant's business. So callers from other tenants are merged into one
+    group (with how many there were) and unauthenticated callers into
+    another, each keeping its count, span, statuses and the tenant's own
+    paths asked for. The tenant's members are not here; their refusals are
+    on their own entries in the token review.
+    """
+    from ironclad.api.access_log import MAX_PATHS, refusals  # noqa: PLC0415
+
+    report = refusals(access_log, tenant_id, as_of)
+    merged: dict[str, Any] = {}
+    for caller, level in (("other_tenant", "high"), ("unauthenticated", "notice")):
+        groups = [g for g in report["callers"] if g["caller"] == caller]
+        if not groups:
+            merged[caller] = None
+            continue
+        paths = sorted({p for g in groups for p in g["paths"]})
+        merged[caller] = {
+            "callers": len(groups),
+            "requests": sum(g["requests"] for g in groups),
+            "first": min(g["first"] for g in groups),
+            "last": max(g["last"] for g in groups),
+            "statuses": sorted({s for g in groups for s in g["statuses"]}),
+            "paths": paths[:MAX_PATHS],
+            # Paths not shown. Each caller's list is already cut to MAX_PATHS, so
+            # two callers' unshown paths may coincide: this is an upper bound.
+            "more_paths": sum(g["more_paths"] for g in groups) + max(0, len(paths) - MAX_PATHS),
+            "level": level,
+        }
+    return merged
 
 
 def _utc_day(moment: object) -> date:
@@ -233,6 +274,13 @@ def build_packet(
     }
     high = queue["high"] + access["high"] + tokens["high"] + (0 if sweep["verified"] else 1)
     notices = (queue["records"] - queue["high"]) + access["notices"] + tokens["notices"]
+    outside = tokens.get("refused_from_outside")
+    if outside is not None:
+        summary["refused_from_outside"] = {
+            caller: group["requests"] if group else 0 for caller, group in outside.items()
+        }
+        high += 1 if outside["other_tenant"] else 0
+        notices += 1 if outside["unauthenticated"] else 0
     if linked is not None:
         summary["continuity"] = {k: linked[k] for k in ("verified", "broken", "unchecked")}
         high += linked["broken"]
@@ -449,6 +497,7 @@ __all__ = [
     "build_packet",
     "continuity",
     "packet_name",
+    "refused_from_outside",
     "tenant_token_review",
     "verify_packet",
     "write_packet",

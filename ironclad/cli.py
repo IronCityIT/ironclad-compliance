@@ -50,7 +50,7 @@ from ironclad.frameworks.loader import (
     load_framework,
     validate_framework_document,
 )
-from ironclad.ids import client_slug, is_safe_document_id
+from ironclad.ids import client_slug, is_safe_document_id, slugify
 from ironclad.ingest import collect_from_directory, validate_manifest
 from ironclad.model.tenant import Principal, Role
 from ironclad.policy import find_policy, load_policy, validate_policy
@@ -637,6 +637,34 @@ def build_parser() -> argparse.ArgumentParser:
             f"nothing is moved); {EXIT_BAD_INPUT} if it cannot be read, is empty, the "
             "archive exists, or no --actor is given."
         ),
+    )
+    access_refusals = access_sub.add_parser(
+        "refusals",
+        help="who was refused a tenant's workspace, by caller",
+        description=(
+            "Verifies the log, then groups every 401 and 403 on a path under "
+            "--tenant's workspace, on or before --as-of, by the user and tenant the "
+            "log names. High: a token issued for another tenant, refused here (a "
+            "possible security incident to investigate). Notice: no recognised token, "
+            "or the tenant's own member without the role. Names every caller, so it is "
+            "the operator's view; the tenant's review packet carries the same refusals "
+            f"with other tenants unnamed. Exit {EXIT_FINDINGS} under --fail-on when "
+            f"tripped or if the log is not a whole chain, {EXIT_BAD_INPUT} if a file "
+            "cannot be read."
+        ),
+    )
+    access_refusals.add_argument(
+        "log",
+        nargs="+",
+        help="the access-log file; after a rotation, its archives first, oldest first",
+    )
+    access_refusals.add_argument("--tenant", required=True, help="the tenant id")
+    access_refusals.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    access_refusals.add_argument(
+        "--fail-on",
+        choices=("never", "high", "any"),
+        default="never",
+        help=f"exit {EXIT_FINDINGS} on a refusal from another tenant, or on any refusal",
     )
     access_rotate.add_argument("log", help="the access-log file `serve` writes")
     access_rotate.add_argument("--to", required=True, help="the archive file to create")
@@ -1613,6 +1641,8 @@ def cmd_access_log(args: argparse.Namespace) -> int:
             print(str(exc), file=sys.stderr)
             return EXIT_BAD_INPUT
         return EXIT_OK
+    if args.access_command == "refusals":
+        return _refusals(args)
     return _verify_chain(
         [Path(p) for p in args.log],
         "access log",
@@ -1620,6 +1650,46 @@ def cmd_access_log(args: argparse.Namespace) -> int:
         access_log.AccessLogError,
         args.anchor,
     )
+
+
+def _refusals(args: argparse.Namespace) -> int:
+    """`access-log refusals`: the verified log's refusals on one tenant's workspace."""
+    from ironclad.api import access_log  # noqa: PLC0415
+    from ironclad.api.tokens import utc_now  # noqa: PLC0415
+
+    tenant = args.tenant.strip()
+    if not tenant or slugify(tenant) != tenant:
+        print(f"{args.tenant!r} is not a tenant id", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    try:
+        as_of = date.fromisoformat(oversight.check_as_of(args.as_of)) if args.as_of else None
+    except oversight.OversightError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_BAD_INPUT
+    paths = [Path(p) for p in args.log]
+    for path in paths:
+        if not path.is_file():
+            print(f"access log not found: {path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+    try:
+        verdict, entries = access_log.read_files(paths)
+    except access_log.AccessLogError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_BAD_INPUT
+    if not verdict["verified"]:
+        print(
+            f"the access log is not a whole chain at line {verdict['broken_at']} "
+            f"({verdict['reason']}); no review is built on it",
+            file=sys.stderr,
+        )
+        return EXIT_FINDINGS
+    report = access_log.refusals(entries, tenant, as_of or utc_now().date())
+    report["anchor"] = access_log.anchor_of(verdict)
+    _emit(report)
+    tripped = (args.fail_on == "high" and report["high"]) or (
+        args.fail_on == "any" and report["refused"]
+    )
+    return EXIT_FINDINGS if tripped else EXIT_OK
 
 
 def _verify_chain(

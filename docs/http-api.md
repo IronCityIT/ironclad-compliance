@@ -154,6 +154,23 @@ the log is not a whole chain (it is evidence and is not moved). `tokens review`
 and `oversight review-packet` take `--access-log` once per file, archives
 first, and read them as one chain.
 
+`ironclad access-log refusals FILE... --tenant T [--as-of D]` verifies the
+log (archives first) and groups every 401 and 403 on a path under
+`/api/v1/tenants/T/`, on or before `--as-of` (UTC), by the user and tenant the
+line names; the tenant segment is percent-decoded before it is compared. Each
+group has its caller class, count, first and last time, statuses and at most
+ten distinct paths (with `more_paths` counting the rest). A token issued for
+another tenant, refused here, is **high**: isolation held, and someone with
+access elsewhere reached for this workspace, which is a possible security
+incident to investigate (45 CFR 164.308(a)(6)). No recognised token, or the
+tenant's own member without the role, is a notice. `--fail-on high|any` exits
+4 when tripped; a broken chain is exit 4 and nothing is reviewed; an unreadable
+file, a tenant id that is not a slug or a bad date is exit 2. The output names
+every caller and is the operator's. The tenant's review packet carries the
+same refusals in `token-review.json` as `refused_from_outside`, with callers
+from other tenants merged and unnamed (how many, not who) and the tenant's
+own members left to their token-review entries.
+
 If a line cannot be written, the caller gets 503 and nothing else. A write that
 had already landed stays landed and is named in the register's own history;
 nothing is read out of the server without a line. One server per file.

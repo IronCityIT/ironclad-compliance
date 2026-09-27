@@ -1040,6 +1040,74 @@ on this machine. The test now asserts that exact reason and that the late line
 is the archive's last. In CI at `855337f` (run 36300691285) all six jobs
 passed: pytest 1192 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**Refusals on the workspace, seen by its tenant, 2026-09-27.** The access log
+recorded a partner's token probing another tenant's register by name with its
+403, and nothing read that back out for the tenant whose workspace it was.
+`tokens review` counts 403s against the token that got them, so they reach
+the *prober's* tenant, and a 401 (no recognised token) reaches nobody: its
+line has no user to attribute. Sage's quarterly packet could not show that
+anyone outside Sage had reached for Sage's workspace, which is what an
+information-system activity review (164.308(a)(1)(ii)(D)) and security-incident
+procedures ((a)(6)) look for first. Now:
+
+- `access_log.refusals(entries, tenant, as_of)` groups every 401 and 403 on a
+  path under `/api/v1/tenants/<tenant>/` (the segment percent-decoded, so
+  `sage%2Dspine` counts), on or before `as_of` in UTC, by the user and tenant
+  the line names. Groups are `other_tenant` (high), `unauthenticated` and
+  `member` (notices), each with count, first and last, statuses and at most
+  ten distinct paths plus a count of the rest, so a caller trying thousands
+  of paths is one group. Rotation lines are skipped.
+- `ironclad access-log refusals LOG... --tenant T [--as-of D] [--fail-on
+  never|high|any]` verifies the log (archives first) and prints that with the
+  anchor. It names every caller: the operator's view. Exit 4 under `--fail-on`
+  or on a broken chain, 2 for an unreadable file, a tenant that is not a slug
+  or a bad date.
+- The review packet's `token-review.json` gains `refused_from_outside` when
+  built with `--access-log`. Callers from other tenants are merged into one
+  group with how many there were and not who; who holds another tenant's
+  token is that tenant's business. Unauthenticated callers are the other
+  group; the tenant's own members stay on their token-review entries. The
+  summary gains the two request counts, and each non-empty group adds one high
+  or one notice to the packet's totals.
+
+No route, stored field, token-file field, access-log line or packet file
+changed. `token-review.json` gains one key, so a packet filed before this
+still verifies and still serves as `--previous`. Runbook: `HANDOFF.md` §17,
+"Who used the register" and "File the quarterly access review"; reference:
+`docs/http-api.md`, "Access log".
+
+Tests: 7 new cases. Four in `tests/test_access_log.py::TestRefusals`: grouping,
+ranking and levels; only this workspace up to the date (another tenant's, a
+tenant whose name extends this one's, no workspace, an encoded segment, a line
+after `as_of` in UTC, across a rotation); the path cap; and the command's exit
+codes and refusals. Two in `tests/test_access_review.py::TestOneTenant`: the
+packet carries the refusals with no other tenant's id or user anywhere in any
+file, and adds one high and one notice; a quiet workspace files both groups
+empty. One in `tests/test_http.py::TestAccessLog` on a real socket: another
+tenant's token refused twice and an encoded unauthenticated probe found under
+the probed tenant and not under the prober's, and the log module's tenant
+prefix held to the server's. Eleven mutations each fail a test by name:
+
+- the segment not decoded;
+- another tenant's refusal as a notice;
+- the date not applied;
+- the path cap removed;
+- members classed as another tenant;
+- another tenant named in the packet;
+- the packet's high not added;
+- the packet's notice not added;
+- a prefix match instead of the segment;
+- rotation lines not skipped;
+- `--fail-on high` tripping on notices.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1256
+tests, 1189 passed, 57 skipped, 10 failed. Untouched HEAD `d5c8f69` in a
+worktree, run after it: 1249 tests, 1182 passed, the same 10 failed, compared
+set for set. ruff format and lint pass on the tree. `mypy` (the CI invocation)
+reports only the known Windows `fcntl` errors in `policy_store.py`. The
+white-label, secret-literal and `git diff --check` gates pass. No dashboard
+file or rule changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

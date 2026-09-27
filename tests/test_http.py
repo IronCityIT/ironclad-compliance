@@ -1534,6 +1534,47 @@ class TestAccessLog:
         ]
         assert verify_file(log.path)["verified"] is True
 
+    def test_refusals_on_a_workspace_are_found_by_its_tenant(self, logged) -> None:
+        from datetime import datetime, timezone
+
+        from ironclad.api.access_log import TENANT_PATH, read_file, refusals
+        from ironclad.api.http import API_PREFIX
+
+        assert TENANT_PATH == API_PREFIX + "/tenants/"
+        client, log = logged
+        assert client("acme-viewer").get(REGISTER)[0] == 200
+        assert client("beta-manager").get(REGISTER)[0] == 403
+        assert client("beta-manager").get("/api/v1/tenants/acme/assessments")[0] == 403
+        # An encoded tenant segment is still a request for acme's workspace.
+        assert client().get("/api/v1/tenants/ac%6De/assessments")[0] == 401
+        assert client("beta-manager").get("/api/v1/tenants/beta/assessments")[0] == 200
+
+        verdict, entries = read_file(log.path)
+        assert verdict["verified"] is True
+        today = datetime.now(timezone.utc).date()
+        report = refusals(entries, "acme", today)
+        assert (report["requests"], report["refused"], report["high"], report["notices"]) == (
+            4,
+            3,
+            1,
+            1,
+        )
+        beta, nobody = report["callers"]
+        assert (beta["caller"], beta["user"], beta["user_tenant"]) == (
+            "other_tenant",
+            "mallory@beta.example",
+            "beta",
+        )
+        assert (beta["requests"], beta["statuses"], beta["level"]) == (2, [403], "high")
+        assert beta["paths"] == ["/api/v1/tenants/acme/assessments", REGISTER]
+        assert (nobody["caller"], nobody["user"], nobody["statuses"]) == (
+            "unauthenticated",
+            None,
+            [401],
+        )
+        # beta's own workspace saw nothing refused.
+        assert refusals(entries, "beta", today)["refused"] == 0
+
     def test_no_query_body_or_token_reaches_the_log(self, logged, secrets_for) -> None:
         client, log = logged
         client("acme-manager").post(REGISTER, {"fields": {"name": "Sensitive Clinic Name"}})

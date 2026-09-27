@@ -37,11 +37,24 @@ import json
 import os
 import threading
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 GENESIS_HASH = "0" * 64
+
+#: Where a tenant's workspace begins; `ironclad.api.http` serves every tenant
+#: route under it, and a test holds the two to the same prefix.
+TENANT_PATH = "/api/v1/tenants/"
+
+#: The statuses that are a refusal: no recognised token, or not allowed.
+REFUSED = frozenset({401, 403})
+
+#: The distinct paths shown per caller in `refusals`.
+MAX_PATHS = 10
+
+_ORDER = {"other_tenant": 0, "unauthenticated": 1, "member": 2}
 
 #: The keys every line carries, in addition to `hash`. A line with any other
 #: key, or without one of these, is not one this module wrote.
@@ -81,6 +94,88 @@ def is_rotation(entry: dict[str, Any]) -> bool:
 def requests(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The request lines of a verified log, rotation lines left out."""
     return [entry for entry in entries if not is_rotation(entry)]
+
+
+def workspace_of(path: str) -> str | None:
+    """The tenant whose workspace a logged path asks for, or None for any other path.
+
+    The path is logged as it arrived, so the tenant segment is decoded before
+    it is compared: `sage%2Dspine` was a request for `sage-spine`.
+    """
+    if not path.startswith(TENANT_PATH):
+        return None
+    segment = path[len(TENANT_PATH) :].split("/", 1)[0]
+    return unquote(segment) or None
+
+
+def refusals(entries: list[dict[str, Any]], tenant_id: str, as_of: date) -> dict[str, Any]:
+    """Every request for one tenant's workspace that was refused, by caller.
+
+    `entries` are those of a verified log (`read_files`). A line counts when
+    it is on or before the end of `as_of` (UTC), asks for a path under the
+    tenant's workspace and was answered 401 or 403. Callers are grouped by the
+    user and tenant the log names, and each group is one of:
+
+    - `other_tenant`: a token issued for another tenant, refused here. High:
+      tenant isolation held, and someone holding access elsewhere reached for
+      this workspace, which is a possible security incident to investigate
+      (164.308(a)(6)) and not a matter of routine use.
+    - `unauthenticated`: no token, or one the server did not recognise. A
+      notice: the log cannot say who it was.
+    - `member`: the tenant's own token without the role for that request. A
+      notice, as it is in `tokens review`.
+
+    Each group carries its count, first and last time, statuses, and at most
+    `MAX_PATHS` of its distinct paths (with the number left out), so a caller
+    trying thousands of paths does not become thousands of lines.
+    """
+    groups: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+    asked = 0
+    first: str | None = None
+    last: str | None = None
+    for entry in requests(entries):
+        if workspace_of(str(entry["path"])) != tenant_id:
+            continue
+        moment = datetime.fromisoformat(str(entry["at"]).replace("Z", "+00:00"))
+        if moment.astimezone(timezone.utc).date() > as_of:
+            continue
+        asked += 1
+        first = first or entry["at"]
+        last = entry["at"]
+        if entry["status"] not in REFUSED:
+            continue
+        user, home = entry.get("user") or None, entry.get("user_tenant") or None
+        caller = (
+            "unauthenticated" if user is None else "member" if home == tenant_id else "other_tenant"
+        )
+        group = groups.setdefault(
+            (user, home),
+            {"caller": caller, "user": user, "user_tenant": home, "requests": 0,
+             "first": entry["at"], "last": None, "statuses": set(), "paths": set()},
+        )  # fmt: skip
+        group["requests"] += 1
+        group["last"] = entry["at"]
+        group["statuses"].add(entry["status"])
+        group["paths"].add(entry["path"])
+    callers = []
+    for group in sorted(groups.values(), key=lambda g: (_ORDER[g["caller"]], g["first"])):
+        paths = sorted(group["paths"])
+        group["statuses"] = sorted(group["statuses"])
+        group["paths"] = paths[:MAX_PATHS]
+        group["more_paths"] = len(paths) - len(group["paths"])
+        group["level"] = "high" if group["caller"] == "other_tenant" else "notice"
+        callers.append(group)
+    return {
+        "tenant_id": tenant_id,
+        "as_of": as_of.isoformat(),
+        "requests": asked,
+        "from": first,
+        "to": last,
+        "refused": sum(g["requests"] for g in callers),
+        "high": sum(1 for g in callers if g["level"] == "high"),
+        "notices": sum(1 for g in callers if g["level"] == "notice"),
+        "callers": callers,
+    }
 
 
 def verify_lines(
