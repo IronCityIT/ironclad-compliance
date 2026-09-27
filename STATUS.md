@@ -813,6 +813,74 @@ and `git diff --check` gates pass. Bandit is not installed locally, so CI's
 security job is its gate. CI (run 36297903426) passed that gate and
 the rest: pytest 1154 passed, 57 skipped on 3.10 and 3.12.
 
+**The access review filed as one packet, 2026-09-27.** Each part of the
+Sage Spine access review existed on its own: the register export, the review
+queue, the history check and seal, `oversight access`, and `tokens review`
+with use and grants. Run separately, that was six commands, six dates, and
+nothing tying the outputs together. It also had a tenant problem: `tokens
+review` reports every tenant in the file, so a Sage Spine review filed as it
+stood would carry other clients' users. HIPAA wants the activity review, the
+access review and their documentation kept (164.308(a)(1)(ii)(D), (a)(4),
+164.316(b)). `ironclad/access_review.py` and two commands now:
+
+- `ironclad oversight review-packet --tenant T --tokens FILE [--access-log
+  LOG] [--ledger LEDGER] --out DIR [--fail-on high|any]` takes every part
+  as of one date. It files them as a new directory,
+  `access-review-<tenant>-<date>`, written to a temporary sibling and renamed,
+  and never over an existing packet. `manifest.json` names each file's
+  SHA-256 and size, the token file's SHA-256, the seal digest and both chains'
+  anchors. Its `digest` covers the whole manifest.
+- The token review runs on the whole file, so a digest shared with another
+  tenant is still high. It is then cut to the tenant's entries, the tenant's
+  own requests in the log span and the tenant's ledger lines and unrecorded
+  grants. The only whole-file figures kept are the two anchors (`N:DIGEST`),
+  which the operator records. A log or ledger that is not a whole chain is
+  exit 4 with nothing written.
+- `ironclad oversight verify-packet DIR [--digest D]` needs no store. It
+  names each file as ok, changed or missing, and lists any file not in the
+  packet. It checks the manifest against its own digest and, with `--digest`,
+  against the line recorded at filing. A manifest rebuilt to fit edited files
+  passes every other check, so that line is what catches it.
+
+No route, stored field, rule, token-file field or log line changed. Runbook:
+`HANDOFF.md` §17, "File the quarterly access review".
+
+Tests: 21 new cases in `tests/test_access_review.py`, on the committed Sage
+Spine seed:
+
+- every file hashed in the manifest;
+- the register file byte-equal to the export, with the seal named;
+- the summary's counts: six queue highs and one partner high, as the seed says;
+- the digest covering who and when, with only the seal changing between runs;
+- a stranger, a bad hash and a bad date refused;
+- no other tenant's name or user in any file, with requests and ledger lines
+  counted per tenant;
+- a digest shared across tenants still found, and only the tenant's
+  unrecorded grants listed;
+- broken chains refused;
+- filing, and no overwrite;
+- verification of each tampering: changed, missing and added files, a manifest
+  edited without its digest, and one rebuilt to fit, caught only with
+  `--digest`;
+- five CLI runs: file then verify, then edit; the gate tripping after filing;
+  a second packet for the day refused; a cut ledger filing nothing; bad input
+  filing nothing.
+
+Eight mutations each fail a test by name: the tenant filter dropped, the
+unrecorded filter dropped, requests counted across tenants, added files
+ignored, the recorded digest ignored, overwrite allowed, a broken chain
+accepted, and the manifest's own digest ignored. Two survived the first run.
+An added file was only ever tested alongside other problems, and the overwrite
+test matched the operating system's rename error. Both tests were tightened
+and both mutations now fail.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1232
+tests, 1165 passed, 57 skipped, 10 failed. Untouched HEAD `ce81a73` in a
+worktree, run after it: 1211 tests, 1144 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. mypy reports only the known Windows
+`fcntl` errors. The white-label, secret-literal, catalog and `git diff --check`
+gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

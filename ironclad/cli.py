@@ -26,6 +26,7 @@ Exit codes: 0 success, 2 bad input or selection, 3 a capability failed mid-run,
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -412,6 +413,63 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         required=True,
         help="the CSV file to write (a directory: named for tenant and date)",
+    )
+
+    register_packet = with_register_actor(
+        register_sub.add_parser(
+            "review-packet",
+            help="file the tenant's access review as one hashed packet",
+            description=(
+                "Takes every part of the access review as of one date and files it as a "
+                "new directory under --out: the register export, the review queue, "
+                "partner tokens held to their records, the register's history check and "
+                "seal, and the token review cut down to this tenant (with its use from "
+                "--access-log and its grants from --ledger). manifest.json names each "
+                "file's SHA-256; its `digest` is the line to record elsewhere, which "
+                f"`verify-packet --digest` checks later. Exit {EXIT_FINDINGS} under "
+                "--fail-on, or with nothing written when a log or ledger is not a whole "
+                f"chain; {EXIT_BAD_INPUT} for unreadable input or an existing packet."
+            ),
+        )
+    )
+    register_packet.add_argument("--tenant", required=True)
+    register_packet.add_argument("--tokens", required=True, help="the token file `serve` reads")
+    register_packet.add_argument(
+        "--access-log", default="", help="the server's access log, for each entry's use"
+    )
+    register_packet.add_argument(
+        "--ledger", default="", help="the grant ledger, to hold each entry to its grant"
+    )
+    register_packet.add_argument(
+        "--dormant-days",
+        type=int,
+        default=90,
+        help="with --access-log: an active entry unused this long is a notice",
+    )
+    register_packet.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    register_packet.add_argument(
+        "--out", required=True, help="an existing directory; the packet is a new one inside it"
+    )
+    register_packet.add_argument(
+        "--fail-on",
+        choices=("never", "high", "any"),
+        default="never",
+        help=f"exit {EXIT_FINDINGS} (after filing) on a high finding, or on any finding",
+    )
+
+    verify_packet = register_sub.add_parser(
+        "verify-packet",
+        help="re-hash a filed access-review packet against its manifest",
+        description=(
+            "For whoever holds a filed packet and no store: every file listed with its "
+            "hash and size, nothing unlisted, the manifest matching its own digest and, "
+            "with --digest, the digest recorded when it was filed. Exit "
+            f"{EXIT_FINDINGS} if anything differs, {EXIT_BAD_INPUT} if it is not a packet."
+        ),
+    )
+    verify_packet.add_argument("packet", help="the packet directory")
+    verify_packet.add_argument(
+        "--digest", default="", help="the manifest digest recorded when the packet was filed"
     )
 
     register_verify = with_register_actor(
@@ -1220,6 +1278,12 @@ def cmd_oversight(args: argparse.Namespace) -> int:
         comparison = oversight.compare_seals(_read_seal(args.earlier), _read_seal(args.later))
         _emit(comparison)
         return EXIT_OK if comparison["verified"] else EXIT_FINDINGS
+    if args.oversight_command == "verify-packet":
+        from ironclad import access_review  # noqa: PLC0415
+
+        verdict = access_review.verify_packet(Path(args.packet), args.digest)
+        _emit(verdict)
+        return EXIT_OK if verdict["verified"] else EXIT_FINDINGS
 
     target = args.to or os.environ.get(STORE_ENV, "")
     if not target:
@@ -1287,6 +1351,9 @@ def cmd_oversight(args: argparse.Namespace) -> int:
         )
         return EXIT_FINDINGS if tripped else EXIT_OK
 
+    if args.oversight_command == "review-packet":
+        return _review_packet(args, store, tenant, caller)
+
     if args.oversight_command == "export":
         export = oversight.export_register(
             store,
@@ -1314,6 +1381,72 @@ def cmd_oversight(args: argparse.Namespace) -> int:
     _emit(queue)
     tripped = (args.fail_on == "high" and queue["high"]) or (
         args.fail_on == "any" and queue["records"]
+    )
+    return EXIT_FINDINGS if tripped else EXIT_OK
+
+
+def _review_packet(args: argparse.Namespace, store: Any, tenant: str, caller: Principal) -> int:
+    """`oversight review-packet`: read every input once, build, file, then judge."""
+    from ironclad import access_review  # noqa: PLC0415
+    from ironclad.api import access_log, grant_ledger  # noqa: PLC0415
+
+    tokens_path = Path(args.tokens)
+    try:
+        raw = tokens_path.read_bytes()
+        document = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"token file unreadable: {tokens_path} ({exc})") from exc
+    chains: dict[str, Any] = {}
+    for what, given, reader, error in (
+        ("access log", args.access_log, access_log.read_file, access_log.AccessLogError),
+        ("grant ledger", args.ledger, grant_ledger.read_file, grant_ledger.GrantLedgerError),
+    ):
+        if not given:
+            chains[what] = None
+            continue
+        path = Path(given)
+        if not path.is_file():
+            print(f"{what} not found: {path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        try:
+            chains[what] = reader(path)
+        except error as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_BAD_INPUT
+        verdict = chains[what][0]
+        if not verdict["verified"]:
+            print(
+                f"{path} is not a whole chain at line {verdict['broken_at']} "
+                f"({verdict['reason']}); no packet is built on it",
+                file=sys.stderr,
+            )
+            return EXIT_FINDINGS
+    packet = access_review.build_packet(
+        store,
+        document,
+        tenant_id=tenant,
+        principal=caller,
+        today=args.as_of or oversight.today_utc(),
+        token_file_sha256=hashlib.sha256(raw).hexdigest(),
+        access_log=chains["access log"],
+        ledger=chains["grant ledger"],
+        dormant_days=args.dormant_days,
+    )
+    path = access_review.write_packet(packet, Path(args.out))
+    manifest = packet["manifest"]
+    _emit(
+        {
+            "path": str(path),
+            "tenant_id": tenant,
+            "as_of": manifest["as_of"],
+            "digest": manifest["digest"],
+            "summary": manifest["summary"],
+            "files": manifest["files"],
+        }
+    )
+    summary = manifest["summary"]
+    tripped = (args.fail_on == "high" and summary["high"]) or (
+        args.fail_on == "any" and (summary["high"] or summary["notices"])
     )
     return EXIT_FINDINGS if tripped else EXIT_OK
 

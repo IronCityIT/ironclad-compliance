@@ -892,6 +892,39 @@ tokens have no link and are listed under `unlinked`. Run it with the BAA sweep
 ledger, so an entry re-pointed or unlinked by hand is high in `tokens review
 --ledger`.
 
+### File the quarterly access review
+
+The commands above are the parts. At each access review, file them together
+as of one date:
+
+```sh
+ironclad oversight review-packet --tenant sage-spine --actor auditor-1 --role auditor \
+    --tokens /srv/ironclad/tokens.json --ledger /srv/ironclad/tokens.json.ledger \
+    --access-log /srv/ironclad/logs/access.log --as-of 2026-09-30 --out workpapers/
+ironclad oversight verify-packet workpapers/access-review-sage-spine-2026-09-30 \
+    --digest 3f1c...                                  # the digest recorded at filing
+```
+
+`review-packet` writes a new directory, `access-review-<tenant>-<date>`,
+holding `register.csv` (the export), `review-queue.json`,
+`partner-access.json`, `register-verify.json`, `register-seal.json`,
+`token-review.json` and `manifest.json`. The manifest names each file's
+SHA-256 and size, the SHA-256 of the token file reviewed, the seal's digest,
+and the access log's and ledger's anchors. Copy those anchors into the review
+record as the runbooks above say. Record the printed `digest` somewhere the
+store's operators cannot write; it covers the whole manifest. The packet holds
+only the tenant: the token review runs on the whole file, so a digest shared
+with another tenant is still found, and is then cut down to the tenant's own
+entries, requests and grants.
+
+It exits 4 with nothing written if the log or ledger is not a whole chain. It
+exits 2 if an input is unreadable, `--dormant-days` is below 1, or a packet for
+that tenant and date is already filed. A filed packet is never overwritten.
+With `--fail-on high` (or `any`) it exits 4 after filing. `verify-packet`
+needs no store. It exits 4 on a file that changed, went missing or was added,
+and on a manifest that fails its own digest. With `--digest`, it also exits 4
+on a manifest rebuilt to fit edited files, which passes every other check.
+
 ### Verify an auditor package
 
 First the files: `sha256sum -c SHA256SUMS` in the package directory. Every
