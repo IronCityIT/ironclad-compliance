@@ -1240,6 +1240,16 @@ class TestOversightRegister:
         assert "review_due" in problems
         assert "'ssn' is not a register field" in problems
 
+    def test_a_date_that_is_not_on_the_calendar_is_400_and_nothing_is_written(self, as_) -> None:
+        status, body = _create(
+            as_("acme-manager"), {**self.RATED, "baa_execution_date": "2026-02-30"}
+        )
+        assert status == 400
+        assert "baa_execution_date '2026-02-30' is not a YYYY-MM-DD calendar date" in (
+            " ".join(body["errors"])
+        )
+        assert as_("acme-manager").get(REGISTER)[1]["data"]["records"] == []
+
     def test_a_contributor_proposes_unrated_and_cannot_rate(self, as_) -> None:
         contributor = as_("acme-contributor")
         assert _create(contributor, self.RATED)[0] == 403

@@ -316,7 +316,8 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   refused with 400, not quietly overwritten.
 - **A closed schema.** A field the register does not have, a value outside a
   vocabulary (`risk`, `status`, `agreement_status`, `baa_status`,
-  `data_access`, `data_flow_direction`), a date that is not `YYYY-MM-DD` or
+  `data_access`, `data_flow_direction`), a date that is not a `YYYY-MM-DD`
+  day on the calendar (`2026-02-30` and `2026-13-01` are refused), or
   over-long text is 400, and `errors` names every problem.
 - **A contributor proposes, an approver rates.** A contributor's new record
   starts unrated. A contributor who sets or moves `status`, `risk`,

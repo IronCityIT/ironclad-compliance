@@ -185,6 +185,9 @@ class TestThePolicy:
             ({"baa_status": "Signed"}, "baa_status 'Signed'"),
             ({"data_access": "Everything"}, "data_access"),
             ({"review_due": "31/12/2026"}, "review_due"),
+            ({"review_due": "2026-02-30"}, "review_due '2026-02-30' is not a YYYY-MM-DD calendar"),
+            ({"baa_execution_date": "2026-13-01"}, "baa_execution_date '2026-13-01'"),
+            ({"cert_expiration_date": "2026-09-00"}, "cert_expiration_date '2026-09-00'"),
             ({"cert_expiration_date": 20261231}, "cert_expiration_date"),
             ({"notes": "n" * 2001}, "notes is 2001"),
             ({"name": "x" * 121}, "name is 121"),
@@ -196,6 +199,23 @@ class TestThePolicy:
         with pytest.raises(OversightError) as refused:
             create(**changes)
         assert named in str(refused.value)
+
+    def test_a_date_is_a_day_that_exists(self) -> None:
+        # The pattern alone let 2026-02-30 in: it sorts between real days, so it
+        # would read as a review date or a BAA signature that never happened.
+        assert create(review_due="2028-02-29")["review_due"] == "2028-02-29"
+        with pytest.raises(OversightError, match="review_due '2027-02-29'"):
+            create(review_due="2027-02-29")
+
+    def test_a_stored_impossible_date_is_corrected_by_the_next_edit(self) -> None:
+        # Written before the calendar check (the Firestore rules test only the
+        # pattern): the next edit is refused until it names a real day.
+        stored = {**create(), "review_due": "2026-02-30"}
+        with pytest.raises(OversightError, match="review_due '2026-02-30'"):
+            edit(stored, OWNER, notes="x")
+        assert edit(stored, OWNER, review_due="2027-03-01")["review_due"] == "2027-03-01"
+        with pytest.raises(OversightError, match="review_due '2026-02-30'"):
+            oversight.check_stored("sage-spine", stored)
 
     def test_the_seeded_revision_zero_edits_to_revision_one(self) -> None:
         seeded = {k: v for k, v in create().items() if k != "revision"}

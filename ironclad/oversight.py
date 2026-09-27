@@ -163,8 +163,8 @@ def content_problems(content: dict[str, Any]) -> list[str]:
     for field in DATE_FIELDS:
         if field in content:
             value = content[field]
-            if not isinstance(value, str) or (value and not _ISO_DATE.match(value)):
-                problems.append(f"{field} {value!r} is not a YYYY-MM-DD date or empty")
+            if not isinstance(value, str) or (value and not _is_calendar_date(value)):
+                problems.append(f"{field} {value!r} is not a YYYY-MM-DD calendar date or empty")
     for field, bound in TEXT_BOUNDS.items():
         if field in content:
             value = content[field]
@@ -418,14 +418,21 @@ def today_utc() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
-def check_as_of(value: str) -> str:
-    """A queue date: a real calendar day as YYYY-MM-DD, or a refusal."""
+def _is_calendar_date(value: str) -> bool:
+    """YYYY-MM-DD naming a day that exists: not 2026-13-01, not 2026-02-30."""
+    if not _ISO_DATE.match(value):
+        return False
     try:
-        if not _ISO_DATE.match(value or ""):
-            raise ValueError
         date.fromisoformat(value)
     except ValueError:
-        raise OversightError(f"{value!r} is not a YYYY-MM-DD date") from None
+        return False
+    return True
+
+
+def check_as_of(value: str) -> str:
+    """A queue date: a real calendar day as YYYY-MM-DD, or a refusal."""
+    if not _is_calendar_date(value or ""):
+        raise OversightError(f"{value!r} is not a YYYY-MM-DD date")
     return value
 
 
