@@ -426,9 +426,13 @@ def build_parser() -> argparse.ArgumentParser:
                 "seal, and the token review cut down to this tenant (with its use from "
                 "--access-log and its grants from --ledger). manifest.json names each "
                 "file's SHA-256; its `digest` is the line to record elsewhere, which "
-                f"`verify-packet --digest` checks later. Exit {EXIT_FINDINGS} under "
+                f"`verify-packet --digest` checks later. With --previous, the last "
+                "packet is re-verified and continuity.json holds its seal and anchors "
+                "against today's register and chains; anything since rewritten or cut "
+                f"is a high finding. Exit {EXIT_FINDINGS} under "
                 "--fail-on, or with nothing written when a log or ledger is not a whole "
-                f"chain; {EXIT_BAD_INPUT} for unreadable input or an existing packet."
+                f"chain; {EXIT_BAD_INPUT} for unreadable input, an existing packet, or a "
+                "previous packet that does not verify, is another tenant's or is not earlier."
             ),
         )
     )
@@ -451,6 +455,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", required=True, help="an existing directory; the packet is a new one inside it"
     )
     register_packet.add_argument(
+        "--previous",
+        default="",
+        help="the tenant's last filed packet: file continuity.json against it",
+    )
+    register_packet.add_argument(
+        "--previous-digest",
+        default="",
+        help="with --previous: the digest recorded when it was filed",
+    )
+    register_packet.add_argument(
         "--fail-on",
         choices=("never", "high", "any"),
         default="never",
@@ -470,6 +484,9 @@ def build_parser() -> argparse.ArgumentParser:
     verify_packet.add_argument("packet", help="the packet directory")
     verify_packet.add_argument(
         "--digest", default="", help="the manifest digest recorded when the packet was filed"
+    )
+    verify_packet.add_argument(
+        "--previous", default="", help="the packet this one must have been built against"
     )
 
     register_verify = with_register_actor(
@@ -1281,7 +1298,9 @@ def cmd_oversight(args: argparse.Namespace) -> int:
     if args.oversight_command == "verify-packet":
         from ironclad import access_review  # noqa: PLC0415
 
-        verdict = access_review.verify_packet(Path(args.packet), args.digest)
+        verdict = access_review.verify_packet(
+            Path(args.packet), args.digest, Path(args.previous) if args.previous else None
+        )
         _emit(verdict)
         return EXIT_OK if verdict["verified"] else EXIT_FINDINGS
 
@@ -1431,6 +1450,8 @@ def _review_packet(args: argparse.Namespace, store: Any, tenant: str, caller: Pr
         access_log=chains["access log"],
         ledger=chains["grant ledger"],
         dormant_days=args.dormant_days,
+        previous=Path(args.previous) if args.previous else None,
+        previous_digest=args.previous_digest,
     )
     path = access_review.write_packet(packet, Path(args.out))
     manifest = packet["manifest"]

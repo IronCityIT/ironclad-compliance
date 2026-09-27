@@ -884,6 +884,62 @@ the known Windows `fcntl` errors. The white-label, secret-literal, catalog and
 mypy had been run on the two source files only, not the tree. It is fixed in
 the next commit, and the whole tree is now checked locally before a push.
 
+**Each access review held to the last, 2026-09-27.** A packet proved only
+itself. Two kinds of change between reviews passed every check. The first is
+a register history entry rewritten in place on a volume, which the sweep does
+not see. The second is an access log or grant ledger deleted and restarted,
+which is whole again on its own. The seal and anchors that would catch them
+were in the previous packet, and nothing compared them. `review-packet
+--previous DIR [--previous-digest D]` now does. It re-verifies the previous
+packet, and refuses one that fails its check, is another tenant's, or is not
+earlier (exit 2, nothing filed). It then files `continuity.json`, with three
+parts:
+
+- the previous seal compared with today's (`compare_seals`);
+- the previous log anchor checked against today's log;
+- the previous ledger anchor checked against today's ledger.
+
+Anything rewritten, removed or cut is a high finding. An anchored chain not
+supplied this time is `unchecked`, a notice. It is not passed. The manifest
+names the previous packet's digest, so the packets form a chain.
+`verify-packet --previous DIR` checks that link. Packets without
+`continuity.json` still verify. No route, stored field, rule, token-file field
+or log line changed. Runbook: `HANDOFF.md` §17.
+
+Tests: 7 new cases in `tests/test_access_review.py` (28 in all):
+
+- a clean quarter linked to the last;
+- a history entry rewritten since, where the sweep passes and continuity is
+  high;
+- a log started afresh;
+- an anchored log left out, which is unchecked and not passed;
+- four refusals of the previous packet: wrong digest, same date, another
+  tenant, tampered;
+- `verify-packet --previous` catching an unlinked packet, a different
+  previous packet, and a tampered previous packet;
+- one CLI run: spring packet, then autumn against it, then a ledger restarted
+  from scratch (exit 4 under `--fail-on high`), then a wrong previous digest
+  (exit 2).
+
+Nine mutations each fail a test by name:
+
+- the register comparison ignored;
+- unchecked counted as verified;
+- the previous digest ignored;
+- the date order not checked;
+- the tenant not checked;
+- the link not checked in `verify-packet`;
+- broken not added to high;
+- unchecked not added to notices;
+- a left-out log passed silently.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1239
+tests, 1172 passed, 57 skipped, 10 failed. Untouched HEAD `ca1bb29` in a
+worktree, run after it: 1232 tests, the same 10 failed, compared set for set.
+ruff format and lint pass on the tree. `mypy` (the CI invocation) reports only
+the known Windows `fcntl` errors in `policy_store.py`. The white-label and
+`git diff --check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

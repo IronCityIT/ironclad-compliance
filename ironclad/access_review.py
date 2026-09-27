@@ -18,6 +18,15 @@ one line to write down beside the filed packet. `verify_packet()` re-hashes a
 packet on disk and, given that line, says whether it is still the packet that
 was filed.
 
+A review is only worth as much as its link to the last one. Each packet holds
+the register seal and each chain's anchor, and nothing inside one packet can
+see a history entry rewritten, or a log cut and restarted, between two
+reviews. Given the previous packet, `build_packet()` also files
+`continuity.json`: the previous packet re-verified, its seal compared with
+today's, and its log and ledger anchors held against today's chains. The
+manifest records the previous packet's digest, so the packets form a chain of
+their own.
+
 A packet holds only its tenant. The token file and the access log hold every
 tenant's entries and requests; the token review is run on the whole file (so
 a digest shared with another tenant is still found) and then cut down to the
@@ -51,6 +60,8 @@ FILES = (
     "register-seal.json",
     "token-review.json",
 )
+#: Filed as well when the packet is built against the previous one.
+CONTINUITY = "continuity.json"
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -150,6 +161,8 @@ def build_packet(
     ledger: tuple[dict[str, Any], list[dict[str, Any]]] | None = None,
     dormant_days: int = DORMANT_DAYS,
     at: str | None = None,
+    previous: Path | None = None,
+    previous_digest: str = "",
 ) -> dict[str, Any]:
     """Every part of the tenant's access review as of `today`, as files.
 
@@ -158,6 +171,11 @@ def build_packet(
     the tenant may build one, as each part already allows. Returns `name`, the
     directory to file it under, `files` (name to bytes, the manifest last) and
     `manifest`.
+
+    With `previous`, the tenant's last filed packet (and `previous_digest`,
+    the line recorded when it was filed), the packet also holds
+    `continuity.json`; see `continuity()`. A previous packet that does not
+    verify, is another tenant's or is not earlier is refused.
     """
     oversight.check_reader(principal, tenant_id)
     as_of = date.fromisoformat(oversight.check_as_of(today))
@@ -180,6 +198,11 @@ def build_packet(
     except ValueError as exc:
         raise PacketError(str(exc)) from exc
     tokens = tenant_token_review(whole, tenant_id, as_of, log_entries, ledger_entries)
+    linked = (
+        continuity(previous, previous_digest, tenant_id, today, seal, log_entries, ledger_entries)
+        if previous is not None
+        else None
+    )
 
     contents = {
         "register.csv": export["csv"].encode("utf-8"),
@@ -189,6 +212,8 @@ def build_packet(
         "register-seal.json": _json_bytes(seal),
         "token-review.json": _json_bytes(tokens),
     }
+    if linked is not None:
+        contents[CONTINUITY] = _json_bytes(linked)
     summary = {
         "register": {"records": export["records"], "verified": sweep["verified"]},
         "review_queue": {"records": queue["records"], "high": queue["high"]},
@@ -208,6 +233,10 @@ def build_packet(
     }
     high = queue["high"] + access["high"] + tokens["high"] + (0 if sweep["verified"] else 1)
     notices = (queue["records"] - queue["high"]) + access["notices"] + tokens["notices"]
+    if linked is not None:
+        summary["continuity"] = {k: linked[k] for k in ("verified", "broken", "unchecked")}
+        high += linked["broken"]
+        notices += linked["unchecked"]
     summary["high"] = high
     summary["notices"] = notices
     manifest: dict[str, Any] = {
@@ -222,6 +251,7 @@ def build_packet(
             "access_log": _chain_input(access_log),
             "grant_ledger": _chain_input(ledger),
             "dormant_days": dormant_days if access_log is not None else None,
+            **({"previous": linked["previous"]} if linked is not None else {}),
         },
         "summary": summary,
         "files": {
@@ -232,6 +262,71 @@ def build_packet(
     manifest["digest"] = _manifest_digest(manifest)
     contents[MANIFEST] = _json_bytes(manifest)
     return {"name": packet_name(tenant_id, today), "files": contents, "manifest": manifest}
+
+
+def continuity(
+    previous: Path,
+    previous_digest: str,
+    tenant_id: str,
+    today: str,
+    seal: dict[str, Any],
+    log_entries: list[dict[str, Any]] | None,
+    ledger_entries: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Whether nothing the previous packet recorded has changed since.
+
+    The previous packet must verify (against `previous_digest` too, when
+    given), be the same tenant's and be earlier. Its seal must be extended by
+    today's: a sealed history entry rewritten or removed, or a record gone, is
+    broken. Each anchor it recorded must still be in today's chain: a log or
+    ledger cut back or started afresh is broken. An anchored chain not given
+    today cannot be checked, and is counted as `unchecked` rather than passed.
+    """
+    before = verify_packet(previous, previous_digest)
+    if not before["verified"]:
+        raise PacketError(
+            f"the previous packet {previous} does not verify: {'; '.join(before['problems'])}"
+        )
+    if before["tenant_id"] != tenant_id:
+        raise PacketError(f"the previous packet is {before['tenant_id']}'s, not {tenant_id}'s")
+    if not str(before["as_of"]) < today:
+        raise PacketError(f"the previous packet is as of {before['as_of']}, not before {today}")
+    try:
+        manifest = json.loads((previous / MANIFEST).read_text(encoding="utf-8"))
+        earlier_seal = json.loads((previous / "register-seal.json").read_text(encoding="utf-8"))
+        recorded = manifest.get("inputs") or {}
+        chains = {
+            "access_log": _still_anchored(recorded.get("access_log"), log_entries),
+            "grant_ledger": _still_anchored(recorded.get("grant_ledger"), ledger_entries),
+        }
+    except (OSError, ValueError, AttributeError) as exc:
+        raise PacketError(f"the previous packet cannot be read ({exc})") from exc
+    register = oversight.compare_seals(earlier_seal, seal)
+    broken = register["broken"] + sum(1 for c in chains.values() if c and c["extended"] is False)
+    unchecked = sum(1 for c in chains.values() if c and c["extended"] is None)
+    return {
+        "previous": {"name": previous.name, "as_of": before["as_of"], "digest": before["digest"]},
+        "register": register,
+        **chains,
+        "broken": broken,
+        "unchecked": unchecked,
+        "verified": broken == 0 and unchecked == 0,
+    }
+
+
+def _still_anchored(
+    recorded: dict[str, Any] | None, entries: list[dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """The previous packet's anchor held against today's chain, if it had one."""
+    from ironclad.api.access_log import check_anchor  # noqa: PLC0415
+
+    anchor = (recorded or {}).get("anchor") or ""
+    if not anchor:
+        return None
+    if entries is None:
+        return {"anchor": anchor, "extended": None, "reason": "not given for this review"}
+    # check_anchor reads the `hash` of line N; the entries are those lines, parsed.
+    return check_anchor([json.dumps(entry) for entry in entries], anchor)
 
 
 def _chain_input(chain: tuple[dict[str, Any], list[dict[str, Any]]] | None) -> Any:
@@ -266,7 +361,9 @@ def write_packet(packet: dict[str, Any], out: Path) -> Path:
     return final
 
 
-def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
+def verify_packet(
+    directory: Path, digest: str = "", previous: Path | None = None
+) -> dict[str, Any]:
     """Re-hash a filed packet against its manifest, and the manifest against `digest`.
 
     `verified` is true only when the manifest matches its own digest, every
@@ -274,6 +371,9 @@ def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
     directory, and (given `digest`, the line written down when it was filed)
     the manifest's digest is that one. A manifest rebuilt to fit edited files
     passes every check but the last, which is why the line is kept elsewhere.
+
+    With `previous`, the packet must have been built against that one: the
+    previous packet verifies, and its digest is the one this manifest names.
     """
     digest = digest.strip().lower()
     if digest and not _HEX64.match(digest):
@@ -285,8 +385,12 @@ def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
     if not isinstance(manifest, dict) or manifest.get("format") != PACKET_FORMAT:
         raise PacketError(f"not an access-review packet (expected format {PACKET_FORMAT})")
     listed = manifest.get("files")
-    if not isinstance(listed, dict) or sorted(listed) != sorted(FILES):
+    if not isinstance(listed, dict) or sorted(listed) not in (
+        sorted(FILES),
+        sorted((*FILES, CONTINUITY)),
+    ):
         raise PacketError(f"the manifest does not list the packet's files: {', '.join(FILES)}")
+    names = [name for name in (*FILES, CONTINUITY) if name in listed]
 
     problems: list[str] = []
     if manifest.get("digest") != _manifest_digest(manifest):
@@ -294,7 +398,7 @@ def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
     if digest and manifest.get("digest") != digest:
         problems.append("the manifest's digest is not the one recorded when it was filed")
     files: dict[str, str] = {}
-    for name in FILES:
+    for name in names:
         path = directory / name
         if not path.is_file():
             files[name] = "missing"
@@ -310,9 +414,18 @@ def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
         else:
             files[name] = "ok"
     extra = sorted(
-        p.name for p in directory.iterdir() if p.name not in FILES and p.name != MANIFEST
+        p.name for p in directory.iterdir() if p.name not in names and p.name != MANIFEST
     )
     problems.extend(f"{name} is not part of the packet" for name in extra)
+    if previous is not None:
+        before = verify_packet(previous)
+        named = ((manifest.get("inputs") or {}).get("previous") or {}).get("digest")
+        if not before["verified"]:
+            problems.append(f"the previous packet does not verify: {'; '.join(before['problems'])}")
+        if not named:
+            problems.append("the packet was not built against a previous packet")
+        elif named != before["digest"]:
+            problems.append("the previous packet is not the one this packet was built against")
     return {
         "tenant_id": manifest.get("tenant_id"),
         "as_of": manifest.get("as_of"),
@@ -325,11 +438,13 @@ def verify_packet(directory: Path, digest: str = "") -> dict[str, Any]:
 
 
 __all__ = [
+    "CONTINUITY",
     "FILES",
     "MANIFEST",
     "PACKET_FORMAT",
     "PacketError",
     "build_packet",
+    "continuity",
     "packet_name",
     "tenant_token_review",
     "verify_packet",

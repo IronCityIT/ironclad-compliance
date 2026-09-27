@@ -920,6 +920,27 @@ entries, requests and grants.
 It exits 4 with nothing written if the log or ledger is not a whole chain. It
 exits 2 if an input is unreadable, `--dormant-days` is below 1, or a packet for
 that tenant and date is already filed. A filed packet is never overwritten.
+From the second review on, file each packet against the last one:
+
+```sh
+ironclad oversight review-packet ... --as-of 2026-12-31 --out workpapers/ \
+    --previous workpapers/access-review-sage-spine-2026-09-30 \
+    --previous-digest 3f1c...                         # the digest recorded last quarter
+ironclad oversight verify-packet workpapers/access-review-sage-spine-2026-12-31 \
+    --digest 9ab0... --previous workpapers/access-review-sage-spine-2026-09-30
+```
+
+The previous packet is re-verified first. It is refused (exit 2, nothing
+filed) if it does not verify, is another tenant's, or is not earlier. The new
+packet then also holds `continuity.json`. It compares the previous seal with
+today's, so a history entry rewritten or removed since is found (the sweep
+alone passes that). It also holds the previous log and ledger anchors against
+today's chains, so a chain cut back or started afresh is found. Each of those
+is a high finding. An anchored log or ledger not given this time is
+`unchecked`, a notice. It is not passed. The manifest names the previous
+packet's digest, and `verify-packet --previous` holds a packet to the one it
+names.
+
 With `--fail-on high` (or `any`) it exits 4 after filing. `verify-packet`
 needs no store. It exits 4 on a file that changed, went missing or was added,
 and on a manifest that fails its own digest. With `--digest`, it also exits 4

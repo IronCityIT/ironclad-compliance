@@ -291,6 +291,146 @@ class TestFilingAndChecking:
             verify_packet(tmp_path, "abc")
 
 
+class TestContinuity:
+    """Each review held to the last: nothing it recorded may have changed since."""
+
+    SPRING = "2026-06-30"
+
+    def first(
+        self, store: Any, tmp_path: Path, log: Path | None = None
+    ) -> tuple[Path, dict[str, Any]]:
+        packet = build(
+            store,
+            two_tenants(),
+            today=self.SPRING,
+            at="2026-06-30T09:00:00Z",
+            access_log=access_log.read_file(log) if log else None,
+        )
+        return write_packet(packet, tmp_path), packet["manifest"]
+
+    def spring_log(self, tmp_path: Path) -> Path:
+        return write_log(
+            tmp_path / "access.log",
+            ("staff@sage.example", "sage-spine", 200, "2026-06-01T10:00:00"),
+            ("nurse@other.example", "other-clinic", 200, "2026-06-02T10:00:00"),
+        )
+
+    def test_a_clean_quarter_links_to_the_last(self, store: Any, tmp_path: Path) -> None:
+        log = self.spring_log(tmp_path)
+        earlier, spring = self.first(store, tmp_path, log)
+        write_log(log, ("staff@sage.example", "sage-spine", 200, "2026-09-01T10:00:00"))
+        oversight.save(
+            store, tenant_id="sage-spine", kind="partners", changes={"notes": "Reviewed."},
+            principal=OWNER, record_id="drchrono", base_revision=1, at="2026-08-01T00:00:00Z",
+        )  # fmt: skip
+        packet = build(
+            store,
+            two_tenants(),
+            access_log=access_log.read_file(log),
+            previous=earlier,
+            previous_digest=spring["digest"],
+        )
+        linked = load(packet, access_review.CONTINUITY)
+        assert linked["previous"] == {
+            "name": earlier.name,
+            "as_of": self.SPRING,
+            "digest": spring["digest"],
+        }
+        assert (linked["verified"], linked["broken"], linked["unchecked"]) == (True, 0, 0)
+        assert linked["register"]["verified"] and linked["access_log"]["extended"]
+        assert linked["grant_ledger"] is None  # the spring packet anchored no ledger
+        manifest = packet["manifest"]
+        assert manifest["inputs"]["previous"] == linked["previous"]
+        assert manifest["summary"]["continuity"] == {"verified": True, "broken": 0, "unchecked": 0}
+        later = write_packet(packet, tmp_path)
+        verdict = verify_packet(later, manifest["digest"], previous=earlier)
+        assert verdict["verified"], verdict["problems"]
+        assert verdict["files"][access_review.CONTINUITY] == "ok"
+
+    def test_history_rewritten_since_is_high_although_the_sweep_passes(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        earlier, _ = self.first(store, tmp_path)
+        entry = (
+            tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / "drchrono" / "1.json"
+        )
+        data = json.loads(entry.read_text(encoding="utf-8"))
+        entry.write_text(json.dumps({**data, "notes": "Rewritten."}), encoding="utf-8")
+        packet = build(store, two_tenants(), previous=earlier)
+        assert load(packet, "register-verify.json")["verified"]
+        linked = load(packet, access_review.CONTINUITY)
+        assert (linked["verified"], linked["broken"]) == (False, 1)
+        (item,) = [i for i in linked["register"]["items"] if not i["verified"]]
+        assert (item["id"], item["broken_at"]) == ("drchrono", 1)
+        without = build(store, two_tenants())["manifest"]["summary"]["high"]
+        assert packet["manifest"]["summary"]["high"] == without + 1
+
+    def test_a_log_started_afresh_is_high(self, store: Any, tmp_path: Path) -> None:
+        log = self.spring_log(tmp_path)
+        earlier, _ = self.first(store, tmp_path, log)
+        log.unlink()
+        write_log(
+            log,
+            ("staff@sage.example", "sage-spine", 200, "2026-09-01T10:00:00"),
+            ("staff@sage.example", "sage-spine", 200, "2026-09-02T10:00:00"),
+            ("staff@sage.example", "sage-spine", 200, "2026-09-03T10:00:00"),
+        )
+        linked = load(
+            build(store, two_tenants(), access_log=access_log.read_file(log), previous=earlier),
+            access_review.CONTINUITY,
+        )
+        assert (linked["broken"], linked["access_log"]["extended"]) == (1, False)
+        assert "rewritten at or before" in linked["access_log"]["reason"]
+
+    def test_an_anchored_log_left_out_is_unchecked_not_passed(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        earlier, _ = self.first(store, tmp_path, self.spring_log(tmp_path))
+        packet = build(store, two_tenants(), previous=earlier)
+        linked = load(packet, access_review.CONTINUITY)
+        assert (linked["verified"], linked["broken"], linked["unchecked"]) == (False, 0, 1)
+        assert linked["access_log"]["extended"] is None
+        without = build(store, two_tenants())["manifest"]["summary"]["notices"]
+        assert packet["manifest"]["summary"]["notices"] == without + 1
+
+    def test_a_previous_packet_that_cannot_vouch_is_refused(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        earlier, spring = self.first(store, tmp_path)
+        with pytest.raises(PacketError, match="not the one recorded"):
+            build(store, two_tenants(), previous=earlier, previous_digest="b" * 64)
+        with pytest.raises(PacketError, match="not before 2026-06-30"):
+            build(store, two_tenants(), today=self.SPRING, previous=earlier)
+        other = FileResultStore(tmp_path / "other")
+        stranger = write_packet(
+            build_packet(
+                other, {"tokens": []}, tenant_id="other-clinic", principal=STRANGER,
+                today=self.SPRING, token_file_sha256=SHA,
+            ),
+            tmp_path,
+        )  # fmt: skip
+        with pytest.raises(PacketError, match="other-clinic's, not sage-spine's"):
+            build(store, two_tenants(), previous=stranger)
+        (earlier / "review-queue.json").write_text("{}\n", encoding="utf-8")
+        with pytest.raises(PacketError, match="does not verify: review-queue.json"):
+            build(store, two_tenants(), previous=earlier)
+
+    def test_verify_holds_a_packet_to_the_one_it_names(self, store: Any, tmp_path: Path) -> None:
+        earlier, _ = self.first(store, tmp_path)
+        unlinked = write_packet(build(store, two_tenants(), today="2026-07-31"), tmp_path)
+        later = write_packet(build(store, two_tenants(), previous=earlier), tmp_path)
+        assert verify_packet(later)["verified"]
+        assert verify_packet(later, previous=unlinked)["problems"] == [
+            "the previous packet is not the one this packet was built against"
+        ]
+        assert verify_packet(unlinked, previous=earlier)["problems"] == [
+            "the packet was not built against a previous packet"
+        ]
+        (earlier / "register.csv").write_bytes(b"x")
+        (problem,) = verify_packet(later, previous=earlier)["problems"]
+        assert problem.startswith("the previous packet does not verify: register.csv")
+
+
 class TestTheCommands:
     AUDIT = ("--tenant", "sage-spine", "--actor", "aud-1", "--role", "auditor",
              "--as-of", TODAY)  # fmt: skip
@@ -318,7 +458,7 @@ class TestTheCommands:
 
     def packet(self, cli: Any, tmp_path: Path, tokens: Path, *extra: str) -> tuple[int, Any, str]:
         out = tmp_path / "filed"
-        out.mkdir(exist_ok=True)
+        out.mkdir(parents=True, exist_ok=True)
         return cli(  # type: ignore[no-any-return]
             "oversight", "review-packet", *self.AUDIT, "--to", str(tmp_path / "volume"),
             "--tokens", str(tokens), "--out", str(out), *extra,
@@ -355,6 +495,48 @@ class TestTheCommands:
         (path / "register.csv").write_bytes(b"record_type\r\n")
         code, verdict, _ = cli("oversight", "verify-packet", str(path), "--digest", filed["digest"])
         assert (code, verdict["files"]["register.csv"]) == (4, "changed")
+
+    def test_the_next_quarter_is_filed_against_the_last(self, cli: Any, tmp_path: Path) -> None:
+        tokens = self.issued(cli, tmp_path)
+        ledger = grant_ledger.default_path(tokens)
+        spring = [a if a != TODAY else "2026-06-30" for a in self.AUDIT]
+        code, first, err = cli(
+            "oversight", "review-packet", *spring, "--to", str(tmp_path / "volume"),
+            "--tokens", str(tokens), "--ledger", str(ledger), "--out", str(tmp_path),
+        )  # fmt: skip
+        assert code == 0, err
+        cli("tokens", "issue", str(tokens), "--user", "staff@sage.example",
+            "--tenant", "sage-spine", *self.ISSUE)  # fmt: skip
+        linked = ("--previous", first["path"], "--previous-digest", first["digest"])
+        code, filed, err = self.packet(cli, tmp_path, tokens, "--ledger", str(ledger), *linked)
+        assert code == 0, err
+        assert filed["summary"]["continuity"] == {"verified": True, "broken": 0, "unchecked": 0}
+        code, verdict, _ = cli(
+            "oversight", "verify-packet", filed["path"], "--previous", first["path"]
+        )
+        assert (code, verdict["verified"]) == (0, True)
+
+        # The ledger removed and started afresh: whole on its own, and not the
+        # ledger the spring review anchored.
+        ledger.unlink()
+        cli("tokens", "issue", str(tokens), "--user", "temp@sage.example",
+            "--tenant", "sage-spine", *self.ISSUE)  # fmt: skip
+        assert grant_ledger.verify_file(ledger)["verified"]
+        code, filed, err = self.packet(
+            cli, tmp_path / "filed", tokens, "--ledger", str(ledger), *linked,
+            "--fail-on", "high",
+        )  # fmt: skip
+        assert code == 4, err
+        continuity = json.loads(
+            (Path(filed["path"]) / access_review.CONTINUITY).read_text(encoding="utf-8")
+        )
+        assert continuity["grant_ledger"]["extended"] is False
+
+        code, out, err = self.packet(
+            cli, tmp_path / "again", tokens, "--previous", first["path"],
+            "--previous-digest", "c" * 64,
+        )  # fmt: skip
+        assert (code, out) == (2, None) and "not the one recorded" in err
 
     def test_the_gate_trips_after_filing(self, cli: Any, tmp_path: Path) -> None:
         tokens = self.issued(cli, tmp_path)
