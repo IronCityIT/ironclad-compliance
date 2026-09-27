@@ -119,6 +119,10 @@ class StaleRevisionError(OversightError):
     """Someone saved this record first; the write was based on an old revision."""
 
 
+class RecordNotFoundError(OversightError):
+    """An edit named a record the register does not hold."""
+
+
 # ------------------------------------------------------------------- checks
 
 
@@ -353,12 +357,19 @@ def save(
     is given and the record has moved on, the save is refused as stale rather
     than applied on top of a change the caller never saw.
     """
+    # Who may write is settled before the store is asked anything, so a
+    # caller from another tenant, or one who only reads, cannot tell from the
+    # refusal whether a record id exists. `next_revision` checks both again.
+    if principal.tenant_id != tenant_id:
+        raise AuthorizationError(f"{principal.user_id} may not act on another tenant")
+    if not principal.roles & MAINTAIN_ROLES:
+        raise AuthorizationError(f"{principal.user_id} may not maintain the register")
     check_kind(kind)
     creating = record_id is None
     record_id = check_record_id(new_record_id() if creating else str(record_id))
     prior = None if creating else store.get_oversight(tenant_id, kind, record_id)
     if not creating and prior is None:
-        raise OversightError(f"{kind}/{record_id} does not exist")
+        raise RecordNotFoundError(f"{kind}/{record_id} does not exist")
     if base_revision is not None and prior is not None:
         if int(prior.get("revision") or 0) != base_revision:
             raise StaleRevisionError(

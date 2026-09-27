@@ -24,8 +24,9 @@ message text which refusal it is holding.
 
 What is deliberately not here: running an assessment. The pipeline runs
 assessments, with evidence staged from the tenant's volume; a POST carrying
-evidence is a different product. The surface reads results and works the
-acceptance workflow, which is everything the dashboard does.
+evidence is a different product. The surface reads results, works the
+acceptance workflow and maintains the partner/integration register, which is
+everything the dashboard does.
 """
 
 from __future__ import annotations
@@ -43,11 +44,11 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 
-from ironclad import registry
+from ironclad import oversight, registry
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest, ServiceResponse
 from ironclad.api.service import ComplianceService
-from ironclad.errors import IroncladError
+from ironclad.errors import AuthorizationError, IroncladError
 from ironclad.frameworks.loader import available_frameworks
 from ironclad.ids import slugify
 from ironclad.model.tenant import Principal
@@ -266,6 +267,12 @@ class App:
         self._route("POST", tenant + "/exceptions/{exception_id}/approve", self.approve_exception)
         self._route("POST", tenant + "/exceptions/{exception_id}/revoke", self.revoke_exception)
         self._route("GET", tenant + "/audit", self.audit_trail)
+        register = tenant + "/oversight/{kind}"
+        self._route("GET", register, self.list_oversight)
+        self._route("POST", register, self.create_oversight)
+        self._route("GET", register + "/{record_id}", self.get_oversight)
+        self._route("POST", register + "/{record_id}", self.edit_oversight)
+        self._route("GET", register + "/{record_id}/history", self.oversight_history)
 
     def service_for(self, tenant_id: str) -> ComplianceService:
         """The service bound to one tenant's policy file and the shared results.
@@ -464,6 +471,155 @@ class App:
         limit = request.int_query("limit", default=200, maximum=5000)
         service = self.service_for(tenant)
         return self._translate(service.get_audit_trail(principal, tenant, limit))
+
+    # ---------------------------------------------------------- register
+    #
+    # The partner/integration register, off Firestore. The policy is
+    # `ironclad.oversight` -- the same checks `firestore.rules` makes -- and the
+    # store writes each revision with its history entry as one step. What the
+    # transport adds: the tenant and the role are settled before the store is
+    # asked anything, the writer is always the token's user (a stamp in the
+    # body is refused, not overwritten), and an edit must say which revision
+    # it was made against, so a stale form is a 409 rather than a lost update.
+
+    def _oversight_scope(
+        self, request: Request, principal: Principal, *, write: bool
+    ) -> tuple[str, str]:
+        tenant = request.params["tenant_id"]
+        if not tenant or slugify(tenant) != tenant:
+            raise HttpError(HTTPStatus.BAD_REQUEST, f"{tenant!r} is not a tenant id")
+        # The same refusal whether or not the other tenant, or the register,
+        # exists: a probe from another tenant learns nothing.
+        if principal.tenant_id != tenant or not principal.roles:
+            raise HttpError(
+                HTTPStatus.FORBIDDEN, f"{principal.user_id} may not use this tenant's register"
+            )
+        if write and not principal.roles & oversight.MAINTAIN_ROLES:
+            raise HttpError(
+                HTTPStatus.FORBIDDEN, f"{principal.user_id} may not maintain the register"
+            )
+        kind = request.params["kind"]
+        if kind not in oversight.KINDS:
+            raise HttpError(
+                HTTPStatus.NOT_FOUND, f"no register {kind!r}; use {' or '.join(oversight.KINDS)}"
+            )
+        if not hasattr(self.results, "put_oversight"):
+            raise HttpError(
+                HTTPStatus.SERVICE_UNAVAILABLE, "the configured store does not hold the register"
+            )
+        return tenant, kind
+
+    @staticmethod
+    def _oversight_answer(call: Callable[[], dict[str, Any]]) -> Response:
+        """Run a register call and map its refusal by type, never by wording."""
+        try:
+            data = call()
+        except AuthorizationError as exc:
+            return Response(HTTPStatus.FORBIDDEN, {"ok": False, "data": {}, "errors": [str(exc)]})
+        except oversight.OversightError as exc:
+            if isinstance(exc, oversight.StaleRevisionError):
+                status = HTTPStatus.CONFLICT
+            elif isinstance(exc, oversight.RecordNotFoundError):
+                status = HTTPStatus.NOT_FOUND
+            else:
+                status = HTTPStatus.BAD_REQUEST
+            errors = [str(exc.args[0]) if exc.args else "refused", *exc.problems]
+            return Response(status, {"ok": False, "data": {}, "errors": errors})
+        return Response(HTTPStatus.OK, {"ok": True, "data": data, "errors": []})
+
+    @staticmethod
+    def _oversight_body(request: Request, *, editing: bool) -> tuple[dict[str, Any], int | None]:
+        payload = request.json()
+        allowed = {"fields", "base_revision"} if editing else {"fields"}
+        unknown = sorted(set(payload) - allowed)
+        if unknown:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST,
+                f"unexpected {', '.join(unknown)}; the body carries {' and '.join(sorted(allowed))}",
+            )
+        fields = payload.get("fields")
+        if not isinstance(fields, dict) or not fields:
+            raise HttpError(HTTPStatus.BAD_REQUEST, "fields must be a non-empty JSON object")
+        if not editing:
+            return fields, None
+        base = payload.get("base_revision")
+        if not isinstance(base, int) or isinstance(base, bool) or base < 1:
+            raise HttpError(
+                HTTPStatus.BAD_REQUEST,
+                "base_revision must be the revision the change was made against, from 1",
+            )
+        return fields, base
+
+    def list_oversight(self, request: Request, principal: Principal) -> Response:
+        tenant, kind = self._oversight_scope(request, principal, write=False)
+        return self._oversight_answer(
+            lambda: {
+                "kind": kind,
+                "records": oversight.records(
+                    self.results, tenant_id=tenant, kind=kind, principal=principal
+                ),
+            }
+        )
+
+    def get_oversight(self, request: Request, principal: Principal) -> Response:
+        tenant, kind = self._oversight_scope(request, principal, write=False)
+
+        def read() -> dict[str, Any]:
+            record_id = oversight.check_record_id(request.params["record_id"])
+            record = self.results.get_oversight(tenant, kind, record_id)
+            if record is None:
+                raise oversight.RecordNotFoundError(f"{kind}/{record_id} does not exist")
+            return {"record": {"id": record_id, **record}}
+
+        return self._oversight_answer(read)
+
+    def oversight_history(self, request: Request, principal: Principal) -> Response:
+        tenant, kind = self._oversight_scope(request, principal, write=False)
+
+        def read() -> dict[str, Any]:
+            record_id = oversight.check_record_id(request.params["record_id"])
+            entries = oversight.history(
+                self.results, tenant_id=tenant, kind=kind, record_id=record_id, principal=principal
+            )
+            if not entries:
+                raise oversight.RecordNotFoundError(f"{kind}/{record_id} does not exist")
+            # The verdict travels with the history, so a reader is told when
+            # what they are looking at no longer matches the record.
+            return {
+                "id": record_id,
+                "history": entries,
+                "verification": self.results.verify_oversight(tenant, kind, record_id),
+            }
+
+        return self._oversight_answer(read)
+
+    def create_oversight(self, request: Request, principal: Principal) -> Response:
+        tenant, kind = self._oversight_scope(request, principal, write=True)
+        fields, _ = self._oversight_body(request, editing=False)
+        return self._oversight_answer(
+            lambda: {
+                "record": oversight.save(
+                    self.results, tenant_id=tenant, kind=kind, changes=fields, principal=principal
+                )
+            }
+        )
+
+    def edit_oversight(self, request: Request, principal: Principal) -> Response:
+        tenant, kind = self._oversight_scope(request, principal, write=True)
+        fields, base = self._oversight_body(request, editing=True)
+        return self._oversight_answer(
+            lambda: {
+                "record": oversight.save(
+                    self.results,
+                    tenant_id=tenant,
+                    kind=kind,
+                    changes=fields,
+                    principal=principal,
+                    record_id=request.params["record_id"],
+                    base_revision=base,
+                )
+            }
+        )
 
     # ------------------------------------------------------------- static
 

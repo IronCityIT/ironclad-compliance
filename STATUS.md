@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `b159632` (run 36284444931, `pull_request`; the duplicate `push` run 36284441542 was cancelled), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `a11a6ed` (run 36285596781, `pull_request`; the duplicate `push` run 36285594494 was cancelled), and at `b159632` before it (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -229,9 +229,49 @@ but for the known Windows-only `fcntl` in `policy_store.py`; `npm --prefix
 dashboard test` 91/92 (the environmental `api.test.js`); white-label,
 secret-literal, catalog and `git diff --check` gates pass.
 
-Still open for this workspace: the page still writes Firestore; switching it to
-the store needs `ironclad serve` routes for the register and a browser sign-in
-to them (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
+**The register over `ironclad serve`, 2026-09-26 (seventh pass).** The target
+stores held the register, but nothing could reach it over the network. There
+are now five routes under `/api/v1/tenants/{t}/oversight/{partners|integrations}`:
+list, create, read one, edit, and history with its verification verdict
+(`ironclad/api/http.py`, `docs/http-api.md`). They are backed by the same
+`ironclad.oversight` policy and `put_oversight` step as the stores, so the
+rules' refusals are now HTTP statuses:
+
+- another tenant, or a viewer/auditor writing: 403;
+- a stamp in the body, or a record outside the schema: 400, with every problem
+  named;
+- a contributor setting or moving a rating: 403;
+- an edit from a stale revision: 409, and nothing is written;
+- an unknown record: 404;
+- a store without the register: 503.
+
+An edit must carry `base_revision`, so a stale form is refused rather than
+applied on top of a change the caller never saw. `oversight.save` now settles
+tenant and role **before** it reads the record, and a missing record raises
+`RecordNotFoundError`. Before this, a writer from another tenant got
+"does not exist" for an unknown id and an authorization refusal for a real one,
+which told them which ids existed.
+
+Tests: 11 HTTP cases in `tests/test_http.py::TestOversightRegister`, on a real
+socket, and one store-contract case in `tests/test_oversight.py`, run on the
+volume locally and on MariaDB in CI. Five mutations each fail a test by name:
+
+- dropping the early authorization in `save`;
+- mapping a stale revision to 400;
+- making `base_revision` optional;
+- reporting a missing record as 400;
+- accepting unknown body keys.
+
+Local evidence (Windows 11, Python 3.12 venv): `ironclad.api` imports `fcntl`,
+so `tests/test_http.py` was run with a no-op `fcntl` stub. Result: 186 tests,
+164 passed, 20 skipped (MariaDB), and 2 failures. The same 2 fail on the
+untouched tree under the same stub (the 20-writer lock test needs a real lock,
+and the `serve` subprocess test gets no stub). The unstubbed run is CI's.
+ruff format and lint pass; mypy reports only the known Windows `fcntl`
+errors; `git diff --check` is clean.
+
+Still open for this workspace: the page still writes Firestore. Pointing it at
+these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
 
 Local evidence for the change-history pass, 2026-09-26: `npm --prefix dashboard

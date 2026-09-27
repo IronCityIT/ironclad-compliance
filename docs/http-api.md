@@ -84,6 +84,11 @@ All under `/api/v1`. Every answer is JSON of the shape
 | POST | `/tenants/{t}/exceptions/{id}/approve` | `exception:approve` | approve; separation of duties is enforced by the model |
 | POST | `/tenants/{t}/exceptions/{id}/revoke` | `exception:approve` | revoke; body: `reason` |
 | GET | `/tenants/{t}/audit?limit=` | `audit:read` | the hash-chained trail |
+| GET | `/tenants/{t}/oversight/{kind}` | any role in the tenant | the register's current records; `kind` is `partners` or `integrations` |
+| POST | `/tenants/{t}/oversight/{kind}` | owner, compliance manager, contributor | create; body: `{"fields": {...}}` |
+| GET | `/tenants/{t}/oversight/{kind}/{id}` | any role in the tenant | one record |
+| POST | `/tenants/{t}/oversight/{kind}/{id}` | owner, compliance manager, contributor | edit; body: `{"base_revision": n, "fields": {...}}` |
+| GET | `/tenants/{t}/oversight/{kind}/{id}/history` | any role in the tenant | every revision, oldest first, and a `verification` verdict |
 
 Anything that is not under `/api/v1/` is served from `--static` if given, with
 the resolved path checked to be inside the static root — `..` and a symlink
@@ -132,9 +137,44 @@ listed header) is a 400 with the connection closed, likewise — and
 - `expires_in_days` is a whole number from 1 to 365; `control_id` is a string.
   Anything else is 400, never a coerced value on the record.
 
+## Partner and integration register
+
+The register the Sage Spine workspace keeps (`dashboard/public/oversight.html`),
+served from the result store rather than Firestore. The policy is
+`ironclad/oversight.py`, which is `firestore.rules`' create and update
+predicates as Python; the store writes each revision and its history entry as
+one step (`put_oversight`). The dashboard still writes Firestore; pointing it
+here waits on B6, the browser sign-in. A service token can use these routes now.
+
+- **Tenant and role first.** A caller from another tenant is refused with 403
+  before the store is asked anything, with the same message whether the record
+  id exists or not. A viewer or auditor reads the register and its history and
+  cannot write (403).
+- **The server stamps.** `tenant_id`, `revision`, `created_*` and `updated_*`
+  come from the token and the clock. A body that supplies any of them is
+  refused with 400, not quietly overwritten.
+- **A closed schema.** A field the register does not have, a value outside a
+  vocabulary (`risk`, `status`, `agreement_status`, `baa_status`,
+  `data_access`, `data_flow_direction`), a date that is not `YYYY-MM-DD` or
+  over-long text is 400, and `errors` names every problem.
+- **A contributor proposes, an approver rates.** A contributor's new record
+  starts unrated. A contributor who sets or moves `status`, `risk`,
+  `agreement_status` or `baa_status` gets 403.
+- **No lost updates.** An edit must carry `base_revision`, the revision its
+  form was loaded from. If the record has moved on since, the edit gets 409 and
+  nothing is written. Two editors who both start from revision *n* cannot both
+  land.
+- **The history reports its own state.** `/history` returns every revision as
+  written plus `verification`: `verified`, `revisions`, `broken_at` and
+  `detail`. A missing or edited revision on the volume shows up there as
+  `verified: false`.
+- An unknown `kind` or record is 404. A record id outside `[A-Za-z0-9_-]` is
+  400. A store that does not hold the register answers 503.
+
 ## What is not here
 
 Running an assessment. The pipeline runs assessments, with evidence staged
 from the tenant's volume; a POST carrying evidence is a different product with
-a different threat model. The surface reads results and works the acceptance
-workflow, which is everything the dashboard does today.
+a different threat model. The surface reads results, works the acceptance
+workflow and maintains the partner/integration register, which is everything
+the dashboard does today.

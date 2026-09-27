@@ -264,6 +264,24 @@ class RegisterContract:
         with pytest.raises(StaleRevisionError, match="against revision 1"):
             self.save(store, record_id=first["id"], changes={"notes": "old"}, base_revision=1)
 
+    def test_a_refused_writer_cannot_tell_whether_a_record_exists(self, tmp_path: Path) -> None:
+        # Authorization is settled before the store is asked for the record,
+        # so an id that exists and one that does not are refused alike.
+        store = self.store(tmp_path)
+        first = self.save(store)
+        for principal in (OUTSIDER, VIEWER, AUDITOR):
+            refusals = []
+            for record_id in (first["id"], "no-such-record"):
+                with pytest.raises(AuthorizationError) as refused:
+                    oversight.save(
+                        store, tenant_id="sage-spine", kind="partners", principal=principal,
+                        record_id=record_id, changes={"notes": "x"}, at=AT,
+                    )  # fmt: skip
+                refusals.append(str(refused.value))
+            assert refusals[0] == refusals[1], principal.user_id
+        with pytest.raises(oversight.RecordNotFoundError):
+            self.save(store, record_id="no-such-record", changes={"notes": "x"})
+
     def test_a_revision_cannot_be_skipped(self, tmp_path: Path) -> None:
         store = self.store(tmp_path)
         first = self.save(store)

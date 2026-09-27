@@ -1140,3 +1140,189 @@ class TestEngineFaults:
         conn.putheader("Content-Length", "lots")
         conn.endheaders()
         assert conn.getresponse().status == 400
+
+
+# ------------------------------------------------------ partner register
+
+REGISTER = "/api/v1/tenants/acme/oversight/partners"
+
+
+def _create(client: Client, fields: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    status, body, _ = client.post(REGISTER, {"fields": fields})
+    return status, body
+
+
+class TestOversightRegister:
+    """The register off Firestore: `firestore.rules`' refusals, over HTTP."""
+
+    RATED = {
+        "name": "Clearinghouse",
+        "risk": "High",
+        "data_access": "PHI",
+        "baa_status": "Executed",
+        "baa_execution_date": "2026-01-15",
+    }
+
+    def test_an_approver_creates_a_record_with_its_first_history_entry(self, as_) -> None:
+        status, body = _create(as_("acme-manager"), self.RATED)
+        assert status == 200, body
+        record = body["data"]["record"]
+        assert (record["revision"], record["tenant_id"], record["risk"]) == (1, "acme", "High")
+        # Who wrote it is the token's user, never the body's.
+        assert record["created_by"] == record["updated_by"] == "alice@acme.example"
+
+        listed = as_("acme-viewer").get(REGISTER)[1]["data"]["records"]
+        assert [r["id"] for r in listed] == [record["id"]]
+
+        status, body, _ = as_("acme-viewer").get(f"{REGISTER}/{record['id']}/history")
+        assert status == 200
+        assert [e["revision"] for e in body["data"]["history"]] == [1]
+        assert body["data"]["verification"]["verified"] is True
+
+    def test_a_stamp_in_the_body_is_refused_and_nothing_is_written(self, as_) -> None:
+        for stamp in ("created_by", "updated_by", "tenant_id", "revision"):
+            status, body = _create(as_("acme-manager"), {**self.RATED, stamp: "beta"})
+            assert status == 400, stamp
+            assert "stamps are set by the server" in body["errors"][0]
+        assert as_("acme-manager").get(REGISTER)[1]["data"]["records"] == []
+
+    def test_a_record_outside_the_schema_is_400_naming_every_problem(self, as_) -> None:
+        status, body = _create(
+            as_("acme-manager"),
+            {"name": "X", "risk": "Approved", "review_due": "soon", "ssn": "000-00-0000"},
+        )
+        assert status == 400
+        problems = " ".join(body["errors"])
+        assert "risk 'Approved'" in problems
+        assert "review_due" in problems
+        assert "'ssn' is not a register field" in problems
+
+    def test_a_contributor_proposes_unrated_and_cannot_rate(self, as_) -> None:
+        contributor = as_("acme-contributor")
+        assert _create(contributor, self.RATED)[0] == 403
+        status, body = _create(contributor, {"name": "Lab portal", "data_access": "PHI"})
+        assert status == 200
+        record = body["data"]["record"]
+        assert (record["risk"], record["baa_status"]) == ("Unrated", "Pending review")
+
+        # The approver rates it; the contributor may then correct notes, and
+        # the rating stands. Moving the rating is refused.
+        path = f"{REGISTER}/{record['id']}"
+        rated = as_("acme-manager").post(path, {"base_revision": 1, "fields": {"risk": "Medium"}})
+        assert rated[0] == 200
+        moved = contributor.post(path, {"base_revision": 2, "fields": {"risk": "Low"}})
+        assert moved[0] == 403
+        noted = contributor.post(path, {"base_revision": 2, "fields": {"notes": "portal v2"}})
+        assert noted[0] == 200
+        assert noted[1]["data"]["record"]["risk"] == "Medium"
+        assert noted[1]["data"]["record"]["revision"] == 3
+
+    def test_a_viewer_reads_but_does_not_write(self, as_) -> None:
+        record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]
+        viewer = as_("acme-viewer")
+        assert viewer.get(REGISTER)[0] == 200
+        assert viewer.get(f"{REGISTER}/{record['id']}")[0] == 200
+        assert _create(viewer, {"name": "Mine"})[0] == 403
+        edit = viewer.post(
+            f"{REGISTER}/{record['id']}", {"base_revision": 1, "fields": {"notes": "x"}}
+        )
+        assert edit[0] == 403
+
+    def test_another_tenant_learns_nothing_and_writes_nothing(self, as_) -> None:
+        record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]
+        mallory = as_("beta-manager")
+        assert mallory.get(REGISTER)[0] == 403
+        assert mallory.get(f"{REGISTER}/{record['id']}/history")[0] == 403
+        assert _create(mallory, {"name": "Planted"})[0] == 403
+        # An id that exists and one that does not are refused identically, so
+        # the refusal is not an oracle for another tenant's register.
+        real = mallory.post(
+            f"{REGISTER}/{record['id']}", {"base_revision": 1, "fields": {"notes": "x"}}
+        )
+        made_up = mallory.post(f"{REGISTER}/nope", {"base_revision": 1, "fields": {"notes": "x"}})
+        assert real[0] == made_up[0] == 403
+        assert real[1]["errors"] == made_up[1]["errors"]
+        # And the tenant the caller does hold sees none of it.
+        beta = mallory.get("/api/v1/tenants/beta/oversight/partners")
+        assert beta[0] == 200 and beta[1]["data"]["records"] == []
+        history = as_("acme-manager").get(f"{REGISTER}/{record['id']}/history")[1]["data"]
+        assert len(history["history"]) == 1
+
+    def test_two_edits_from_one_revision_cannot_both_land(self, as_) -> None:
+        record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]
+        path = f"{REGISTER}/{record['id']}"
+        first = as_("acme-manager").post(path, {"base_revision": 1, "fields": {"notes": "a"}})
+        second = as_("acme-second-manager").post(
+            path, {"base_revision": 1, "fields": {"notes": "b"}}
+        )
+        assert first[0] == 200
+        assert second[0] == 409
+        assert "against revision 1" in second[1]["errors"][0]
+        stored = as_("acme-viewer").get(path)[1]["data"]["record"]
+        assert (stored["notes"], stored["revision"]) == ("a", 2)
+
+    def test_an_edit_must_name_its_base_revision_and_nothing_else(self, as_) -> None:
+        record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]
+        path = f"{REGISTER}/{record['id']}"
+        manager = as_("acme-manager")
+        for body in (
+            {"fields": {"notes": "x"}},
+            {"base_revision": True, "fields": {"notes": "x"}},
+            {"base_revision": "1", "fields": {"notes": "x"}},
+            {"base_revision": 0, "fields": {"notes": "x"}},
+            {"base_revision": 1, "fields": {}},
+            {"base_revision": 1, "fields": ["notes"]},
+            {"base_revision": 1, "fields": {"notes": "x"}, "record_id": "other"},
+        ):
+            assert manager.post(path, body)[0] == 400, body
+        assert _create(manager, {"name": "Y"})[0] == 200
+        assert manager.post(REGISTER, {"fields": {"name": "Z"}, "base_revision": 1})[0] == 400
+
+    def test_unknown_registers_records_and_ids(self, as_) -> None:
+        manager = as_("acme-manager")
+        assert manager.get("/api/v1/tenants/acme/oversight/vendors")[0] == 404
+        assert manager.get(f"{REGISTER}/missing")[0] == 404
+        assert manager.get(f"{REGISTER}/missing/history")[0] == 404
+        assert (
+            manager.post(f"{REGISTER}/missing", {"base_revision": 1, "fields": {"notes": "x"}})[0]
+            == 404
+        )
+        # Allowed by the router, refused by the register: a dot is not an id.
+        assert manager.get(f"{REGISTER}/a.b")[0] == 400
+        assert manager.get("/api/v1/tenants/Acme/oversight/partners")[0] == 400
+        assert manager.post(f"{REGISTER}/missing/history", {"fields": {"a": 1}})[0] == 405
+
+    def test_history_reports_a_broken_chain(self, as_, tmp_path: Path) -> None:
+        record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]
+        path = f"{REGISTER}/{record['id']}"
+        as_("acme-manager").post(path, {"base_revision": 1, "fields": {"notes": "a"}})
+        # Someone with the volume removes the first revision.
+        (first,) = (tmp_path / "results").rglob(f"{record['id']}/1.json")
+        first.unlink()
+        body = as_("acme-viewer").get(f"{path}/history")[1]["data"]
+        assert body["verification"]["verified"] is False
+        assert body["verification"]["broken_at"] == 1
+
+    def test_a_store_without_the_register_is_503(
+        self, tmp_path: Path, token_file: Path, secrets_for: dict[str, str]
+    ) -> None:
+        class ResultsOnly:
+            def health(self) -> dict[str, Any]:
+                return {"store": "other", "writable": True}
+
+        app = App(
+            results=ResultsOnly(),
+            policy_root=tmp_path,
+            authenticator=TokenFileAuthenticator(token_file),
+            quiet=True,
+        )
+        httpd = serve(app, port=0)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            client = Client(int(httpd.server_address[1]), secrets_for["acme-manager"])
+            status, body, _ = client.get(REGISTER)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+        assert status == 503
+        assert "does not hold the register" in body["errors"][0]
