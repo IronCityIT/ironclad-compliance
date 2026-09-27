@@ -203,7 +203,10 @@ class TestOneTenant:
         assert tokens["notices"] == 1
 
     def test_a_broken_chain_is_refused(self, store: Any) -> None:
-        broken = ({"verified": False, "broken_at": 2, "reason": "x", "entries": 1}, [])
+        broken: tuple[dict[str, Any], list[dict[str, Any]]] = (
+            {"verified": False, "broken_at": 2, "reason": "x", "entries": 1},
+            [],
+        )
         with pytest.raises(PacketError, match="access log is not a whole chain"):
             build(store, two_tenants(), access_log=broken)
         with pytest.raises(PacketError, match="grant ledger is not a whole chain"):

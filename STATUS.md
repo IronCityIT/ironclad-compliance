@@ -877,9 +877,12 @@ and both mutations now fail.
 Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1232
 tests, 1165 passed, 57 skipped, 10 failed. Untouched HEAD `ce81a73` in a
 worktree, run after it: 1211 tests, 1144 passed, the same 10 failed, compared
-set for set. ruff format and lint pass. mypy reports only the known Windows
-`fcntl` errors. The white-label, secret-literal, catalog and `git diff --check`
-gates pass.
+set for set. ruff format and lint pass. mypy over the whole tree reports only
+the known Windows `fcntl` errors. The white-label, secret-literal, catalog and
+`git diff --check` gates pass. The first push, `1879e07`, was red in CI (run
+36298643936): mypy flagged an unannotated tuple in the new test file. Locally,
+mypy had been run on the two source files only, not the tree. It is fixed in
+the next commit, and the whole tree is now checked locally before a push.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
