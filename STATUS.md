@@ -1500,7 +1500,8 @@ alone. ruff format and lint pass. `mypy` reports only the known Windows
 a real `ironclad serve`, which fails on HEAD too (94 tests, 93 passed). The
 white-label, secret-literal and `git diff --check` gates pass. The six
 mutations above were each applied and reverted this run, and each failed
-the named test.
+the named test. In CI at `818afee` (run 36318787978) all six jobs passed:
+pytest 1251 passed, 57 skipped on 3.10 and 3.12, persistence 246.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
