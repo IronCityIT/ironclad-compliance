@@ -1503,6 +1503,52 @@ mutations above were each applied and reverted this run, and each failed
 the named test. In CI at `818afee` (run 36318787978) all six jobs passed:
 pytest 1251 passed, 57 skipped on 3.10 and 3.12, persistence 246.
 
+**A partner token for a record still at `Pending information` is high,
+2026-09-27.** `Pending information` is the status a contributor's proposal
+starts at (`UNRATED`). A contributor can propose a partner or integration.
+An operator could then issue a token acting for it, and `oversight access`
+called that token clean unless the record also tripped a BAA or date check.
+The partner was holding working access to a relationship nobody with
+approval authority had reviewed. Nothing ever flagged it.
+
+Now `ironclad/oversight.py::partner_access` raises `record-pending`
+(**high**) for a live linked token whose record is at `Pending
+information`. `Onboarding`, `Active` and `Under review` are past intake
+and are not flagged. The review packet's partner-access section and its
+`--fail-on high` gate pick it up through the same function. The server
+does not refuse such a token (`link_withdrawn` still refuses only missing
+and retired records). Like the BAA findings, this one goes to review.
+No Sage seed record is at `Pending information`, so no count on the seed
+changes.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line,
+access-log line or page changed. Docs: `docs/http-api.md` (`oversight
+access`), the `oversight access` CLI help, and `HANDOFF.md` §17 ("Grant,
+renew and review a service token").
+
+New tests (`tests/test_partner_access.py::TestPartnerAccess`):
+
+- `test_a_relationship_still_pending_information_is_high`;
+- `test_a_contributors_proposal_holding_a_token_is_high`: a real
+  contributor save, which comes out at `Pending information`, and is high
+  for the pending status and the missing BAA;
+- `test_a_status_past_intake_is_not_pending`, for `Onboarding`, `Active`
+  and `Under review`.
+
+Two mutations each fail a test by name: the check disabled (both high
+cases), and the check widened to `Onboarding` (that parameter).
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1313
+tests, 1246 passed, 57 skipped, 10 failed. Untouched HEAD `dbc5c5f` in a
+worktree: 1308 tests, 11 failed. Every failure here also fails on HEAD
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). HEAD's extra
+failure is the known
+`test_http.py::TestTransport::test_an_oversize_body_is_413_and_ends_the_connection`
+socket flake. ruff format and lint pass. `mypy` reports only the four
+known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file
+changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

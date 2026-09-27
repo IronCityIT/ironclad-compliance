@@ -101,7 +101,8 @@ IRONCLAD_STORE=/srv/ironclad/results \
   link is refused by its form.
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
-  retired, or it handles PHI without an executed BAA, claims a BAA without
+  retired, or still at `Pending information` (`record-pending`: access ahead
+  of any review of the relationship), or it handles PHI without an executed BAA, claims a BAA without
   its evidence or dated after today, or has a lapsed review or assurance,
   or the token has no
   `expires_at`. Notice: offboarding, or a token that runs past the record's

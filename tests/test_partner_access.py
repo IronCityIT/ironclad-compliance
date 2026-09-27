@@ -39,6 +39,9 @@ AS_OF = date(2026, 9, 27)
 AT = "2026-09-26T12:00:00Z"
 
 OWNER = Principal(user_id="owner-1", tenant_id="sage-spine", roles=frozenset({Role.OWNER}))
+CONTRIBUTOR = Principal(
+    user_id="contrib-1", tenant_id="sage-spine", roles=frozenset({Role.CONTRIBUTOR})
+)
 AUDITOR = Principal(user_id="aud-1", tenant_id="sage-spine", roles=frozenset({Role.AUDITOR}))
 STRANGER = Principal(user_id="x", tenant_id="other-clinic", roles=frozenset({Role.OWNER}))
 
@@ -152,6 +155,37 @@ class TestPartnerAccess:
         grant(document, "ops@governed.example", f"partners/{record_id}")
         (item,) = access(store, document)["items"]
         assert codes(item) == ["record-retired"]
+
+    def test_a_relationship_still_pending_information_is_high(self, store: Any) -> None:
+        record_id = add(store, "partners", {**GOVERNED, "status": "Pending information"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (item["level"], codes(item), result["high"]) == ("high", ["record-pending"], 1)
+        assert "Pending information" in item["findings"][0]["message"]
+
+    def test_a_contributors_proposal_holding_a_token_is_high(self, store: Any) -> None:
+        # A contributor's proposal starts unrated; a token issued against it is
+        # access nobody with approval authority has reviewed.
+        proposal = {k: v for k, v in GOVERNED.items() if k not in oversight.GOVERNANCE_FIELDS}
+        saved = oversight.save(
+            store, tenant_id="sage-spine", kind="integrations", changes=proposal,
+            principal=CONTRIBUTOR, at=AT,
+        )  # fmt: skip
+        assert saved["status"] == "Pending information"
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "feed@governed.example", f"integrations/{saved['id']}")
+        (item,) = access(store, document)["items"]
+        assert codes(item) == ["record-pending", "phi-without-baa"]
+
+    @pytest.mark.parametrize("status", ["Onboarding", "Active", "Under review"])
+    def test_a_status_past_intake_is_not_pending(self, store: Any, status: str) -> None:
+        record_id = add(store, "partners", {**GOVERNED, "status": status})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert item["findings"] == []
 
     def test_a_lapsed_review_or_assurance_is_high(self, store: Any) -> None:
         overdue = add(store, "partners", {**GOVERNED, "name": "A", "review_due": "2026-09-26"})

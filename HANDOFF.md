@@ -924,7 +924,9 @@ ironclad oversight access --tenant sage-spine --actor auditor-1 --role auditor \
 ```
 
 High, and the partner's access should end until it is fixed: the record is
-missing or retired, it handles PHI without an executed BAA, it claims a BAA
+missing or retired, it is still at `Pending information` (`record-pending`:
+the status a contributor's proposal starts at, so the token runs ahead of any
+review of the relationship), it handles PHI without an executed BAA, it claims a BAA
 without an execution date or document reference, its review or assurance
 has lapsed, or the token has no `expires_at` (`issue` never writes one, so the
 entry was written by hand and outlasts every date the register holds the

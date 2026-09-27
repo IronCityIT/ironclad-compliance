@@ -374,7 +374,8 @@ def build_parser() -> argparse.ArgumentParser:
             description=(
                 "Reads a token file (never a token) and, for each entry in --tenant "
                 "that works as of --as-of and names a record with `on_behalf_of`, "
-                "looks the record up. High: the record is missing or retired, or it "
+                "looks the record up. High: the record is missing or retired, or still "
+                "at Pending information, or it "
                 "handles PHI without an executed BAA, claims a BAA without its "
                 "evidence or dated after --as-of, or has a lapsed review or "
                 "assurance: a partner holding "

@@ -548,7 +548,9 @@ def partner_access(
     `document` is a token file. An entry grants access today unless it is
     expired or its expiry is unreadable (the token review reports both). A
     live entry with `on_behalf_of` is high when the record is missing, retired,
-    or has a review-queue finding in `ACCESS_CODES`: a partner handling PHI
+    still at `Pending information` (the status a contributor's proposal starts
+    at, so access runs ahead of any review of the relationship), or has a
+    review-queue finding in `ACCESS_CODES`: a partner handling PHI
     without an executed BAA, or whose review or assurance has lapsed, still
     holding a working token. A linked token with no `expires_at` is high too:
     `tokens issue` never writes one, so it was written by hand, and it runs
@@ -617,6 +619,17 @@ def partner_access(
                     }
                 )
             else:
+                if status == "Pending information":
+                    findings.append(
+                        {
+                            "level": "high",
+                            "code": "record-pending",
+                            "message": (
+                                "Holds a token for a relationship the register still has at "
+                                "Pending information; take it through review or revoke the token."
+                            ),
+                        }
+                    )
                 findings.extend(
                     f for f in attention_findings(record, today) if f["code"] in ACCESS_CODES
                 )
