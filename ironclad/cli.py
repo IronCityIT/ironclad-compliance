@@ -10,6 +10,8 @@
     ironclad crosswalk --from soc2 --to hipaa
     ironclad oversight attention --tenant sage-spine --actor a --role auditor --fail-on high
     ironclad oversight export --tenant sage-spine --actor a --role auditor --out out/
+    ironclad oversight access --tenant sage-spine --actor a --role auditor \
+        --tokens tokens.json --fail-on high
 
 `assess` writes three files into --out: assessment.json (the full result),
 findings.b64 (the base64 findings the AI consensus engine's workflow_call input
@@ -18,7 +20,7 @@ re-serialize the result in shell.
 
 Exit codes: 0 success, 2 bad input or selection, 3 a capability failed mid-run,
 4 a register check found something (`oversight verify`, `attention --fail-on`,
-`compare-seals`).
+`access --fail-on`, `compare-seals`).
 """
 
 from __future__ import annotations
@@ -363,6 +365,34 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"exit {EXIT_FINDINGS} when the queue holds a high finding, or any finding",
     )
 
+    register_access = with_register_actor(
+        register_sub.add_parser(
+            "access",
+            help="hold every live service token to the register record it acts for",
+            description=(
+                "Reads a token file (never a token) and, for each entry in --tenant "
+                "that works as of --as-of and names a record with `on_behalf_of`, "
+                "looks the record up. High: the record is missing or retired, or it "
+                "handles PHI without an executed BAA, claims a BAA without its "
+                "evidence, or has a lapsed review or assurance: a partner holding "
+                "access the register says it should not. Notice: the relationship "
+                "is offboarding, or the token runs past its next review. Entries "
+                "without a link are listed under `unlinked`, not judged. "
+                f"Exit {EXIT_FINDINGS} under --fail-on, {EXIT_BAD_INPUT} for an "
+                "unreadable token file."
+            ),
+        )
+    )
+    register_access.add_argument("--tenant", required=True)
+    register_access.add_argument("--tokens", required=True, help="the token file `serve` reads")
+    register_access.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    register_access.add_argument(
+        "--fail-on",
+        choices=("never", "high", "any"),
+        default="never",
+        help=f"exit {EXIT_FINDINGS} when a holder has a high finding, or any finding",
+    )
+
     register_export = with_register_actor(
         register_sub.add_parser(
             "export",
@@ -600,6 +630,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tokens_issue.add_argument("--expires", required=True, help="YYYY-MM-DD, the last day in UTC")
     tokens_issue.add_argument("--actor", required=True, help="who is granting it")
+    tokens_issue.add_argument(
+        "--on-behalf-of",
+        default="",
+        help=(
+            "partners/<id> or integrations/<id>: the register record this token acts for, "
+            "so `oversight access` can hold it to that record's BAA and review"
+        ),
+    )
     tokens_issue.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
     tokens_issue.add_argument(
         "--ledger",
@@ -1231,6 +1269,24 @@ def cmd_oversight(args: argparse.Namespace) -> int:
         _emit(sweep)
         return EXIT_OK if verified else EXIT_FINDINGS
 
+    if args.oversight_command == "access":
+        try:
+            document = json.loads(Path(args.tokens).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValidationError(f"token file unreadable: {args.tokens} ({exc})") from exc
+        access = oversight.partner_access(
+            store,
+            document,
+            tenant_id=tenant,
+            principal=caller,
+            today=args.as_of or oversight.today_utc(),
+        )
+        _emit(access)
+        tripped = (args.fail_on == "high" and access["high"]) or (
+            args.fail_on == "any" and (access["high"] or access["notices"])
+        )
+        return EXIT_FINDINGS if tripped else EXIT_OK
+
     if args.oversight_command == "export":
         export = oversight.export_register(
             store,
@@ -1482,6 +1538,7 @@ def _edit_tokens(args: argparse.Namespace) -> int:
                     expires_at=expires,
                     issued_by=args.actor,
                     as_of=as_of,
+                    on_behalf_of=args.on_behalf_of,
                 )
                 _record_grant(ledger, "issue", [entry], args.actor, as_of)
                 tokens.write_token_file(path, document)

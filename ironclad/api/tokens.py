@@ -31,6 +31,13 @@ new one and never half of one, and two operators cannot each lose the other's
 edit. Each edit goes on the grant ledger first (`ironclad.api.grant_ledger`),
 so the grant outlives the entry, and a review given the ledger finds entries
 nobody granted.
+
+An entry issued to an integration partner can name the register record it acts
+for, `on_behalf_of: "partners/<id>"` or `"integrations/<id>"`. The token file
+cannot see the register, so it only checks the form; `ironclad oversight
+access` holds each linked entry to its record: access for a partner the
+register does not hold, has retired, or lets handle PHI without an executed BAA
+is access a business-associate review would remove.
 """
 
 from __future__ import annotations
@@ -63,6 +70,20 @@ MAX_TERM_DAYS = 365
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _ROLES = frozenset(member.value for member in Role)
+_ON_BEHALF_OF = re.compile(r"^(partners|integrations)/[A-Za-z0-9_-]{1,128}$")
+
+
+def parse_on_behalf_of(value: object) -> tuple[str, str] | None:
+    """`(kind, record_id)` for a well-formed link, `None` for none, else ValueError."""
+    if value is None or value == "":
+        return None
+    text = str(value)
+    if not _ON_BEHALF_OF.match(text):
+        raise ValueError(
+            f"on_behalf_of {value!r} is not partners/<record-id> or integrations/<record-id>"
+        )
+    kind, record_id = text.split("/", 1)
+    return kind, record_id
 
 
 class InvalidExpiryError(ValueError):
@@ -300,6 +321,12 @@ def _review_entry(
     if not user:
         high.append("no user_id; the access log could not name this caller")
 
+    link = entry.get("on_behalf_of")
+    try:
+        parse_on_behalf_of(link)
+    except ValueError as exc:
+        high.append(f"{exc}; `oversight access` cannot hold it to a register record")
+
     last_day: date | None = None
     try:
         last_day = parse_expiry(entry.get("expires_at"))
@@ -333,7 +360,7 @@ def _review_entry(
         + [{"level": "notice", "message": m} for m in notice],
     }
     # Written by `issue_token`; a hand-written entry has neither.
-    for key in ("issued_by", "issued_at"):
+    for key in ("issued_by", "issued_at", "on_behalf_of"):
         if entry.get(key):
             item[key] = str(entry[key])
     return item
@@ -370,6 +397,7 @@ def issue_token(
     expires_at: date,
     issued_by: str,
     as_of: date,
+    on_behalf_of: str = "",
 ) -> tuple[str, dict[str, Any]]:
     """Add one entry to `document` in place; return the token and the entry.
 
@@ -379,6 +407,9 @@ def issue_token(
     beyond `MAX_TERM_DAYS`, or an entry already held by this user in this
     tenant. The access log names callers by user and tenant, not by token, so
     two entries for one pair could not be told apart in a review.
+
+    `on_behalf_of` links the grant to a register record in the same tenant
+    (`partners/<id>` or `integrations/<id>`); only its form is checked here.
     """
     entries = _entries_of(document)
     user, tenant, actor = user_id.strip(), tenant_id.strip(), issued_by.strip()
@@ -394,6 +425,11 @@ def issue_token(
         problems.append("no role; the token could reach nothing")
     if not actor:
         problems.append("no issuer; the grant must name who made it")
+    link = on_behalf_of.strip()
+    try:
+        parse_on_behalf_of(link)
+    except ValueError as exc:
+        problems.append(str(exc))
     if expires_at < as_of:
         problems.append(f"expires {expires_at.isoformat()}, before {as_of.isoformat()}")
     elif (expires_at - as_of).days > MAX_TERM_DAYS:
@@ -419,6 +455,8 @@ def issue_token(
         "issued_by": actor,
         "issued_at": as_of.isoformat(),
     }
+    if link:
+        entry["on_behalf_of"] = link
     entries.append(entry)
     return token, entry
 

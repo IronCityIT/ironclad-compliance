@@ -12,9 +12,11 @@ The ledger is one JSON object per line beside the token file (`tokens.json.ledge
 by default), written by `issue` and `revoke` under the token file's lock and
 before the token file is replaced, so no edit lands unrecorded. Each line
 carries the digest of the line before it, the same chain as the access log.
-A line holds the time, the action, who took it, the user, tenant, roles and
-expiry of the entry, and the entry's `sha256` (the digest the token file
-already stores; never the token).
+A line holds the time, the action, who took it, the user, tenant, roles,
+expiry and register link (`on_behalf_of`, empty for none) of the entry, and
+the entry's `sha256` (the digest the token file already stores; never the
+token). The link is part of the grant, so an entry re-pointed by hand at
+another partner, or unlinked to hide it from `oversight access`, is high.
 
 `reconcile()` holds a token file to its ledger for `tokens review --ledger`:
 an entry with no grant on record, one that differs from its grant, or one
@@ -49,6 +51,7 @@ FIELDS = (
     "tenant_id",
     "roles",
     "expires_at",
+    "on_behalf_of",
     "sha256",
     "prev_hash",
 )
@@ -57,7 +60,7 @@ ACTIONS = ("issue", "revoke")
 
 #: The entry fields a grant fixes. An entry that differs from its grant on
 #: any of them was edited by hand after it was issued.
-GRANTED = ("user_id", "tenant_id", "roles", "expires_at")
+GRANTED = ("user_id", "tenant_id", "roles", "expires_at", "on_behalf_of")
 
 KIND = "a grant-ledger entry"
 
@@ -98,6 +101,7 @@ def _granted(entry: dict[str, Any]) -> dict[str, Any]:
         "tenant_id": str(entry.get("tenant_id", "")).strip(),
         "roles": sorted({str(r) for r in roles}) if isinstance(roles, list) else roles,
         "expires_at": entry.get("expires_at"),
+        "on_behalf_of": str(entry.get("on_behalf_of") or "").strip(),
     }
 
 

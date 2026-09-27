@@ -789,6 +789,29 @@ unstubbed: 1126 passed, 57 skipped on 3.10 and 3.12; persistence 236 passed,
 so both store-contract export cases ran on MariaDB; dashboard 102/102, the
 shared-file case included.
 
+**Partner access held to the register, 2026-09-27.** A service token for an
+integration partner now names the register record it acts for (`tokens issue
+... --on-behalf-of partners/<id>` or `integrations/<id>`). The link is written
+into the entry and onto its grant-ledger line, so an entry re-pointed or
+unlinked by hand is high in `tokens review --ledger`. `ironclad oversight
+access --tenant T --tokens FILE [--fail-on high|any]` holds every live entry in
+the tenant to its record. It is high when the record is missing or retired,
+handles PHI without an executed BAA, claims a BAA without evidence, or has a
+lapsed review or assurance. It gives a notice for offboarding or a token that
+outlasts the next review, and lists staff entries under `unlinked`. It reads
+digests only and has no HTTP route. Against the committed Sage Spine seed,
+every partner token is high for the missing BAA. That is the intended answer
+until the BAAs are executed and recorded.
+Tests: 21 functions (28 runs) in `tests/test_partner_access.py`. Four mutations
+each fail a test by name: retired not checked, expired entries kept, the link
+dropped from the ledger's granted fields, and the reader check skipped.
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1211 tests,
+57 skipped, 10 failed. Untouched HEAD `fa8a096` in a worktree, run after it,
+failed the same 10, compared set for set. ruff format and lint pass. mypy
+reports only the known Windows `fcntl` errors. The white-label, secret-literal
+and `git diff --check` gates pass. Bandit is not installed locally, so CI's
+security job is its gate.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

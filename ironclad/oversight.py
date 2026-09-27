@@ -515,6 +515,134 @@ def attention_queue(
     }
 
 
+#: The review-queue findings that make a partner's live access itself a finding:
+#: a grant should not outlast the agreement, review or assurance it rests on.
+ACCESS_CODES = frozenset(
+    {"phi-without-baa", "baa-evidence-missing", "review-overdue", "assurance-expired"}
+)
+
+
+def partner_access(
+    store: Any, document: object, *, tenant_id: str, principal: Principal, today: str
+) -> dict[str, Any]:
+    """Hold every live token in the tenant to the register record it acts for.
+
+    `document` is a token file. An entry grants access today unless it is
+    expired or its expiry is unreadable (the token review reports both). A
+    live entry with `on_behalf_of` is high when the record is missing, retired,
+    or has a review-queue finding in `ACCESS_CODES`: a partner handling PHI
+    without an executed BAA, or whose review or assurance has lapsed, still
+    holding a working token. Offboarding is a notice. Entries without a link
+    are listed under `unlinked`, not judged: staff hold those.
+    """
+    from ironclad.api.tokens import (  # noqa: PLC0415  (ironclad.api imports this module)
+        InvalidExpiryError,
+        parse_expiry,
+        parse_on_behalf_of,
+    )
+
+    check_reader(principal, tenant_id)
+    as_of = date.fromisoformat(check_as_of(today))
+    entries = document.get("tokens") if isinstance(document, dict) else None
+    if not isinstance(entries, list):
+        raise OversightError('not a token file: expected {"tokens": [...]}')
+
+    items: list[dict[str, Any]] = []
+    unlinked: list[dict[str, Any]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or _text(entry.get("tenant_id")) != tenant_id:
+            continue
+        try:
+            last_day = parse_expiry(entry.get("expires_at"))
+        except InvalidExpiryError:
+            continue
+        if last_day is not None and as_of > last_day:
+            continue
+        holder = {
+            "user_id": _text(entry.get("user_id")),
+            "roles": sorted(str(r) for r in entry.get("roles") or [] if isinstance(r, str)),
+            "expires_at": last_day.isoformat() if last_day else None,
+            "digest_prefix": _text(entry.get("sha256")).lower()[:12],
+        }
+        link = _text(entry.get("on_behalf_of"))
+        if not link:
+            unlinked.append(holder)
+            continue
+        findings: list[dict[str, str]] = []
+        record: dict[str, Any] | None = None
+        try:
+            parsed = parse_on_behalf_of(link)
+        except ValueError as exc:
+            findings.append({"level": "high", "code": "link-malformed", "message": f"{exc}."})
+            parsed = None
+        if parsed is not None:
+            record = store.get_oversight(tenant_id, *parsed)
+            status = _text(record.get("status")) if record else ""
+            if record is None:
+                findings.append(
+                    {
+                        "level": "high",
+                        "code": "record-missing",
+                        "message": f"Holds a token for {link}, which the register does not hold.",
+                    }
+                )
+            elif status == "Retired":
+                findings.append(
+                    {
+                        "level": "high",
+                        "code": "record-retired",
+                        "message": "Holds a token for a retired relationship; revoke it.",
+                    }
+                )
+            else:
+                findings.extend(
+                    f for f in attention_findings(record, today) if f["code"] in ACCESS_CODES
+                )
+                if status == "Offboarding":
+                    findings.append(
+                        {
+                            "level": "notice",
+                            "code": "record-offboarding",
+                            "message": "Relationship is offboarding; end this token with it.",
+                        }
+                    )
+        if last_day is not None and record and _ISO_DATE.match(_text(record.get("review_due"))):
+            if last_day.isoformat() > _text(record.get("review_due")) >= today:
+                findings.append(
+                    {
+                        "level": "notice",
+                        "code": "outlasts-review",
+                        "message": (
+                            f"Token runs to {last_day.isoformat()}, past the relationship's "
+                            f"review due {record['review_due']}."
+                        ),
+                    }
+                )
+        findings.sort(key=lambda f: f["level"] != "high")
+        items.append(
+            {
+                **holder,
+                "on_behalf_of": link,
+                "name": record.get("name") if record else None,
+                "status": record.get("status") if record else None,
+                "level": findings[0]["level"] if findings else "ok",
+                "findings": findings,
+            }
+        )
+    order = {"high": 0, "notice": 1, "ok": 2}
+    items.sort(key=lambda item: (order[item["level"]], item["on_behalf_of"], item["user_id"]))
+    unlinked.sort(key=lambda holder: holder["user_id"])
+    return {
+        "tenant_id": tenant_id,
+        "as_of": today,
+        "holders": len(items),
+        "high": sum(1 for item in items if item["level"] == "high"),
+        "notices": sum(1 for item in items if item["level"] == "notice"),
+        "items": items,
+        "unlinked": unlinked,
+    }
+
+
 #: How each register is named in the export, as the dashboard names it.
 KIND_LABELS = {"partners": "Partner", "integrations": "Integration"}
 

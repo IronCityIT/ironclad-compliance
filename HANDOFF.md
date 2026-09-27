@@ -870,6 +870,28 @@ Access went away, but the removal went unrecorded; note it in the review
 record. Entries carry `granted_by` and `granted_at` from the ledger. A broken
 ledger is exit 4 and no review.
 
+A token for an integration partner names the register record it acts for, and
+the partner's access is then held to what the register says about it:
+
+```sh
+ironclad tokens issue /srv/ironclad/tokens.json --user ops@drchrono.example --tenant sage-spine \
+    --role viewer --expires 2026-12-31 --actor bill --on-behalf-of partners/drchrono
+ironclad oversight access --tenant sage-spine --actor auditor-1 --role auditor \
+    --tokens /srv/ironclad/tokens.json --fail-on high
+```
+
+High, and the partner's access should end until it is fixed: the record is
+missing or retired, it handles PHI without an executed BAA, it claims a BAA
+without an execution date or document reference, or its review or assurance
+has lapsed. Against the Sage Spine seed as committed, every partner token is
+high for the missing BAA, which is correct: execute the BAA and record it, or
+do not issue the token. Notices: the relationship is offboarding, or the
+token runs past the record's next review (issue it to end by then). Staff
+tokens have no link and are listed under `unlinked`. Run it with the BAA sweep
+(`oversight attention`) and at each access review. The link is on the grant
+ledger, so an entry re-pointed or unlinked by hand is high in `tokens review
+--ledger`.
+
 ### Verify an auditor package
 
 First the files: `sha256sum -c SHA256SUMS` in the package directory. Every

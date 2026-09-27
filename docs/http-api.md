@@ -83,6 +83,22 @@ IRONCLAD_STORE=/srv/ironclad/results \
   (the token-file write did not land, or the entry was removed by hand) is a
   notice under `ledger.unrecorded`. A broken ledger gets no review (exit 4).
   The server does not read the ledger.
+- A partner's or integration's token names the register record it acts for:
+  `tokens issue ... --on-behalf-of partners/<id>` (or `integrations/<id>`)
+  writes `on_behalf_of` into the entry and onto its ledger line, where it is
+  part of the grant: re-pointed or removed by hand, the review with
+  `--ledger` calls it high. Only its form is checked at issue.
+  `ironclad oversight access --tenant T --tokens FILE` holds every live entry
+  in the tenant that has one to its record. High: the record is missing or
+  retired, or it handles PHI without an executed BAA, claims a BAA without
+  its evidence, or has a lapsed review or assurance. Notice: offboarding, or
+  a token that runs past the record's next review. Entries without a link
+  (staff) are listed under `unlinked` and not judged. `--fail-on high|any`
+  exits 4. It reads digests only, and there is no HTTP route for it: who
+  holds a token is the operator's to see, not every tenant member's.
+  Ledgers written before `on_behalf_of` was a ledger field are refused as
+  "not a grant-ledger entry"; none exist outside tests, since nothing is
+  deployed.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
 - A connection that sends nothing for 30 seconds — the rest of a request, the
