@@ -735,6 +735,9 @@ export IRONCLAD_STORE=/srv/ironclad            # or a mysql:// DSN, never on the
 ironclad oversight load-seed --seed tenants/sage-spine/seed.json --actor bill --role owner
 ironclad oversight verify    --tenant sage-spine --actor auditor-1 --role auditor
 ironclad oversight attention --tenant sage-spine --actor sweep --role viewer --fail-on high
+ironclad oversight seal      --tenant sage-spine --actor auditor-1 --role auditor > seal-2026-09-26.json
+ironclad oversight verify    --tenant sage-spine --actor auditor-1 --role auditor --seal seal-2026-09-26.json
+ironclad oversight compare-seals --earlier seal-2026-09-26.json --later seal-2026-12-26.json
 ```
 
 `load-seed` is an approver's act (a seed carries ratings) and skips any record
@@ -746,6 +749,15 @@ scheduled BAA sweep should key on. Exit 2 is always the job's fault (no store,
 no role, a bad date), never the register's. The actor is asserted, as with
 `ironclad exception`: whoever holds the store credential can name anyone, so
 the credential is the boundary and the actor is the attribution.
+
+`verify` checks each history against itself, which cannot see a past entry
+rewritten in place (a rating, a BAA date) or, on a volume, a latest revision
+deleted. A **seal** can: take one at each review, keep the file where the store's
+operators cannot write (the auditor's workpapers, a CI artifact), and record its
+`digest` line separately. `verify --seal` exits 4 if anything sealed has changed
+or gone since; `compare-seals` does the same between two seal files with no
+store access, for an auditor who takes seals over `GET .../oversight/seal`. A
+seal file edited after it was taken fails its own digest and is exit 2.
 
 ### Verify an auditor package
 

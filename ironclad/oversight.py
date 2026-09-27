@@ -25,6 +25,8 @@ both exist.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -533,6 +535,157 @@ def verify_register(store: Any, *, tenant_id: str, principal: Principal) -> dict
         "records": len(items),
         "broken": broken,
         "verified": broken == 0,
+        "items": items,
+    }
+
+
+# ------------------------------------------------------------------ seal
+#
+# `verify_history` can only check a history against itself. An entry rewritten
+# in place (a rating, a BAA date, who approved it) that keeps its revision,
+# tenant and creation stamp passes, and so, on a volume, does a record whose
+# latest revision file was deleted: it rolls back to a whole, shorter history.
+# Nothing inside a store can see either. A seal is the anchor kept outside it:
+# a digest of every entry of every record, taken now and held by whoever needs
+# to rely on it later (an auditor's workpapers, a CI artifact). A later seal,
+# or the store itself, must then *extend* it: every sealed entry still there
+# and byte-for-byte the same, only new revisions and new records added.
+
+SEAL_FORMAT = "ironclad-oversight-seal/1"
+
+
+def entry_digest(entry: dict[str, Any]) -> str:
+    """SHA-256 of one history entry, over sorted-key compact JSON."""
+    encoded = json.dumps(entry, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _seal_digest(tenant_id: str, sealed: list[dict[str, Any]]) -> str:
+    # Over the tenant and the entries only, not who sealed or when, so two
+    # seals of an unchanged register carry the same digest.
+    encoded = json.dumps(
+        {"tenant_id": tenant_id, "records": sealed}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def seal_register(
+    store: Any, *, tenant_id: str, principal: Principal, at: str | None = None
+) -> dict[str, Any]:
+    """A digest of every history entry in the tenant's register, to keep elsewhere.
+
+    Walks the same ids as `verify_register`, so a record with history and no
+    record row is sealed too. Any member of the tenant may take one; it holds
+    hashes of what they can already read. `digest` is one line to write down
+    beside the file: it covers every entry, so a seal edited after it was
+    taken no longer matches it.
+    """
+    check_reader(principal, tenant_id)
+    sealed: list[dict[str, Any]] = []
+    for kind in KINDS:
+        for record_id in store.oversight_ids(tenant_id, kind):
+            entries = store.oversight_history(tenant_id, kind, record_id)
+            sealed.append(
+                {
+                    "kind": kind,
+                    "id": record_id,
+                    "revisions": len(entries),
+                    "entries": [entry_digest(e) for e in entries],
+                }
+            )
+    return {
+        "format": SEAL_FORMAT,
+        "tenant_id": tenant_id,
+        "sealed_at": at or stamp(),
+        "sealed_by": principal.user_id,
+        "records": sealed,
+        "digest": _seal_digest(tenant_id, sealed),
+    }
+
+
+def check_seal(seal: Any) -> dict[str, Any]:
+    """`seal` if it is a whole seal that matches its own digest; refused otherwise."""
+    if not isinstance(seal, dict) or seal.get("format") != SEAL_FORMAT:
+        raise OversightError(f"not a register seal (expected format {SEAL_FORMAT})")
+    tenant_id, sealed = seal.get("tenant_id"), seal.get("records")
+    problems: list[str] = []
+    if not isinstance(tenant_id, str) or not tenant_id:
+        problems.append("tenant_id is missing")
+    if not isinstance(sealed, list) or not all(
+        isinstance(item, dict)
+        and item.get("kind") in KINDS
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("entries"), list)
+        and item.get("revisions") == len(item["entries"])
+        for item in sealed
+    ):
+        problems.append("records is not a list of sealed records")
+    if problems:
+        raise OversightError("the seal is malformed", problems)
+    if seal.get("digest") != _seal_digest(str(tenant_id), list(sealed or [])):
+        raise OversightError("the seal does not match its own digest; it was altered or truncated")
+    return seal
+
+
+def _extends(then: list[str], current: list[str] | None) -> dict[str, Any]:
+    """One record's verdict: do its entries now extend the sealed ones?"""
+
+    def verdict(ok: bool, detail: str = "", at: int | None = None) -> dict[str, Any]:
+        return {
+            "verified": ok,
+            "sealed_revisions": len(then),
+            "revisions": len(current or []),
+            "broken_at": at,
+            "detail": detail,
+        }
+
+    if current is None:
+        return verdict(False, "the record and its history are gone since the seal")
+    changed = next(
+        (n for n, (a, b) in enumerate(zip(then, current, strict=False), 1) if a != b), None
+    )
+    if changed is not None:
+        return verdict(False, f"revision {changed} changed since the seal", changed)
+    if len(current) < len(then):
+        first, last = len(current) + 1, len(then)
+        span = f"revision {first} was" if first == last else f"revisions {first}..{last} were"
+        return verdict(False, f"{span} removed since the seal", first)
+    added = len(current) - len(then)
+    return verdict(True, f"{added} revision(s) added since the seal" if added else "")
+
+
+def compare_seals(earlier: Any, later: Any) -> dict[str, Any]:
+    """Whether `later` extends `earlier`: nothing sealed was changed or removed.
+
+    A record is broken when it is gone, when it has fewer revisions than were
+    sealed, or when any sealed entry now hashes differently; `broken_at` is
+    the first revision that differs. New revisions and new records are
+    expected and reported, not broken. Both seals must be whole and of one
+    tenant.
+    """
+    earlier, later = check_seal(earlier), check_seal(later)
+    if earlier["tenant_id"] != later["tenant_id"]:
+        raise OversightError(
+            f"the seals are of different tenants ({earlier['tenant_id']}, {later['tenant_id']})"
+        )
+    now = {(r["kind"], r["id"]): r["entries"] for r in later["records"]}
+    items = [
+        {
+            "kind": sealed["kind"],
+            "id": sealed["id"],
+            **_extends(sealed["entries"], now.pop((sealed["kind"], sealed["id"]), None)),
+        }
+        for sealed in earlier["records"]
+    ]
+    broken = sum(1 for item in items if not item["verified"])
+    return {
+        "tenant_id": earlier["tenant_id"],
+        "earlier": {k: earlier.get(k) for k in ("sealed_at", "sealed_by", "digest")},
+        "later": {k: later.get(k) for k in ("sealed_at", "sealed_by", "digest")},
+        "records": len(items),
+        "broken": broken,
+        "verified": broken == 0,
+        "new_records": [{"kind": k, "id": i} for k, i in sorted(now)],
         "items": items,
     }
 

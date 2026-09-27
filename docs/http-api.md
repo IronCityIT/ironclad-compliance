@@ -86,6 +86,7 @@ All under `/api/v1`. Every answer is JSON of the shape
 | GET | `/tenants/{t}/audit?limit=` | `audit:read` | the hash-chained trail |
 | GET | `/tenants/{t}/oversight/attention?as_of=` | any role in the tenant | the review queue across both registers, as of `as_of` (`YYYY-MM-DD`, default today in UTC) |
 | GET | `/tenants/{t}/oversight/verification` | any role in the tenant | every record's history in both registers re-checked, with a verdict each |
+| GET | `/tenants/{t}/oversight/seal` | any role in the tenant | a digest of every history entry in both registers, for the caller to keep outside the store |
 | GET | `/tenants/{t}/oversight/{kind}` | any role in the tenant | the register's current records; `kind` is `partners` or `integrations` |
 | POST | `/tenants/{t}/oversight/{kind}` | owner, compliance manager, contributor | create; body: `{"fields": {...}}` |
 | GET | `/tenants/{t}/oversight/{kind}/{id}` | any role in the tenant | one record |
@@ -189,10 +190,26 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   rather than silently missing from the inventory. The body is `tenant_id`,
   `records`, `broken`, `verified` (true only if every record is) and `items`,
   one per record: `kind`, `id` and the same verdict fields as `/history`. A
-  POST there is 404. On a volume, removing a record's *latest* revision file
-  rolls the record back to the one before and leaves a whole history; the
-  sweep cannot see that, because nothing outside the volume anchors the last
-  revision.
+  POST there is 404. The sweep checks each history against itself, so two
+  things pass it: an entry rewritten in place that keeps its revision, tenant
+  and creation stamp (a rating, a BAA date, who approved), and, on a volume,
+  a record whose *latest* revision file was removed, which rolls back to a
+  whole, shorter history. The seal is the answer to both.
+- **The seal.** `/oversight/seal` is the anchor kept outside the store:
+  `format` (`ironclad-oversight-seal/1`), `tenant_id`, `sealed_at`,
+  `sealed_by`, `records` (per record: `kind`, `id`, `revisions`, and the
+  SHA-256 of each entry over sorted-key compact JSON, oldest first) and
+  `digest`, one hash over the tenant and every entry. The digest leaves out
+  who sealed and when, so an unchanged register seals to the same digest.
+  Whoever relies on the register later (an auditor, a CI job) keeps the file
+  and writes the digest down somewhere else. `ironclad oversight
+  compare-seals --earlier A --later B` then needs no store: every sealed
+  record must still be there with the same entries, and new revisions and
+  records are reported, not refused; `ironclad oversight verify --seal A`
+  does the same against the store. A seal edited after it was taken no
+  longer matches its digest and is refused. The seal proves nothing on its
+  own: it is as good as the place it is kept, and the digest is what makes
+  that place checkable. A POST there is 404.
 - An unknown `kind` or record is 404. A record id outside `[A-Za-z0-9_-]` is
   400. A store that does not hold the register answers 503.
 

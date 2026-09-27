@@ -270,6 +270,7 @@ class App:
         # Before `{kind}`, which would otherwise read these as register names.
         self._route("GET", tenant + "/oversight/attention", self.oversight_attention)
         self._route("GET", tenant + "/oversight/verification", self.oversight_verification)
+        self._route("GET", tenant + "/oversight/seal", self.oversight_seal)
         register = tenant + "/oversight/{kind}"
         self._route("GET", register, self.list_oversight)
         self._route("POST", register, self.create_oversight)
@@ -612,6 +613,13 @@ class App:
         tenant, _ = self._oversight_scope(request, principal, write=False)
         return self._oversight_answer(
             lambda: oversight.verify_register(self.results, tenant_id=tenant, principal=principal)
+        )
+
+    def oversight_seal(self, request: Request, principal: Principal) -> Response:
+        """A digest of every history entry in both registers, for the caller to keep."""
+        tenant, _ = self._oversight_scope(request, principal, write=False)
+        return self._oversight_answer(
+            lambda: oversight.seal_register(self.results, tenant_id=tenant, principal=principal)
         )
 
     def create_oversight(self, request: Request, principal: Principal) -> Response:

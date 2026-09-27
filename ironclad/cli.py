@@ -16,7 +16,8 @@ expects) and report.html. The workflow reads all three; nothing has to
 re-serialize the result in shell.
 
 Exit codes: 0 success, 2 bad input or selection, 3 a capability failed mid-run,
-4 a register check found something (`oversight verify`, `attention --fail-on`).
+4 a register check found something (`oversight verify`, `attention --fail-on`,
+`compare-seals`).
 """
 
 from __future__ import annotations
@@ -373,6 +374,42 @@ def build_parser() -> argparse.ArgumentParser:
         )
     )
     register_verify.add_argument("--tenant", required=True)
+    register_verify.add_argument(
+        "--seal",
+        default="",
+        help=(
+            "a seal taken earlier with `oversight seal`; the store must still hold every "
+            f"sealed entry unchanged, or exit {EXIT_FINDINGS}"
+        ),
+    )
+
+    register_seal = with_register_actor(
+        register_sub.add_parser(
+            "seal",
+            help="print a digest of every history entry, to keep outside the store",
+            description=(
+                "`verify` checks a history against itself, so an entry rewritten in "
+                "place, or on a volume a latest revision deleted, passes it. A seal "
+                "taken now and kept elsewhere is the anchor: `verify --seal` or "
+                "`compare-seals` later says whether anything sealed has changed."
+            ),
+        )
+    )
+    register_seal.add_argument("--tenant", required=True)
+
+    compare = register_sub.add_parser(
+        "compare-seals",
+        help="check that a later seal extends an earlier one, without a store",
+        description=(
+            "For an auditor who takes seals over `ironclad serve` and holds no "
+            "store access. Every record sealed earlier must still be there with "
+            "the same entries; new revisions and records are expected. Exit "
+            f"{EXIT_FINDINGS} if anything sealed changed, {EXIT_BAD_INPUT} if either "
+            "seal is malformed or does not match its own digest."
+        ),
+    )
+    compare.add_argument("--earlier", required=True, help="the seal taken first")
+    compare.add_argument("--later", required=True, help="the seal taken since")
 
     load_seed = with_register_actor(
         register_sub.add_parser(
@@ -944,6 +981,15 @@ def cmd_exception(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _read_seal(path: str) -> dict[str, Any]:
+    """A register seal from a file, whole and matching its own digest."""
+    try:
+        seal = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValidationError(f"{path} is not a readable seal ({exc})") from exc
+    return oversight.check_seal(seal)
+
+
 def cmd_oversight(args: argparse.Namespace) -> int:
     """The register from the command line, through the same policy as the API.
 
@@ -951,6 +997,11 @@ def cmd_oversight(args: argparse.Namespace) -> int:
     stranger, a reader loading a seed and an unrated contributor exactly as
     it does over HTTP, and the refusal comes back as exit 2.
     """
+    if args.oversight_command == "compare-seals":
+        comparison = oversight.compare_seals(_read_seal(args.earlier), _read_seal(args.later))
+        _emit(comparison)
+        return EXIT_OK if comparison["verified"] else EXIT_FINDINGS
+
     target = args.to or os.environ.get(STORE_ENV, "")
     if not target:
         print(
@@ -983,10 +1034,21 @@ def cmd_oversight(args: argparse.Namespace) -> int:
         _emit({"tenant_id": tenant, **oversight.load_seed(store, seed, principal=caller)})
         return EXIT_OK
 
+    if args.oversight_command == "seal":
+        _emit(oversight.seal_register(store, tenant_id=tenant, principal=caller))
+        return EXIT_OK
+
     if args.oversight_command == "verify":
+        # Read the seal before touching the store, so a bad file is bad input.
+        earlier = _read_seal(args.seal) if args.seal else None
         sweep = oversight.verify_register(store, tenant_id=tenant, principal=caller)
+        verified = sweep["verified"]
+        if earlier is not None:
+            now = oversight.seal_register(store, tenant_id=tenant, principal=caller)
+            sweep["seal"] = oversight.compare_seals(earlier, now)
+            verified = verified and sweep["seal"]["verified"]
         _emit(sweep)
-        return EXIT_OK if sweep["verified"] else EXIT_FINDINGS
+        return EXIT_OK if verified else EXIT_FINDINGS
 
     queue = oversight.attention_queue(
         store,

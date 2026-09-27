@@ -338,7 +338,8 @@ store access, whoever loads the Sage seed into a new store) had a way in:
 Known limit, written down rather than hidden (`docs/http-api.md`): on a volume,
 deleting a record's latest revision file rolls the record back to the one
 before with a whole history, and no check inside the volume can see it.
-Anchoring the head revision somewhere else is the fix, and is not done here.
+Anchoring the head revision somewhere else is the fix; the tenth pass (below)
+builds it.
 
 Tests: 13 new functions, 15 runs across the two stores. Two store-contract cases (every record of both kinds verified
 after an edit; the sweep refuses another tenant and is empty for its own) run
@@ -360,6 +361,60 @@ reports only the known Windows `fcntl` errors in `policy_store.py`.
 In CI (run 36288773882): 986 passed on 3.10 and 3.12, and the MariaDB
 persistence job 205 passed, 0 skipped, so the three MariaDB cases this pass
 added ran against a real server and passed.
+
+**A seal kept outside the store, 2026-09-26 (tenth pass).** The sweep checks
+each history against itself, and two tamperings pass it. The first is a past
+entry rewritten in place. Revision 2 of a record is the approver's rating; set
+its `risk` to `Low` on a volume, or `UPDATE` a MariaDB history row (possible
+until the production grant is SELECT/INSERT only), and the revision, tenant,
+creation stamp and latest entry all still check out. Who rated what, and when,
+is exactly what a HIPAA reviewer relies on. The second is the known limit
+above: a latest revision deleted on a volume. Both are now caught, by tests
+that first assert `verify` passes and then that the seal does not:
+
+- `seal_register()` in `ironclad/oversight.py` returns, per record, the
+  SHA-256 of each history entry (sorted-key compact JSON), plus one `digest`
+  over the tenant and every entry. Who sealed and when are left out of the
+  digest, so an unchanged register seals to the same one. It walks
+  `oversight_ids()` like the sweep. Any tenant member may take one.
+- `compare_seals(earlier, later)` requires the later seal to extend the
+  earlier one. A record gone, a revision removed, or a sealed entry that now
+  hashes differently is broken, with `broken_at` the first revision that
+  differs. New revisions and new records are reported and are not broken.
+  Both seals must match their own digest and be of one tenant, or the
+  comparison is refused.
+- `GET /api/v1/tenants/{t}/oversight/seal` serves it to any tenant member.
+  Another tenant gets 403 and a POST is 404; it is registered before `{kind}`.
+- `ironclad oversight seal`, `ironclad oversight verify --seal FILE` (exit 4 if
+  the store no longer extends the seal), and `ironclad oversight compare-seals
+  --earlier A --later B`, which needs no store. That last one is for an
+  auditor who takes seals over HTTP and holds no store credential. A seal file
+  that is unreadable, of another tenant, or edited since it was taken is exit 2.
+  The runbook is `HANDOFF.md` §17.
+
+No write path, stored field, rule or schema changed. A seal is only as good as
+where it is kept; the docs say so and name the places (auditor workpapers, a CI
+artifact), and the digest is the line to record elsewhere.
+
+Tests: 21 new cases across both files. Two store-contract cases (a later seal
+extends an earlier one across edits and a new record; the seal is the tenant's
+own) run on the volume locally and on MariaDB in CI. Three volume cases: a
+rewrite in place, a deleted latest revision, and a record removed whole, each
+passing `verify` and failing the seal. One MariaDB case: a history row
+`UPDATE`d in place. Eight cases check the seal itself without a store: key
+order, a seal compared with itself, an edited seal, a dropped record, four
+malformed shapes. Two HTTP cases
+run on a real socket, and three are CLI cases. Seven mutations each fail a
+test by name: comparison ignoring a changed entry, comparison ignoring removed
+revisions, the digest self-check skipped, the seal skipping the reader check,
+comparison across tenants allowed, `verify --seal` exiting 0 on a broken seal,
+and the route registered after `{kind}`.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub as before):
+`tests/test_oversight.py` + `tests/test_http.py` 226 passed, 28 skipped
+(MariaDB), 1 failed: the 20-writer lock test, unchanged from the untouched
+tree (208 passed, 25 skipped, same failure). ruff format and lint pass; mypy
+reports only the known Windows `fcntl` errors in `policy_store.py`.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of

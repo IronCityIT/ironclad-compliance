@@ -240,6 +240,60 @@ class TestTheReviewQueue:
             oversight.attention_findings(ATTENTION["base"], bad)
 
 
+class TestTheSealItself:
+    """A seal is only an anchor if an edit to it shows; checked without a store."""
+
+    def seal(self) -> dict[str, Any]:
+        store = FileResultStore(Path(self.tmp) / "volume")
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        return oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR, at=AT)
+
+    @pytest.fixture(autouse=True)
+    def _tmp(self, tmp_path: Path) -> None:
+        self.tmp = tmp_path
+
+    def test_an_entry_digest_ignores_key_order_and_nothing_else(self) -> None:
+        record = create()
+        assert oversight.entry_digest(record) == oversight.entry_digest(
+            dict(reversed(record.items()))
+        )
+        assert oversight.entry_digest(record) != oversight.entry_digest({**record, "notes": " "})
+
+    def test_a_seal_is_its_own_earlier_self(self) -> None:
+        seal = self.seal()
+        result = oversight.compare_seals(seal, seal)
+        assert (result["verified"], result["new_records"]) == (True, [])
+        assert {i["detail"] for i in result["items"]} == {""}
+
+    def test_a_seal_edited_after_it_was_taken_is_refused(self) -> None:
+        seal = self.seal()
+        seal["records"][0]["entries"][0] = "0" * 64
+        with pytest.raises(OversightError, match="its own digest"):
+            oversight.check_seal(seal)
+
+    def test_a_seal_with_a_record_dropped_is_refused(self) -> None:
+        seal = self.seal()
+        seal["records"].pop()
+        with pytest.raises(OversightError, match="its own digest"):
+            oversight.compare_seals(seal, self.seal())
+
+    @pytest.mark.parametrize(
+        ("mutate", "named"),
+        [
+            (lambda s: s.update(format="something-else/1"), "not a register seal"),
+            (lambda s: s.update(tenant_id=""), "tenant_id is missing"),
+            (lambda s: s["records"][0].update(kind="vendors"), "not a list of sealed records"),
+            (lambda s: s["records"][0].update(revisions=9), "not a list of sealed records"),
+        ],
+    )
+    def test_a_malformed_seal_is_refused_and_named(self, mutate: Any, named: str) -> None:
+        seal = self.seal()
+        mutate(seal)
+        with pytest.raises(OversightError) as refused:
+            oversight.check_seal(seal)
+        assert named in str(refused.value)
+
+
 # ------------------------------------------------------------------ stores
 
 
@@ -448,6 +502,36 @@ class RegisterContract:
         own = oversight.verify_register(store, tenant_id="other-clinic", principal=OUTSIDER)
         assert (own["records"], own["verified"], own["items"]) == (0, True, [])
 
+    def test_a_later_seal_extends_an_earlier_one(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        earlier = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR, at=AT)
+        seeded = sum(len(SEED["oversight"][k]) for k in oversight.KINDS)
+        assert len(earlier["records"]) == seeded
+        again = oversight.seal_register(store, tenant_id="sage-spine", principal=VIEWER, at=LATER)
+        assert again["digest"] == earlier["digest"]
+        first = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        self.save(store, record_id=first, changes={"notes": "x"}, at=LATER)
+        added = self.save(store, changes={"name": "Fax relay"}, at=LATER)
+        later = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        assert later["digest"] != earlier["digest"]
+        result = oversight.compare_seals(earlier, later)
+        assert (result["records"], result["broken"], result["verified"]) == (seeded, 0, True)
+        assert result["new_records"] == [{"kind": "partners", "id": added["id"]}]
+        (moved,) = [i for i in result["items"] if i["revisions"] != i["sealed_revisions"]]
+        assert (moved["id"], moved["detail"]) == (first, "1 revision(s) added since the seal")
+
+    def test_the_seal_is_the_tenants_own(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        with pytest.raises(AuthorizationError):
+            oversight.seal_register(store, tenant_id="sage-spine", principal=OUTSIDER)
+        own = oversight.seal_register(store, tenant_id="other-clinic", principal=OUTSIDER)
+        assert own["records"] == []
+        mine = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        with pytest.raises(OversightError, match="different tenants"):
+            oversight.compare_seals(mine, own)
+
 
 class TestTheVolume(RegisterContract):
     def store(self, tmp_path: Path) -> Any:
@@ -533,6 +617,58 @@ class TestTheVolume(RegisterContract):
         base = tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / "drchrono"
         assert sorted(p.name for p in base.iterdir()) == ["1.json"]
 
+    def _two_revisions(self, tmp_path: Path) -> tuple[Any, str, Path]:
+        store = self.store(tmp_path)
+        first = self.save(store, changes={"name": "PRIMO", "data_access": "PHI"})
+        self.save(store, record_id=first["id"], changes={"risk": "High"}, at=LATER)
+        path = tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / first["id"]
+        return store, first["id"], path
+
+    def test_an_entry_rewritten_in_place_passes_verify_and_fails_the_seal(
+        self, tmp_path: Path
+    ) -> None:
+        store, record_id, path = self._two_revisions(tmp_path)
+        self.save(store, record_id=record_id, changes={"notes": "x"}, at=LATER)
+        seal = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        # Revision 2 is the approver's rating. Rewritten to say Low, it keeps
+        # its revision, tenant and creation stamp, so the history checks out.
+        entry = json.loads((path / "2.json").read_text(encoding="utf-8"))
+        (path / "2.json").write_text(json.dumps({**entry, "risk": "Low"}), encoding="utf-8")
+        assert store.verify_oversight("sage-spine", "partners", record_id)["verified"]
+        now = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        (item,) = oversight.compare_seals(seal, now)["items"]
+        assert (item["verified"], item["broken_at"]) == (False, 2)
+        assert item["detail"] == "revision 2 changed since the seal"
+
+    def test_a_deleted_latest_revision_passes_verify_and_fails_the_seal(
+        self, tmp_path: Path
+    ) -> None:
+        # The known limit of `verify` on a volume: the record rolls back to a
+        # whole, shorter history. Only an anchor kept elsewhere can see it.
+        store, record_id, path = self._two_revisions(tmp_path)
+        seal = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        (path / "2.json").unlink()
+        assert store.get_oversight("sage-spine", "partners", record_id)["risk"] == "Unrated"
+        assert store.verify_oversight("sage-spine", "partners", record_id)["verified"]
+        now = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        result = oversight.compare_seals(seal, now)
+        assert (result["verified"], result["broken"]) == (False, 1)
+        assert result["items"][0]["detail"] == "revision 2 was removed since the seal"
+
+    def test_a_record_removed_whole_fails_the_seal(self, tmp_path: Path) -> None:
+        store, record_id, path = self._two_revisions(tmp_path)
+        seal = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        for entry in path.iterdir():
+            entry.unlink()
+        path.rmdir()
+        assert oversight.verify_register(store, tenant_id="sage-spine", principal=AUDITOR)[
+            "verified"
+        ]
+        now = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        (item,) = oversight.compare_seals(seal, now)["items"]
+        assert (item["id"], item["verified"], item["revisions"]) == (record_id, False, 0)
+        assert "gone since the seal" in item["detail"]
+
 
 @needs_mariadb
 class TestMariaDB(RegisterContract):
@@ -596,6 +732,24 @@ class TestMariaDB(RegisterContract):
             store.put_oversight("sage-spine", "partners", "drchrono", orphan)
         assert store.oversight_history("sage-spine", "partners", "drchrono") == []
         assert store.get_oversight("sage-spine", "partners", "drchrono") is None
+
+    def test_a_history_row_rewritten_in_place_fails_the_seal(self, tmp_path: Path) -> None:
+        # Without the production grant (SELECT/INSERT only on the history
+        # table), an UPDATE to a past entry is invisible to `verify`.
+        store = self.store(tmp_path)
+        store.put_oversight("sage-spine", "partners", "drchrono", create())
+        prior = store.get_oversight("sage-spine", "partners", "drchrono")
+        store.put_oversight("sage-spine", "partners", "drchrono", edit(prior, OWNER, risk="High"))
+        seal = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        self._execute(
+            store,
+            "UPDATE oversight_history SET record = JSON_SET(record, '$.notes', 'rewritten') "
+            "WHERE record_id = 'drchrono' AND revision = 1",
+        )
+        assert store.verify_oversight("sage-spine", "partners", "drchrono")["verified"]
+        now = oversight.seal_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        (item,) = oversight.compare_seals(seal, now)["items"]
+        assert (item["verified"], item["broken_at"]) == (False, 1)
 
 
 # ------------------------------------------------------------ command line
@@ -672,6 +826,63 @@ class TestTheCommandLine:
         assert (code, out) == (2, None)
         code, out, _ = run("attention", *self.TENANT, *self.AUDIT, "--as-of", "2026-02-30")
         assert (code, out) == (2, None)
+
+    def test_verify_against_a_seal_exits_4_on_a_rewrite_it_alone_would_pass(
+        self, run: Any, tmp_path: Path
+    ) -> None:
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        code, seal, _ = run("seal", *self.TENANT, *self.AUDIT)
+        assert (code, seal["sealed_by"]) == (0, "auditor-1")
+        sealed = tmp_path / "seal.json"
+        sealed.write_text(json.dumps(seal), encoding="utf-8")
+        code, sweep, _ = run("verify", *self.TENANT, *self.AUDIT, "--seal", str(sealed))
+        assert (code, sweep["verified"], sweep["seal"]["verified"]) == (0, True, True)
+        record_id = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        entry = tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / record_id / "1.json"
+        rewritten = {**json.loads(entry.read_text(encoding="utf-8")), "baa_status": "Executed"}
+        entry.write_text(json.dumps(rewritten), encoding="utf-8")
+        assert run("verify", *self.TENANT, *self.AUDIT)[0] == 0
+        code, sweep, _ = run("verify", *self.TENANT, *self.AUDIT, "--seal", str(sealed))
+        assert (code, sweep["verified"], sweep["seal"]["broken"]) == (4, True, 1)
+
+    def test_verify_with_an_unreadable_or_foreign_seal_is_bad_input(
+        self, run: Any, tmp_path: Path
+    ) -> None:
+        missing = str(tmp_path / "missing.json")
+        code, out, err = run("verify", *self.TENANT, *self.AUDIT, "--seal", missing)
+        assert (code, out) == (2, None) and "not a readable seal" in err
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        foreign = tmp_path / "foreign.json"
+        other = ("--tenant", "other-clinic", "--actor", "o-1", "--role", "auditor")
+        foreign.write_text(json.dumps(run("seal", *other)[1]), encoding="utf-8")
+        code, out, err = run("verify", *self.TENANT, *self.AUDIT, "--seal", str(foreign))
+        assert (code, out) == (2, None) and "different tenants" in err
+
+    def test_two_seals_compare_without_a_store(
+        self, run: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from ironclad.cli import main  # noqa: PLC0415
+
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        earlier, later, forged = (tmp_path / f"{n}.json" for n in ("earlier", "later", "forged"))
+        seal = run("seal", *self.TENANT, *self.AUDIT)[1]
+        earlier.write_text(json.dumps(seal), encoding="utf-8")
+        later.write_text(json.dumps(seal), encoding="utf-8")
+        compare = ["oversight", "compare-seals", "--earlier", str(earlier), "--later"]
+        assert main([*compare, str(later)]) == 0
+        assert json.loads(capsys.readouterr().out)["verified"] is True
+        record_id = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        record_dir = tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / record_id
+        for entry in record_dir.iterdir():
+            entry.unlink()
+        record_dir.rmdir()
+        later.write_text(json.dumps(run("seal", *self.TENANT, *self.AUDIT)[1]), encoding="utf-8")
+        assert main([*compare, str(later)]) == 4
+        result = json.loads(capsys.readouterr().out)
+        assert [i["id"] for i in result["items"] if not i["verified"]] == [record_id]
+        forged.write_text(json.dumps({**seal, "records": []}), encoding="utf-8")
+        assert main([*compare, str(forged)]) == 2
+        assert "its own digest" in capsys.readouterr().err
 
     def test_no_store_is_bad_input(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

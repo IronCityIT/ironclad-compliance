@@ -1360,6 +1360,27 @@ class TestOversightRegister:
         status, body, _ = as_("acme-manager").post(self.SWEEP, {"fields": {"name": "x"}})
         assert status == 404 and "no register 'verification'" in body["errors"][0]
 
+    SEAL = "/api/v1/tenants/acme/oversight/seal"
+
+    def test_a_member_takes_a_seal_that_a_later_one_extends(self, as_) -> None:
+        manager = as_("acme-manager")
+        record = _create(manager, self.RATED)[1]["data"]["record"]
+        status, body, _ = as_("acme-viewer").get(self.SEAL)
+        assert status == 200, body
+        earlier = body["data"]
+        assert (earlier["tenant_id"], earlier["sealed_by"]) == ("acme", "vic@acme.example")
+        assert [(r["kind"], r["revisions"]) for r in earlier["records"]] == [("partners", 1)]
+        edit = {"base_revision": 1, "fields": {"notes": "reviewed"}}
+        assert manager.post(f"{REGISTER}/{record['id']}", edit)[0] == 200
+        later = as_("acme-viewer").get(self.SEAL)[1]["data"]
+        comparison = oversight.compare_seals(earlier, later)
+        assert (comparison["verified"], comparison["items"][0]["revisions"]) == (True, 2)
+
+    def test_the_seal_refuses_strangers_and_is_not_a_register(self, as_) -> None:
+        assert as_("beta-manager").get(self.SEAL)[0] == 403
+        status, body, _ = as_("acme-manager").post(self.SEAL, {"fields": {"name": "x"}})
+        assert status == 404 and "no register 'seal'" in body["errors"][0]
+
     def test_a_store_without_the_register_is_503(
         self, tmp_path: Path, token_file: Path, secrets_for: dict[str, str]
     ) -> None:
