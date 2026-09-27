@@ -1338,6 +1338,28 @@ class TestOversightRegister:
         status, body, _ = as_("acme-manager").post(self.QUEUE, {"fields": {"name": "x"}})
         assert status == 404 and "no register 'attention'" in body["errors"][0]
 
+    SWEEP = "/api/v1/tenants/acme/oversight/verification"
+
+    def test_the_sweep_verifies_both_registers_for_any_member(self, as_) -> None:
+        manager = as_("acme-manager")
+        record = _create(manager, self.RATED)[1]["data"]["record"]
+        edit = {"base_revision": 1, "fields": {"notes": "reviewed"}}
+        assert manager.post(f"{REGISTER}/{record['id']}", edit)[0] == 200
+        integrations = REGISTER.replace("partners", "integrations")
+        status, body, _ = manager.post(integrations, {"fields": {"name": "Fax relay"}})
+        assert status == 200, body
+        status, body, _ = as_("acme-viewer").get(self.SWEEP)
+        assert status == 200, body
+        sweep = body["data"]
+        assert (sweep["tenant_id"], sweep["records"], sweep["verified"]) == ("acme", 2, True)
+        by_kind = {i["kind"]: i["revisions"] for i in sweep["items"]}
+        assert by_kind == {"partners": 2, "integrations": 1}
+
+    def test_the_sweep_refuses_strangers_and_is_not_a_register(self, as_) -> None:
+        assert as_("beta-manager").get(self.SWEEP)[0] == 403
+        status, body, _ = as_("acme-manager").post(self.SWEEP, {"fields": {"name": "x"}})
+        assert status == 404 and "no register 'verification'" in body["errors"][0]
+
     def test_a_store_without_the_register_is_503(
         self, tmp_path: Path, token_file: Path, secrets_for: dict[str, str]
     ) -> None:

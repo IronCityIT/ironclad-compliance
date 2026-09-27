@@ -8,13 +8,15 @@
     ironclad report --input out/assessment.json --out out/report.html
     ironclad export --input out/assessment.json --format package --out out/package/
     ironclad crosswalk --from soc2 --to hipaa
+    ironclad oversight attention --tenant sage-spine --actor a --role auditor --fail-on high
 
 `assess` writes three files into --out: assessment.json (the full result),
 findings.b64 (the base64 findings the AI consensus engine's workflow_call input
 expects) and report.html. The workflow reads all three; nothing has to
 re-serialize the result in shell.
 
-Exit codes: 0 success, 2 bad input or selection, 3 a capability failed mid-run.
+Exit codes: 0 success, 2 bad input or selection, 3 a capability failed mid-run,
+4 a register check found something (`oversight verify`, `attention --fail-on`).
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ironclad import registry
+from ironclad import oversight, registry
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest
 from ironclad.api.service import ComplianceService
@@ -73,6 +75,10 @@ ARTIFACT_ROOT_ENV = "IRONCLAD_ARTIFACTS"
 EXIT_OK = 0
 EXIT_BAD_INPUT = 2
 EXIT_PARTIAL = 3
+#: A register check ran and found something: a broken history, or a review
+#: queue holding what `--fail-on` names. Distinct from bad input, so a
+#: scheduled sweep can tell "look at the register" from "fix the job".
+EXIT_FINDINGS = 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -315,6 +321,71 @@ def build_parser() -> argparse.ArgumentParser:
     ex_revoke = with_actor(exception_sub.add_parser("revoke", help="revoke an acceptance"))
     ex_revoke.add_argument("--id", dest="exception_id", required=True)
     ex_revoke.add_argument("--reason", required=True, help="why it is being revoked")
+
+    register = sub.add_parser(
+        "oversight",
+        help="the partner/integration register: review queue, integrity sweep, seeding",
+        description=(
+            "The tenant's register of partners and integrations, on the result "
+            "store, for whatever does not hold a browser session: a scheduled BAA "
+            "sweep, an auditor's integrity check, loading a tenant's seed. Every "
+            "command runs as a named actor with roles, through the same policy "
+            "`ironclad serve` enforces; the tenant comes from --tenant (or the "
+            "seed), and the actor may act only in that tenant."
+        ),
+    )
+    register_sub = register.add_subparsers(dest="oversight_command", required=True)
+
+    def with_register_actor(parser_: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        parser_.add_argument("--to", default="", help=f"result store; defaults to ${STORE_ENV}")
+        parser_.add_argument("--actor", required=True, help="user id taking this action")
+        parser_.add_argument(
+            "--role",
+            action="append",
+            default=[],
+            choices=[str(r) for r in Role],
+            help="the actor's role; repeat for more than one",
+        )
+        return parser_
+
+    attention = with_register_actor(
+        register_sub.add_parser("attention", help="print the review queue as JSON")
+    )
+    attention.add_argument("--tenant", required=True)
+    attention.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    attention.add_argument(
+        "--fail-on",
+        choices=("never", "high", "any"),
+        default="never",
+        help=f"exit {EXIT_FINDINGS} when the queue holds a high finding, or any finding",
+    )
+
+    register_verify = with_register_actor(
+        register_sub.add_parser(
+            "verify",
+            help="re-check every record's change history",
+            description=(
+                "Walks every record with a record or any history in both registers "
+                "and re-checks it: revisions 1..n without a gap, one tenant, one "
+                f"creation stamp, the record equal to its last entry. Exit {EXIT_FINDINGS} "
+                "if any record fails, and the JSON says which and why."
+            ),
+        )
+    )
+    register_verify.add_argument("--tenant", required=True)
+
+    load_seed = with_register_actor(
+        register_sub.add_parser(
+            "load-seed",
+            help="create each seeded record not already in the register",
+            description=(
+                "A seed carries ratings, so loading one is an approver's act and "
+                "each revision-1 entry is attributed to --actor. A record already "
+                "present is skipped, never overwritten; loading twice changes nothing."
+            ),
+        )
+    )
+    load_seed.add_argument("--seed", required=True, help="e.g. tenants/sage-spine/seed.json")
 
     serve = sub.add_parser(
         "serve",
@@ -873,6 +944,63 @@ def cmd_exception(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_oversight(args: argparse.Namespace) -> int:
+    """The register from the command line, through the same policy as the API.
+
+    Nothing here decides who may do what: `ironclad.oversight` refuses a
+    stranger, a reader loading a seed and an unrated contributor exactly as
+    it does over HTTP, and the refusal comes back as exit 2.
+    """
+    target = args.to or os.environ.get(STORE_ENV, "")
+    if not target:
+        print(
+            f"no store target: pass --to or set {STORE_ENV} "
+            "(a path or file:// for a volume, mysql:// for MariaDB)",
+            file=sys.stderr,
+        )
+        return EXIT_BAD_INPUT
+    store = store_from_target(target)
+    if not hasattr(store, "put_oversight"):
+        print(f"{target_summary(target)} does not hold the register", file=sys.stderr)
+        return EXIT_BAD_INPUT
+
+    if args.oversight_command == "load-seed":
+        try:
+            seed = json.loads(Path(args.seed).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValidationError(f"{args.seed} is not a readable seed ({exc})") from exc
+        tenant = str(seed.get("tenant_id") or "") if isinstance(seed, dict) else ""
+        if not tenant:
+            print(f"{args.seed} names no tenant_id", file=sys.stderr)
+            return EXIT_BAD_INPUT
+    else:
+        tenant = args.tenant
+    caller = Principal(
+        user_id=args.actor, tenant_id=tenant, roles=frozenset(Role(r) for r in args.role)
+    )
+
+    if args.oversight_command == "load-seed":
+        _emit({"tenant_id": tenant, **oversight.load_seed(store, seed, principal=caller)})
+        return EXIT_OK
+
+    if args.oversight_command == "verify":
+        sweep = oversight.verify_register(store, tenant_id=tenant, principal=caller)
+        _emit(sweep)
+        return EXIT_OK if sweep["verified"] else EXIT_FINDINGS
+
+    queue = oversight.attention_queue(
+        store,
+        tenant_id=tenant,
+        principal=caller,
+        today=args.as_of or oversight.today_utc(),
+    )
+    _emit(queue)
+    tripped = (args.fail_on == "high" and queue["high"]) or (
+        args.fail_on == "any" and queue["records"]
+    )
+    return EXIT_FINDINGS if tripped else EXIT_OK
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """Serve the API. Returns only when the server is stopped."""
     from ironclad.api.http import App, TokenFileAuthenticator, serve  # noqa: PLC0415
@@ -1151,6 +1279,7 @@ def main(argv: list[str] | None = None) -> int:
         "compare": lambda: cmd_compare(args),
         "store": lambda: cmd_store(args),
         "exception": lambda: cmd_exception(args),
+        "oversight": lambda: cmd_oversight(args),
         "serve": lambda: cmd_serve(args),
         "hash-token": lambda: cmd_hash_token(),
     }

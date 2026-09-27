@@ -308,6 +308,56 @@ lint pass; mypy reports only the known Windows `fcntl` errors in
 environmental `api.test.js`); white-label, secret-literal and `git diff
 --check` gates pass.
 
+**Integrity sweep and a command line, 2026-09-26 (ninth pass).** Two gaps
+were left on the target stack. `verify_oversight` checked one record at a
+time, only over HTTP, and only for records the caller already knew; and
+nothing that holds no browser session (a scheduled BAA sweep, an auditor with
+store access, whoever loads the Sage seed into a new store) had a way in:
+`load_seed` existed as a function with no entry point. Now:
+
+- `verify_register()` in `ironclad/oversight.py` re-checks every record of
+  both kinds and returns `records`, `broken`, `verified` and one verdict per
+  record. It walks a new store method, `oversight_ids()`, which on MariaDB is
+  the **union** of the record table and the history table. A record row
+  deleted from under its history (a business associate dropped from the
+  inventory without a trace) was invisible to every list and to `/history`,
+  which needs the id; the sweep reports it as `history exists for a record
+  that does not`. On a volume the history is the record, so the two are the
+  same set.
+- `GET /api/v1/tenants/{t}/oversight/verification` serves the sweep to any
+  tenant member; another tenant gets 403, and a POST there is 404, as for
+  `attention`. Registered before `{kind}`.
+- `ironclad oversight load-seed | verify | attention` (`ironclad/cli.py`), each
+  run as an asserted `--actor` with `--role`s through the same policy, so a
+  contributor loading the rated seed and an actor with no role are refused
+  (exit 2). `verify` exits 4 on any broken record; `attention --fail-on
+  high|any` exits 4 when the queue holds such a finding. Exit 4 is new and
+  means "the register needs looking at", distinct from 2, "the job is wrong".
+  The runbook is `HANDOFF.md` §17.
+
+Known limit, written down rather than hidden (`docs/http-api.md`): on a volume,
+deleting a record's latest revision file rolls the record back to the one
+before with a whole history, and no check inside the volume can see it.
+Anchoring the head revision somewhere else is the fix, and is not done here.
+
+Tests: 13 new functions, 15 runs across the two stores. Two store-contract cases (every record of both kinds verified
+after an edit; the sweep refuses another tenant and is empty for its own) run
+on the volume locally and on MariaDB in CI; one volume case (an entry
+rewritten to name another tenant is named in the sweep); one MariaDB case (the
+deleted record row is found through its history); two HTTP cases on a real
+socket; seven CLI cases on a volume. Six mutations each fail a test by name:
+the sweep always verified, the sweep without the reader check, the sweep
+truncating what it walks, `verify` always exiting 0, `--fail-on any` ignored,
+and the route registered after `{kind}`. Walking only listed records instead
+of `oversight_ids()` is indistinguishable on a volume; the MariaDB case that
+catches it runs in CI only (no MariaDB on this machine today).
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub as before):
+`tests/test_oversight.py` + `tests/test_http.py` 208 passed, 25 skipped
+(MariaDB), 1 failed: the 20-writer lock test, unchanged from the untouched
+tree (196 passed, 22 skipped, same failure). ruff format and lint pass; mypy
+reports only the known Windows `fcntl` errors in `policy_store.py`.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

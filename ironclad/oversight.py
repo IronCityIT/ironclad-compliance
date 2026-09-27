@@ -513,6 +513,30 @@ def attention_queue(
     }
 
 
+def verify_register(store: Any, *, tenant_id: str, principal: Principal) -> dict[str, Any]:
+    """Every record's history in the tenant's register, re-checked.
+
+    Walks every id that has a record *or* any history, so a record removed
+    while its history stayed behind is reported rather than never looked at.
+    Any member of the tenant may run it; the verdicts hold nothing they cannot
+    already read. `verified` is true only when every record is.
+    """
+    check_reader(principal, tenant_id)
+    items: list[dict[str, Any]] = []
+    for kind in KINDS:
+        for record_id in store.oversight_ids(tenant_id, kind):
+            verdict = store.verify_oversight(tenant_id, kind, record_id)
+            items.append({"kind": kind, "id": record_id, **verdict})
+    broken = sum(1 for item in items if not item["verified"])
+    return {
+        "tenant_id": tenant_id,
+        "records": len(items),
+        "broken": broken,
+        "verified": broken == 0,
+        "items": items,
+    }
+
+
 def seed_record_id(name: str) -> str:
     """A stable id for a seeded record, so loading a seed twice finds it."""
     slug = slugify(name)[:_RECORD_ID_MAX]

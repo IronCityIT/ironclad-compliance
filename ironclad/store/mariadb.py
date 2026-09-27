@@ -479,6 +479,20 @@ class MariaDBResultStore:
         records.sort(key=lambda r: (str(r.get("name", "")).lower(), r["id"]))
         return records
 
+    def oversight_ids(self, tenant_id: str, kind: str) -> list[str]:
+        """Every record id of one kind with a record or any history, sorted.
+
+        The union, not the record table alone: a record row deleted out from
+        under its history must still be found, so the sweep can say so.
+        """
+        kind = check_kind(kind)
+        found = self._query(
+            "SELECT record_id FROM oversight_records WHERE tenant_id = %s AND kind = %s "
+            "UNION SELECT record_id FROM oversight_history WHERE tenant_id = %s AND kind = %s",
+            (tenant_id, kind, tenant_id, kind),
+        )
+        return sorted(str(row["record_id"]) for row in found)
+
     def oversight_history(self, tenant_id: str, kind: str, record_id: str) -> list[dict[str, Any]]:
         """Every revision of one record, oldest first, exactly as written."""
         found = self._query(

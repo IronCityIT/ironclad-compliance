@@ -297,6 +297,13 @@ class FileResultStore:
         found.sort(key=lambda r: (str(r.get("name", "")).lower(), r["id"]))
         return found
 
+    def oversight_ids(self, tenant_id: str, kind: str) -> list[str]:
+        """Every record id of one kind with a record or any history, sorted."""
+        base = self._oversight_dir(tenant_id, kind)
+        if not base.is_dir():
+            return []
+        return sorted(d.name for d in base.iterdir() if self._oversight_revisions(d))
+
     def oversight_history(self, tenant_id: str, kind: str, record_id: str) -> list[dict[str, Any]]:
         """Every revision of one record, oldest first, exactly as written."""
         directory = self._oversight_dir(tenant_id, kind, record_id)

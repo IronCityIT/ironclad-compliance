@@ -85,6 +85,7 @@ All under `/api/v1`. Every answer is JSON of the shape
 | POST | `/tenants/{t}/exceptions/{id}/revoke` | `exception:approve` | revoke; body: `reason` |
 | GET | `/tenants/{t}/audit?limit=` | `audit:read` | the hash-chained trail |
 | GET | `/tenants/{t}/oversight/attention?as_of=` | any role in the tenant | the review queue across both registers, as of `as_of` (`YYYY-MM-DD`, default today in UTC) |
+| GET | `/tenants/{t}/oversight/verification` | any role in the tenant | every record's history in both registers re-checked, with a verdict each |
 | GET | `/tenants/{t}/oversight/{kind}` | any role in the tenant | the register's current records; `kind` is `partners` or `integrations` |
 | POST | `/tenants/{t}/oversight/{kind}` | owner, compliance manager, contributor | create; body: `{"fields": {...}}` |
 | GET | `/tenants/{t}/oversight/{kind}/{id}` | any role in the tenant | one record |
@@ -181,6 +182,17 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   to the dashboard's `attentionFindings()` by one table of cases,
   `tests/fixtures/oversight-attention.json`. An `as_of` that is not a calendar
   day is 400; a POST there is 404, since `attention` is not a register.
+- **The integrity sweep.** `/oversight/verification` re-checks every record
+  in both registers the way `/history` checks one, and walks every id that
+  has a record *or* any history, so a MariaDB record row deleted from under
+  its history is reported (`history exists for a record that does not`)
+  rather than silently missing from the inventory. The body is `tenant_id`,
+  `records`, `broken`, `verified` (true only if every record is) and `items`,
+  one per record: `kind`, `id` and the same verdict fields as `/history`. A
+  POST there is 404. On a volume, removing a record's *latest* revision file
+  rolls the record back to the one before and leaves a whole history; the
+  sweep cannot see that, because nothing outside the volume anchors the last
+  revision.
 - An unknown `kind` or record is 404. A record id outside `[A-Za-z0-9_-]` is
   400. A store that does not hold the register answers 503.
 

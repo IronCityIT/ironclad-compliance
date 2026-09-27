@@ -236,7 +236,7 @@ not the removal.
 | `functions/index.js` | `storeAssessmentResults` — the ingest that writes Firestore | **REPLACE** with a MariaDB writer behind the chosen transport (§3.2). Its *decisions* (`functions/core.js`) are storage-agnostic and should be carried over. |
 | `functions/exchange.js` | Auth0 → Firebase custom token bridge, mints `client_id` and `roles` claims | **REPLACE.** Whatever replaces Firestore needs its own session/claim mechanism. Auth0 itself is not retired; the *Firebase* half is. |
 | `functions/trigger.js` | Dashboard → GitHub `workflow_dispatch` | **KEEP THE BEHAVIOUR, MOVE THE HOST.** Dispatching a workflow is target-state; being a Cloud Function is not. Its tenant checks (`checkEvidencePath`) are storage-agnostic. |
-| `firestore.rules` | Multi-tenant read rules | **REPLACE** with tenant-scoped SQL access: a per-tenant credential or a query layer that cannot emit a cross-tenant query. The 53 emulator cases are the specification of what the replacement must enforce. Since 2026-09-26 it also governs the one browser write path — the partner/integration register — with a closed schema and an append-only `history/{revision}` snapshot per change (optimistic concurrency by revision); the replacement needs the same: an immutable per-record change log written in the same transaction as the record. **Built 2026-09-26** on both target stores (`ironclad/oversight.py`, `put_oversight` in `store/files.py` and `store/mariadb.py`, `store/oversight_schema.sql`; `tests/test_oversight.py`). Deployment requirement: the production MariaDB account holds only SELECT and INSERT on `oversight_history` — no trigger enforces append-only, because the NAS runs with binary logging and creating one would need SUPER. The `ironclad serve` routes for the register were built on 2026-09-26 (`/api/v1/tenants/{t}/oversight/...`, `docs/http-api.md`). They carry the same refusals as HTTP statuses, and a stale edit gets 409. The review queue (`attentionFindings()` in the page) moved to the server the same day: `GET .../oversight/attention`, held to the page case for case by `tests/fixtures/oversight-attention.json`. What remains is the browser sign-in (B6). |
+| `firestore.rules` | Multi-tenant read rules | **REPLACE** with tenant-scoped SQL access: a per-tenant credential or a query layer that cannot emit a cross-tenant query. The 53 emulator cases are the specification of what the replacement must enforce. Since 2026-09-26 it also governs the one browser write path — the partner/integration register — with a closed schema and an append-only `history/{revision}` snapshot per change (optimistic concurrency by revision); the replacement needs the same: an immutable per-record change log written in the same transaction as the record. **Built 2026-09-26** on both target stores (`ironclad/oversight.py`, `put_oversight` in `store/files.py` and `store/mariadb.py`, `store/oversight_schema.sql`; `tests/test_oversight.py`). Deployment requirement: the production MariaDB account holds only SELECT and INSERT on `oversight_history` — no trigger enforces append-only, because the NAS runs with binary logging and creating one would need SUPER. The `ironclad serve` routes for the register were built on 2026-09-26 (`/api/v1/tenants/{t}/oversight/...`, `docs/http-api.md`). They carry the same refusals as HTTP statuses, and a stale edit gets 409. The review queue (`attentionFindings()` in the page) moved to the server the same day: `GET .../oversight/attention`, held to the page case for case by `tests/fixtures/oversight-attention.json`. A register-wide integrity sweep (`GET .../oversight/verification`, `ironclad oversight verify`) and a CLI for seeding and scheduled queue checks followed (§17). What remains is the browser sign-in (B6). |
 | `firebase.json`, `.firebaserc` | Firebase project and hosting config | **REMOVE** when hosting moves. Still referenced by the rules test harness today. |
 | `dashboard/public/config.js` | Injects Firebase web config at deploy time | **REPLACE** the `firebase` block; the `auth0` block stays. |
 | `dashboard/public/auth.js` | Firebase Auth + Firestore live queries | **REPLACE** the data layer. `app.js` — all rendering — is already backend-agnostic and needs no change. |
@@ -727,6 +727,25 @@ ironclad exception approve --policy policy.json --actor bob \
   --role compliance_manager --id ex-…
 ```
 A second person must approve. The trail is `policy.json.audit.json`, hash-chained.
+
+### Check the partner/integration register without a browser
+
+```sh
+export IRONCLAD_STORE=/srv/ironclad            # or a mysql:// DSN, never on the command line
+ironclad oversight load-seed --seed tenants/sage-spine/seed.json --actor bill --role owner
+ironclad oversight verify    --tenant sage-spine --actor auditor-1 --role auditor
+ironclad oversight attention --tenant sage-spine --actor sweep --role viewer --fail-on high
+```
+
+`load-seed` is an approver's act (a seed carries ratings) and skips any record
+already present. `verify` re-checks every record's change history, including a
+record row deleted from under its history on MariaDB, and exits 4 naming each
+broken record. `attention` prints the review queue; with `--fail-on high` (or
+`any`) it exits 4 when the queue holds such a finding, which is what a
+scheduled BAA sweep should key on. Exit 2 is always the job's fault (no store,
+no role, a bad date), never the register's. The actor is asserted, as with
+`ironclad exception`: whoever holds the store credential can name anyone, so
+the credential is the boundary and the actor is the attribution.
 
 ### Verify an auditor package
 

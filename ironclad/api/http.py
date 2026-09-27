@@ -267,8 +267,9 @@ class App:
         self._route("POST", tenant + "/exceptions/{exception_id}/approve", self.approve_exception)
         self._route("POST", tenant + "/exceptions/{exception_id}/revoke", self.revoke_exception)
         self._route("GET", tenant + "/audit", self.audit_trail)
-        # Before `{kind}`, which would otherwise read `attention` as a register.
+        # Before `{kind}`, which would otherwise read these as register names.
         self._route("GET", tenant + "/oversight/attention", self.oversight_attention)
+        self._route("GET", tenant + "/oversight/verification", self.oversight_verification)
         register = tenant + "/oversight/{kind}"
         self._route("GET", register, self.list_oversight)
         self._route("POST", register, self.create_oversight)
@@ -500,7 +501,7 @@ class App:
             raise HttpError(
                 HTTPStatus.FORBIDDEN, f"{principal.user_id} may not maintain the register"
             )
-        # The review queue spans both registers and names none.
+        # The review queue and the verification sweep span both registers.
         kind = request.params.get("kind", oversight.KINDS[0])
         if kind not in oversight.KINDS:
             raise HttpError(
@@ -604,6 +605,13 @@ class App:
             lambda: oversight.attention_queue(
                 self.results, tenant_id=tenant, principal=principal, today=as_of
             )
+        )
+
+    def oversight_verification(self, request: Request, principal: Principal) -> Response:
+        """Every record's history in both registers, re-checked, with a verdict each."""
+        tenant, _ = self._oversight_scope(request, principal, write=False)
+        return self._oversight_answer(
+            lambda: oversight.verify_register(self.results, tenant_id=tenant, principal=principal)
         )
 
     def create_oversight(self, request: Request, principal: Principal) -> Response:

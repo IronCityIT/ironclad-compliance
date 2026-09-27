@@ -427,6 +427,27 @@ class RegisterContract:
         with pytest.raises(AuthorizationError, match="rated seed"):
             oversight.load_seed(self.store(tmp_path), SEED, principal=CONTRIBUTOR)
 
+    def test_the_sweep_verifies_every_record_of_both_kinds(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        first = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        self.save(store, record_id=first, changes={"notes": "x"}, at=LATER)
+        sweep = oversight.verify_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        seeded = sum(len(SEED["oversight"][k]) for k in oversight.KINDS)
+        assert (sweep["records"], sweep["broken"], sweep["verified"]) == (seeded, 0, True)
+        assert {i["kind"] for i in sweep["items"]} == set(oversight.KINDS)
+        revisions = {i["id"]: i["revisions"] for i in sweep["items"]}
+        assert revisions.pop(first) == 2
+        assert set(revisions.values()) == {1}
+
+    def test_the_sweep_is_the_tenants_own(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        with pytest.raises(AuthorizationError):
+            oversight.verify_register(store, tenant_id="sage-spine", principal=OUTSIDER)
+        own = oversight.verify_register(store, tenant_id="other-clinic", principal=OUTSIDER)
+        assert (own["records"], own["verified"], own["items"]) == (0, True, [])
+
 
 class TestTheVolume(RegisterContract):
     def store(self, tmp_path: Path) -> Any:
@@ -460,6 +481,23 @@ class TestTheVolume(RegisterContract):
         ).unlink()
         verdict = store.verify_oversight("sage-spine", "partners", first["id"])
         assert verdict["verified"] is False and "revision 1" in verdict["detail"]
+
+    def test_the_sweep_names_the_record_whose_history_was_edited(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        record_id = oversight.seed_record_id(SEED["oversight"]["integrations"][0]["name"])
+        path = tmp_path / "volume" / "sage-spine" / "oversight" / "integrations" / record_id
+        entry = json.loads((path / "1.json").read_text(encoding="utf-8"))
+        # Rewriting the only entry moves the record with it, so the tenant is
+        # what gives it away: an entry filed here that names another.
+        (path / "1.json").write_text(
+            json.dumps({**entry, "tenant_id": "other-clinic"}), encoding="utf-8"
+        )
+        sweep = oversight.verify_register(store, tenant_id="sage-spine", principal=VIEWER)
+        assert (sweep["verified"], sweep["broken"]) == (False, 1)
+        (broken,) = [i for i in sweep["items"] if not i["verified"]]
+        assert (broken["kind"], broken["id"]) == ("integrations", record_id)
+        assert "another tenant" in broken["detail"]
 
     def test_an_unreadable_entry_is_named_not_skipped(self, tmp_path: Path) -> None:
         store = self.store(tmp_path)
@@ -533,6 +571,22 @@ class TestMariaDB(RegisterContract):
         verdict = store.verify_oversight("sage-spine", "partners", "drchrono")
         assert verdict["verified"] is False and "latest history entry" in verdict["detail"]
 
+    def test_a_record_row_deleted_from_under_its_history_is_found(self, tmp_path: Path) -> None:
+        # The inventory is the record table; deleting a row would drop a
+        # business associate from every list without a trace. The sweep
+        # walks the history as well, so the row's absence is reported.
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        record_id = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        self._execute(store, f"DELETE FROM oversight_records WHERE record_id = '{record_id}'")
+        assert record_id not in [r["id"] for r in store.list_oversight("sage-spine", "partners")]
+        assert record_id in store.oversight_ids("sage-spine", "partners")
+        sweep = oversight.verify_register(store, tenant_id="sage-spine", principal=AUDITOR)
+        assert (sweep["verified"], sweep["broken"]) == (False, 1)
+        (broken,) = [i for i in sweep["items"] if not i["verified"]]
+        assert (broken["kind"], broken["id"]) == ("partners", record_id)
+        assert "history exists for a record that does not" in broken["detail"]
+
     def test_a_refused_write_leaves_no_history_behind(self, tmp_path: Path) -> None:
         # All or nothing: the history row goes in first, and a record that
         # is not at the revision before rolls it back.
@@ -542,3 +596,89 @@ class TestMariaDB(RegisterContract):
             store.put_oversight("sage-spine", "partners", "drchrono", orphan)
         assert store.oversight_history("sage-spine", "partners", "drchrono") == []
         assert store.get_oversight("sage-spine", "partners", "drchrono") is None
+
+
+# ------------------------------------------------------------ command line
+
+
+class TestTheCommandLine:
+    """`ironclad oversight`, for what holds no browser session: the same policy.
+
+    The actor is asserted, as with `ironclad exception`: whoever runs this
+    holds the store credential. What the policy still decides is what that
+    actor's roles allow.
+    """
+
+    SEED_PATH = str(ROOT / "tenants" / "sage-spine" / "seed.json")
+    APPROVER = ("--actor", "owner-1", "--role", "owner")
+    AUDIT = ("--actor", "auditor-1", "--role", "auditor")
+    TENANT = ("--tenant", "sage-spine")
+
+    @pytest.fixture()
+    def run(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Any:
+        from ironclad.cli import main  # noqa: PLC0415 -- imports fcntl, POSIX only
+
+        volume = str(tmp_path / "volume")
+
+        def run(*argv: str) -> tuple[int, Any, str]:
+            code = main(["oversight", *argv, "--to", volume])
+            out, err = capsys.readouterr()
+            return code, (json.loads(out) if out.strip() else None), err
+
+        return run
+
+    def test_an_approver_loads_the_seed_once(self, run: Any) -> None:
+        seeded = sum(len(SEED["oversight"][k]) for k in oversight.KINDS)
+        code, loaded, _ = run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        assert (code, loaded["tenant_id"], len(loaded["created"])) == (0, "sage-spine", seeded)
+        code, again, _ = run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        assert (code, again["created"], len(again["skipped"])) == (0, [], seeded)
+
+    def test_a_contributor_may_not_load_the_seed(self, run: Any) -> None:
+        contributor = ("--actor", "c-1", "--role", "contributor")
+        code, out, err = run("load-seed", "--seed", self.SEED_PATH, *contributor)
+        assert (code, out) == (2, None) and "rated seed" in err
+
+    def test_the_queue_exits_4_only_when_asked_to_fail(self, run: Any) -> None:
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        dated = (*self.TENANT, "--as-of", "2026-09-26", *self.AUDIT)
+        code, queue, _ = run("attention", *dated)
+        assert (code, queue["as_of"]) == (0, "2026-09-26") and queue["high"] > 0
+        assert run("attention", *dated, "--fail-on", "high")[0] == 4
+        assert run("attention", *dated, "--fail-on", "any")[0] == 4
+
+    def test_an_empty_queue_passes_the_strictest_gate(self, run: Any) -> None:
+        code, queue, _ = run("attention", *self.TENANT, *self.AUDIT, "--fail-on", "any")
+        assert (code, queue["records"]) == (0, 0)
+
+    def test_verify_exits_4_and_names_a_broken_history(self, run: Any, tmp_path: Path) -> None:
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        code, sweep, _ = run("verify", *self.TENANT, *self.AUDIT)
+        assert (code, sweep["verified"], sweep["broken"]) == (0, True, 0)
+        record_id = oversight.seed_record_id(SEED["oversight"]["partners"][0]["name"])
+        record_dir = tmp_path / "volume" / "sage-spine" / "oversight" / "partners" / record_id
+        # A revision 2 planted beside the real one, with nothing else kept.
+        (record_dir / "2.json").write_text(
+            json.dumps({"revision": 2, "tenant_id": "sage-spine"}), encoding="utf-8"
+        )
+        code, sweep, _ = run("verify", *self.TENANT, *self.AUDIT)
+        assert (code, sweep["broken"]) == (4, 1)
+        assert [i["id"] for i in sweep["items"] if not i["verified"]] == [record_id]
+
+    def test_an_actor_with_no_role_and_a_bad_date_are_bad_input(self, run: Any) -> None:
+        code, out, err = run("attention", *self.TENANT, "--actor", "x")
+        assert (code, out) == (2, None) and "may not read" in err
+        code, out, _ = run("verify", *self.TENANT, "--actor", "x")
+        assert (code, out) == (2, None)
+        code, out, _ = run("attention", *self.TENANT, *self.AUDIT, "--as-of", "2026-02-30")
+        assert (code, out) == (2, None)
+
+    def test_no_store_is_bad_input(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from ironclad.cli import main  # noqa: PLC0415
+
+        monkeypatch.delenv("IRONCLAD_STORE", raising=False)
+        argv = ["oversight", "verify", *self.TENANT, *self.AUDIT]
+        assert main(argv) == 2
+        assert "no store target" in capsys.readouterr().err
