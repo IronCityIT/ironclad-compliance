@@ -301,6 +301,7 @@ class App:
         self._route("GET", tenant + "/oversight/attention", self.oversight_attention)
         self._route("GET", tenant + "/oversight/verification", self.oversight_verification)
         self._route("GET", tenant + "/oversight/seal", self.oversight_seal)
+        self._route("GET", tenant + "/oversight/export", self.oversight_export)
         register = tenant + "/oversight/{kind}"
         self._route("GET", register, self.list_oversight)
         self._route("POST", register, self.create_oversight)
@@ -651,6 +652,16 @@ class App:
         tenant, _ = self._oversight_scope(request, principal, write=False)
         return self._oversight_answer(
             lambda: oversight.seal_register(self.results, tenant_id=tenant, principal=principal)
+        )
+
+    def oversight_export(self, request: Request, principal: Principal) -> Response:
+        """The whole register as CSV, with its review-queue findings, for any tenant member."""
+        tenant, _ = self._oversight_scope(request, principal, write=False)
+        as_of = request.query.get("as_of", [""])[0] or oversight.today_utc()
+        return self._oversight_answer(
+            lambda: oversight.export_register(
+                self.results, tenant_id=tenant, principal=principal, today=as_of
+            )
         )
 
     def create_oversight(self, request: Request, principal: Principal) -> Response:

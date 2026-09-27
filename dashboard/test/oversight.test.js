@@ -339,6 +339,13 @@ test("every Sage Spine seed record exports with its missing BAA; the file is nam
   assert.equal(exportFileName("",TODAY),"oversight-register-tenant-2026-09-26.csv");
 });
 
+// ironclad/oversight.py::register_csv is held to the same file, byte for byte.
+const exportSpec=JSON.parse(fs.readFileSync(path.join(root,"tests","fixtures","oversight-export.json"),"utf8"));
+test("the export matches the shared specification the server's export is held to",()=>{
+  assert.equal(registerCsv(exportSpec.register,exportSpec.today),exportSpec.csv);
+  assert.equal(exportFileName(exportSpec.tenant_id,exportSpec.today),exportSpec.filename);
+});
+
 test("the page offers the export only once both kinds have loaded",()=>{
   assert.match(html,/<button id="export-csv"[^>]*disabled/);
   assert.match(js,/registerCsv\(/);

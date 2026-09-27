@@ -9,6 +9,7 @@
     ironclad export --input out/assessment.json --format package --out out/package/
     ironclad crosswalk --from soc2 --to hipaa
     ironclad oversight attention --tenant sage-spine --actor a --role auditor --fail-on high
+    ironclad oversight export --tenant sage-spine --actor a --role auditor --out out/
 
 `assess` writes three files into --out: assessment.json (the full result),
 findings.b64 (the base64 findings the AI consensus engine's workflow_call input
@@ -360,6 +361,27 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("never", "high", "any"),
         default="never",
         help=f"exit {EXIT_FINDINGS} when the queue holds a high finding, or any finding",
+    )
+
+    register_export = with_register_actor(
+        register_sub.add_parser(
+            "export",
+            help="write the whole register as CSV, with its review-queue findings",
+            description=(
+                "The inventory an auditor asks for when listing business associates: "
+                "every record of both kinds, retired ones included, one row each with "
+                "the review queue's findings as of --as-of. The same file the "
+                "dashboard's download writes. Prints the file name, row counts and "
+                "the SHA-256 of what was written."
+            ),
+        )
+    )
+    register_export.add_argument("--tenant", required=True)
+    register_export.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    register_export.add_argument(
+        "--out",
+        required=True,
+        help="the CSV file to write (a directory: named for tenant and date)",
     )
 
     register_verify = with_register_actor(
@@ -1208,6 +1230,24 @@ def cmd_oversight(args: argparse.Namespace) -> int:
             verified = verified and sweep["seal"]["verified"]
         _emit(sweep)
         return EXIT_OK if verified else EXIT_FINDINGS
+
+    if args.oversight_command == "export":
+        export = oversight.export_register(
+            store,
+            tenant_id=tenant,
+            principal=caller,
+            today=args.as_of or oversight.today_utc(),
+        )
+        out = Path(args.out)
+        if out.is_dir():
+            out = out / export["filename"]
+        try:
+            # Bytes, so the CRLF rows are written as they are on every platform.
+            out.write_bytes(export.pop("csv").encode("utf-8"))
+        except OSError as exc:
+            raise ValidationError(f"cannot write {out} ({exc})") from exc
+        _emit({"tenant_id": tenant, "path": str(out), **export})
+        return EXIT_OK
 
     queue = oversight.attention_queue(
         store,

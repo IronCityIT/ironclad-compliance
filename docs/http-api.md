@@ -159,6 +159,7 @@ All under `/api/v1`. Every answer is JSON of the shape
 | GET | `/tenants/{t}/oversight/attention?as_of=` | any role in the tenant | the review queue across both registers, as of `as_of` (`YYYY-MM-DD`, default today in UTC) |
 | GET | `/tenants/{t}/oversight/verification` | any role in the tenant | every record's history in both registers re-checked, with a verdict each |
 | GET | `/tenants/{t}/oversight/seal` | any role in the tenant | a digest of every history entry in both registers, for the caller to keep outside the store |
+| GET | `/tenants/{t}/oversight/export?as_of=` | any role in the tenant | the whole register as CSV, with each record's review-queue findings, and the SHA-256 of the file |
 | GET | `/tenants/{t}/oversight/{kind}` | any role in the tenant | the register's current records; `kind` is `partners` or `integrations` |
 | POST | `/tenants/{t}/oversight/{kind}` | owner, compliance manager, contributor | create; body: `{"fields": {...}}` |
 | GET | `/tenants/{t}/oversight/{kind}/{id}` | any role in the tenant | one record |
@@ -282,6 +283,22 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   longer matches its digest and is refused. The seal proves nothing on its
   own: it is as good as the place it is kept, and the digest is what makes
   that place checkable. A POST there is 404.
+- **The export.** `/oversight/export` is the page's *Download register
+  (CSV)* on the server: the inventory an auditor asks for when listing
+  business associates. The body is `as_of`, `filename`
+  (`oversight-register-<tenant>-<as_of>.csv`), `content_type`, `records`
+  (a count per kind), `sha256` of the file's UTF-8 bytes and `csv`, the file
+  itself: RFC 4180 with CRLF rows, a header of `record_type`, `id`, every
+  stored field and `attention_level`, `attention`; partners then
+  integrations, each by name; retired records kept (the export is the
+  inventory, not the queue). A cell starting `=`, `+`, `-`, `@`, tab or CR
+  gets a leading `'`, so text a contributor typed is never run as a
+  spreadsheet formula. `register_csv()` in `ironclad/oversight.py` is held to
+  the dashboard's `registerCsv()` byte for byte by one file,
+  `tests/fixtures/oversight-export.json`. The file travels inside the usual
+  JSON envelope, so a refusal reads like every other; `ironclad oversight
+  export --out DIR` writes it to disk and prints the hash. The `sha256` names
+  exactly what was handed over. A bad `as_of` is 400; a POST there is 404.
 - An unknown `kind` or record is 404. A record id outside `[A-Za-z0-9_-]` is
   400. A store that does not hold the register answers 503.
 

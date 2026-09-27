@@ -1380,6 +1380,30 @@ class TestOversightRegister:
         status, body, _ = as_("acme-manager").post(self.QUEUE, {"fields": {"name": "x"}})
         assert status == 404 and "no register 'attention'" in body["errors"][0]
 
+    EXPORT = "/api/v1/tenants/acme/oversight/export"
+
+    def test_the_export_is_the_whole_register_for_any_member(self, as_) -> None:
+        manager = as_("acme-manager")
+        assert _create(manager, {"name": "=cmd|' /C calc'!A0", "data_access": "PHI"})[0] == 200
+        assert _create(manager, {**self.RATED, "status": "Retired"})[0] == 200
+        status, body, _ = as_("acme-viewer").get(f"{self.EXPORT}?as_of=2026-09-26")
+        assert status == 200, body
+        export = body["data"]
+        assert export["filename"] == "oversight-register-acme-2026-09-26.csv"
+        assert export["records"] == {"partners": 2, "integrations": 0}
+        assert export["sha256"] == hashlib.sha256(export["csv"].encode("utf-8")).hexdigest()
+        head, *rows = export["csv"].split("\r\n")[:-1]
+        assert head.startswith("record_type,id,tenant_id,name,")
+        # Sorted by name; the typed formula is shown, not run; retired is kept.
+        assert rows[0].startswith("Partner,") and ",'=cmd|" in rows[0]
+        assert ",Clearinghouse," in rows[1] and ",Retired," in rows[1]
+
+    def test_the_export_refuses_strangers_bad_dates_and_writes(self, as_) -> None:
+        assert as_("beta-manager").get(self.EXPORT)[0] == 403
+        assert as_("acme-viewer").get(f"{self.EXPORT}?as_of=2026-02-30")[0] == 400
+        status, body, _ = as_("acme-manager").post(self.EXPORT, {"fields": {"name": "x"}})
+        assert status == 404 and "no register 'export'" in body["errors"][0]
+
     SWEEP = "/api/v1/tenants/acme/oversight/verification"
 
     def test_the_sweep_verifies_both_registers_for_any_member(self, as_) -> None:

@@ -515,6 +515,88 @@ def attention_queue(
     }
 
 
+#: How each register is named in the export, as the dashboard names it.
+KIND_LABELS = {"partners": "Partner", "integrations": "Integration"}
+
+#: The export's columns: the dashboard's `EXPORT_COLUMNS`, in its order.
+EXPORT_COLUMNS = ("record_type", "id", *FIELDS, "attention_level", "attention")
+
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value: Any) -> str:
+    """One RFC 4180 cell that a spreadsheet will show, never evaluate.
+
+    Register text is typed by contributors, so a cell a spreadsheet would read
+    as a formula gets a leading apostrophe (OWASP CSV injection), as the
+    dashboard's `csvCell()` does.
+    """
+    text = "" if value is None else str(value)
+    if text.startswith(_FORMULA_LEAD):
+        text = "'" + text
+    if any(c in text for c in '",\r\n'):
+        text = '"' + text.replace('"', '""') + '"'
+    return text
+
+
+def register_csv(by_kind: dict[str, list[dict[str, Any]]], today: str) -> str:
+    """Every record of every kind as CSV, with its review-queue findings as of `today`.
+
+    The dashboard's `registerCsv()` as Python, held to it byte for byte by
+    `tests/fixtures/oversight-export.json`: one row per record, kinds in
+    `KINDS` order and each sorted by name, retired records kept (the export
+    is the inventory, not the queue), CRLF rows.
+    """
+    check_as_of(today)
+    rows: list[list[Any]] = [list(EXPORT_COLUMNS)]
+    for kind in KINDS:
+        listed = sorted(
+            by_kind.get(kind, []),
+            key=lambda r: (str(r.get("name", "")).casefold(), str(r.get("name", ""))),
+        )
+        for record in listed:
+            findings = attention_findings(record, today)
+            rows.append(
+                [
+                    KIND_LABELS[kind],
+                    record.get("id") or "",
+                    *(record.get(field) for field in FIELDS),
+                    findings[0]["level"] if findings else "",
+                    " | ".join(f["message"] for f in findings),
+                ]
+            )
+    return "".join(",".join(_csv_cell(cell) for cell in row) + "\r\n" for row in rows)
+
+
+def export_file_name(tenant_id: str, today: str) -> str:
+    """A download name carrying the tenant and the date, as the dashboard names it."""
+    safe = re.sub(r"[^A-Za-z0-9_-]", "", str(tenant_id or "")) or "tenant"
+    return f"oversight-register-{safe}-{today}.csv"
+
+
+def export_register(
+    store: Any, *, tenant_id: str, principal: Principal, today: str
+) -> dict[str, Any]:
+    """The tenant's whole register as a CSV an auditor can file.
+
+    Any member of the tenant may take it; it holds nothing they cannot
+    already read. Carries the file name, the row count per kind and the
+    SHA-256 of the exact bytes, so what was handed over can be named later.
+    """
+    check_reader(principal, tenant_id)
+    check_as_of(today)
+    by_kind = {kind: list(store.list_oversight(tenant_id, kind)) for kind in KINDS}
+    csv_text = register_csv(by_kind, today)
+    return {
+        "as_of": today,
+        "filename": export_file_name(tenant_id, today),
+        "content_type": "text/csv; charset=utf-8",
+        "records": {kind: len(by_kind[kind]) for kind in KINDS},
+        "sha256": hashlib.sha256(csv_text.encode("utf-8")).hexdigest(),
+        "csv": csv_text,
+    }
+
+
 def verify_register(store: Any, *, tenant_id: str, principal: Principal) -> dict[str, Any]:
     """Every record's history in the tenant's register, re-checked.
 

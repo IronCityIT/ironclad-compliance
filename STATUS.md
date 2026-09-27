@@ -725,6 +725,67 @@ only the known Windows `fcntl` errors; white-label, secret-literal and `git diff
 --check` gates pass. In CI (run 36295538844), unstubbed: 1114 passed, 55 skipped
 on 3.10 and 3.12; persistence 224 passed.
 
+**The register export on the target stack, 2026-09-27 (seventeenth pass).**
+The fifth pass's *Download register (CSV)*, the business-associate inventory an
+auditor asks for, existed only in the browser, over Firestore snapshots. It had
+the same gap the review queue had before the eighth pass: nothing without a
+browser session (an auditor with a service token, a quarterly job filing the
+inventory) could take it, and it would have been lost with the path the
+architecture retires. Now:
+
+- `register_csv()` and `export_file_name()` in `ironclad/oversight.py` are the
+  dashboard's `registerCsv()` and `exportFileName()` as Python: the same
+  columns, partners then integrations each by name, retired records kept, the
+  queue's findings per row, RFC 4180 with CRLF, and the same `'` guard on a
+  cell a spreadsheet would evaluate (OWASP CSV injection).
+- `export_register()` checks the reader and returns `filename`, a count per
+  kind, the SHA-256 of the file's bytes and the file. The hash names exactly
+  what was handed over.
+- `GET /api/v1/tenants/{t}/oversight/export?as_of=` serves it to any tenant
+  member inside the usual JSON envelope. Another tenant is 403, a bad date
+  400, a POST 404. It is registered before `{kind}`.
+- `ironclad oversight export --tenant T --actor A --role R --out FILE|DIR`
+  writes the bytes as they are (CRLF kept on Windows) and prints the path,
+  counts and hash, not the file. The runbook is `HANDOFF.md` §17; the
+  reference is `docs/http-api.md`.
+
+The two implementations are held to **one file byte for byte**,
+`tests/fixtures/oversight-export.json`. The records in it were written by hand:
+formula-led cells of every kind, a comma, quotes, a CRLF and a bare LF, a
+retired record, and review and expiry dates on both sides of the 30-day edge.
+The expected CSV was produced by the shipped JS. `dashboard/test/oversight.test.js`
+and `tests/test_oversight.py` both read it. No write path, stored field, rule or
+schema changed.
+
+Tests: 12 new Python test functions (14 runs across the two stores) and 1 JS
+case. Six unit cases: the shared file, a
+read-back through `csv`, a bad date, three file names. Two store-contract cases
+(the whole register with a retired record and a matching hash; the tenant's
+own) run on the volume locally and on MariaDB in CI. Two HTTP cases run on a
+real socket, and two CLI cases check the file named in a directory, its hash,
+its CRLF rows and a stranger refused with nothing written. Eight mutations each
+fail a test by name:
+
+- the formula guard dropped;
+- the reader check skipped;
+- CR/LF left out of the quoting trigger;
+- rows left unsorted;
+- the route removed;
+- the directory not named for tenant and date;
+- a text-mode write;
+- retired records given findings.
+
+The CR/LF mutation first survived, because the fixture's only multi-line cell
+also held a comma. A newline-only cell was added, and the mutation now fails.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1183 tests,
+1116 passed, 57 skipped, 10 failed; untouched HEAD `5a4a4f2` in a worktree, run
+after it and not alongside: 1169 tests, 1104 passed, 55 skipped, the same 10
+failed, compared set for set. `npm --prefix dashboard test` 93/94 (the one
+failure is the environmental `api.test.js`, which spawns `python3`). ruff format
+and lint pass; mypy reports only the known Windows `fcntl` errors; white-label,
+secret-literal and `git diff --check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

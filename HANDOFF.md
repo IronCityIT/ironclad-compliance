@@ -735,6 +735,7 @@ export IRONCLAD_STORE=/srv/ironclad            # or a mysql:// DSN, never on the
 ironclad oversight load-seed --seed tenants/sage-spine/seed.json --actor bill --role owner
 ironclad oversight verify    --tenant sage-spine --actor auditor-1 --role auditor
 ironclad oversight attention --tenant sage-spine --actor sweep --role viewer --fail-on high
+ironclad oversight export    --tenant sage-spine --actor auditor-1 --role auditor --out workpapers/
 ironclad oversight seal      --tenant sage-spine --actor auditor-1 --role auditor > seal-2026-09-26.json
 ironclad oversight verify    --tenant sage-spine --actor auditor-1 --role auditor --seal seal-2026-09-26.json
 ironclad oversight compare-seals --earlier seal-2026-09-26.json --later seal-2026-12-26.json
@@ -745,7 +746,10 @@ already present. `verify` re-checks every record's change history, including a
 record row deleted from under its history on MariaDB, and exits 4 naming each
 broken record. `attention` prints the review queue; with `--fail-on high` (or
 `any`) it exits 4 when the queue holds such a finding, which is what a
-scheduled BAA sweep should key on. Exit 2 is always the job's fault (no store,
+scheduled BAA sweep should key on. `export` writes the whole register,
+retired records included, as the CSV the dashboard's download writes, named
+for the tenant and date, and prints its `sha256`; record the hash with the
+file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,
 no role, a bad date), never the register's. The actor is asserted, as with
 `ironclad exception`: whoever holds the store credential can name anyone, so
 the credential is the boundary and the actor is the attribution.

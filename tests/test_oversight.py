@@ -11,6 +11,9 @@ once, no read across tenants. The MariaDB half runs against a real server when
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
 import os
 import re
@@ -30,6 +33,9 @@ RULES = (ROOT / "firestore.rules").read_text(encoding="utf-8")
 SEED = json.loads((ROOT / "tenants" / "sage-spine" / "seed.json").read_text(encoding="utf-8"))
 ATTENTION = json.loads(
     (ROOT / "tests" / "fixtures" / "oversight-attention.json").read_text(encoding="utf-8")
+)
+EXPORT = json.loads(
+    (ROOT / "tests" / "fixtures" / "oversight-export.json").read_text(encoding="utf-8")
 )
 
 TEST_DSN = os.environ.get("IRONCLAD_TEST_DSN", "")
@@ -238,6 +244,50 @@ class TestTheReviewQueue:
             oversight.check_as_of(bad)
         with pytest.raises(OversightError):
             oversight.attention_findings(ATTENTION["base"], bad)
+
+
+class TestTheRegisterExport:
+    """`registerCsv()` in the dashboard, as Python, held to one file byte for byte."""
+
+    def test_the_shared_specification(self) -> None:
+        assert oversight.register_csv(EXPORT["register"], EXPORT["today"]) == EXPORT["csv"]
+        assert (
+            oversight.export_file_name(EXPORT["tenant_id"], EXPORT["today"]) == (EXPORT["filename"])
+        )
+
+    def test_it_reads_back_as_the_register_with_formulas_defused(self) -> None:
+        text = oversight.register_csv(EXPORT["register"], EXPORT["today"])
+        head, *rows = list(csv.reader(io.StringIO(text, newline="")))
+        assert tuple(head) == oversight.EXPORT_COLUMNS
+        by_id = {row[1]: dict(zip(head, row, strict=True)) for row in rows}
+        acme = by_id["acme-imaging"]
+        source = EXPORT["register"]["partners"][1]
+        # Delimiters, quotes and line breaks survive; nothing is evaluated.
+        assert acme["name"] == "Acme Imaging, Inc." and acme["notes"] == source["notes"]
+        for field in ("business_owner", "technical_owner", "phi_scope", "assurance"):
+            assert acme[field] == "'" + source[field], field
+        # The inventory keeps a retired record, with no finding against it.
+        assert (by_id["zeta-billing"]["status"], by_id["zeta-billing"]["attention"]) == (
+            "Retired",
+            "",
+        )
+        assert by_id["ehr-feed"]["attention_level"] == "high"
+        assert [row[0] for row in rows] == ["Partner"] * 3 + ["Integration"] * 2
+
+    def test_the_date_is_a_calendar_day(self) -> None:
+        with pytest.raises(OversightError, match="YYYY-MM-DD"):
+            oversight.register_csv(EXPORT["register"], "2026-02-30")
+
+    @pytest.mark.parametrize(
+        ("tenant", "name"),
+        [("../sage spine", "sagespine"), ("", "tenant"), ("a/b\\c:d", "abcd")],
+    )
+    def test_the_file_name_carries_nothing_a_filesystem_would_act_on(
+        self, tenant: str, name: str
+    ) -> None:
+        assert oversight.export_file_name(tenant, "2026-09-27") == (
+            f"oversight-register-{name}-2026-09-27.csv"
+        )
 
 
 class TestTheSealItself:
@@ -476,6 +526,35 @@ class RegisterContract:
             store, tenant_id="other-clinic", principal=OUTSIDER, today="2026-09-26"
         )
         assert outsider_view["items"] == []
+
+    def test_the_export_is_every_record_the_tenant_holds(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        retired = self.save(store, changes={"name": "Old Fax", "status": "Retired"})
+        export = oversight.export_register(
+            store, tenant_id="sage-spine", principal=AUDITOR, today="2026-09-26"
+        )
+        seeded = {k: len(SEED["oversight"][k]) for k in oversight.KINDS}
+        assert export["records"] == {**seeded, "partners": seeded["partners"] + 1}
+        assert export["filename"] == "oversight-register-sage-spine-2026-09-26.csv"
+        assert export["sha256"] == hashlib.sha256(export["csv"].encode("utf-8")).hexdigest()
+        rows = list(csv.reader(io.StringIO(export["csv"], newline="")))[1:]
+        assert len(rows) == sum(export["records"].values())
+        assert retired["id"] in [row[1] for row in rows]
+        assert {row[2] for row in rows} == {"sage-spine"}
+
+    def test_the_export_is_the_tenants_own(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        with pytest.raises(AuthorizationError):
+            oversight.export_register(
+                store, tenant_id="sage-spine", principal=OUTSIDER, today="2026-09-26"
+            )
+        own = oversight.export_register(
+            store, tenant_id="other-clinic", principal=OUTSIDER, today="2026-09-26"
+        )
+        assert own["records"] == {"partners": 0, "integrations": 0}
+        assert own["csv"].count("\r\n") == 1
 
     def test_a_contributor_may_not_load_a_rated_seed(self, tmp_path: Path) -> None:
         with pytest.raises(AuthorizationError, match="rated seed"):
@@ -804,6 +883,29 @@ class TestTheCommandLine:
     def test_an_empty_queue_passes_the_strictest_gate(self, run: Any) -> None:
         code, queue, _ = run("attention", *self.TENANT, *self.AUDIT, "--fail-on", "any")
         assert (code, queue["records"]) == (0, 0)
+
+    def test_export_writes_the_file_it_names_and_hashes(self, run: Any, tmp_path: Path) -> None:
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        out = tmp_path / "out"
+        out.mkdir()
+        dated = (*self.TENANT, "--as-of", "2026-09-26", *self.AUDIT)
+        code, summary, _ = run("export", *dated, "--out", str(out))
+        written = out / "oversight-register-sage-spine-2026-09-26.csv"
+        assert (code, summary["path"], "csv" in summary) == (0, str(written), False)
+        raw = written.read_bytes()
+        assert summary["sha256"] == hashlib.sha256(raw).hexdigest()
+        # CRLF rows as written, not doubled by a text-mode write on Windows.
+        assert raw.count(b"\r\n") == 1 + sum(summary["records"].values())
+        assert b"\r\r" not in raw
+
+    def test_export_refuses_a_stranger_and_writes_nothing(self, run: Any, tmp_path: Path) -> None:
+        run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
+        target = tmp_path / "register.csv"
+        stranger = ("--actor", "x", "--role", "owner", "--tenant", "other-clinic")
+        code, out, _ = run("export", *self.TENANT, "--actor", "x", "--out", str(target))
+        assert (code, out, target.exists()) == (2, None, False)
+        code, summary, _ = run("export", *stranger, "--out", str(target))
+        assert (code, summary["records"]) == (0, {"partners": 0, "integrations": 0})
 
     def test_verify_exits_4_and_names_a_broken_history(self, run: Any, tmp_path: Path) -> None:
         run("load-seed", "--seed", self.SEED_PATH, *self.APPROVER)
