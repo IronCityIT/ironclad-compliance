@@ -190,7 +190,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * What a reviewer should look at on one record, most serious first: PHI moving
  * without an executed BAA, a BAA claimed without its evidence or dated after
  * today, a BAA execution date on a BAA not marked executed, an Active
- * relationship with no executed agreement, a lapsed review or
+ * relationship with no executed agreement or no risk rating, a lapsed review or
  * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
  * unassessable: PHI with no scope or no recorded direction of flow, no
  * business owner, a High or Critical
@@ -221,6 +221,8 @@ export function attentionFindings(record, today) {
   if (record.status === "Active" && !AGREEMENT_SETTLED.includes(record.agreement_status)) {
     add("high", "agreement-not-executed", `Active without an executed agreement (Agreement: ${text(record.agreement_status) || "not recorded"}).`);
   }
+  const unrated = !record.risk || record.risk === "Unrated";
+  if (unrated && record.status === "Active") add("high", "active-unrated", "Active with risk not yet rated.");
   if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
   if (record.data_access === "PHI" && !text(record.data_flow_direction)) add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.");
   const review = text(record.review_due);
@@ -236,7 +238,7 @@ export function attentionFindings(record, today) {
     add("notice", "assurance-undated", `Rated ${record.risk} with no certificate / assurance expiry recorded.`);
   }
   if (ISO_DATE.test(expiry) && !text(record.assurance)) add("notice", "assurance-unnamed", `Certificate / assurance expiry ${expiry} recorded with no assurance named.`);
-  if (!record.risk || record.risk === "Unrated") add("notice", "risk-unrated", "Risk not yet rated.");
+  if (unrated && record.status !== "Active") add("notice", "risk-unrated", "Risk not yet rated.");
   if (!record.data_access || record.data_access === "Unknown") add("notice", "data-access-unknown", "Data access not established.");
   if (!text(record.business_owner)) add("notice", "owner-unassigned", "No business owner recorded.");
   return findings.sort((a, b) => (a.level === b.level ? 0 : a.level === "high" ? -1 : 1));

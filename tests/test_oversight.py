@@ -272,6 +272,23 @@ class TestTheReviewQueue:
         )
         assert unsigned == ["DrChrono"]
 
+    def test_no_sage_seed_record_is_active_and_unrated(self) -> None:
+        # DrChrono is the seed's one Active record, and it is rated High.
+        unrated = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "active-unrated"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert unrated == []
+        drchrono = {**SEED["oversight"]["partners"][0], "risk": "Unrated"}
+        assert drchrono["status"] == "Active"
+        found = oversight.attention_findings(drchrono, "2026-09-26")
+        assert ("high", "active-unrated") in [(f["level"], f["code"]) for f in found]
+        assert "risk-unrated" not in [f["code"] for f in found]
+        assert "active-unrated" in oversight.ACCESS_CODES
+
     def test_every_sage_seed_record_surfaces_its_missing_baa(self) -> None:
         for kind in oversight.KINDS:
             for entry in SEED["oversight"][kind]:

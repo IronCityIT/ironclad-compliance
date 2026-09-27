@@ -59,6 +59,19 @@
     {"name": "active with neither agreement nor BAA: the BAA first", "patch": {"baa_execution_date": "", "agreement_status": "Pending review", "baa_status": "Pending review"}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
       {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Pending review)."}]},
+    {"name": "an active relationship never risk-rated", "patch": {"risk": "Unrated"}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."}]},
+    {"name": "an active relationship with its risk cleared", "patch": {"risk": null}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."}]},
+    {"name": "an unrated relationship while onboarding is only the notice", "patch": {"status": "Onboarding", "risk": "Unrated"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "an unrated proposal is only the notice", "patch": {"status": "Pending information", "risk": "Unrated"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "a retired unrated relationship needs no attention", "patch": {"status": "Retired", "risk": "Unrated"}, "expected": []},
+    {"name": "active with no agreement and no rating: the agreement first", "patch": {"agreement_status": "Under review", "risk": "Unrated", "business_owner": ""}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."},
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."},
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
     {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
     {"name": "PHI with no data flow direction recorded", "patch": {"data_flow_direction": ""}, "expected": [
@@ -119,14 +132,14 @@
       {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2026-01-01 recorded with no assurance named."}]},
     {"name": "a high rating whose assurance lapsed is the lapse, not undated", "patch": {"risk": "High", "cert_expiration_date": "2026-01-01"}, "expected": [
       {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
-    {"name": "risk unset and data access unknown", "patch": {"risk": null, "data_access": "Unknown"}, "expected": [
+    {"name": "risk unset and data access unknown", "patch": {"status": "Under review", "risk": null, "data_access": "Unknown"}, "expected": [
       {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."},
       {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
     {"name": "a not-yet-effective BAA, no scope and no owner: the high first", "patch": {"phi_scope": "", "business_owner": "", "baa_execution_date": "2026-12-01"}, "expected": [
       {"level": "high", "code": "baa-not-yet-effective", "message": "BAA marked executed with an execution date of 2026-12-01, after today."},
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
       {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
-    {"name": "high findings in the order found, then notices", "patch": {"baa_execution_date": "", "risk": "Unrated", "baa_status": "Pending review", "review_due": "2020-01-01"}, "expected": [
+    {"name": "high findings in the order found, then notices", "patch": {"status": "Under review", "baa_execution_date": "", "risk": "Unrated", "baa_status": "Pending review", "review_due": "2020-01-01"}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
       {"level": "high", "code": "review-overdue", "message": "Review overdue since 2020-01-01."},
       {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},

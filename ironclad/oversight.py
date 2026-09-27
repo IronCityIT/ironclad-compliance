@@ -439,7 +439,9 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     PHI moving without an executed BAA, a BAA claimed without its evidence or
     dated after today, a BAA execution date on a BAA not marked executed (the
     date reads as a signature the status denies), an Active relationship whose agreement is neither
-    executed nor ruled not required, a lapsed review or assurance, a review set
+    executed nor ruled not required, an Active relationship never risk-rated
+    (its rating decides whether it owes a dated assurance, so nothing else
+    would ask), a lapsed review or assurance, a review set
     more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
     (whether PHI leaves the practice, arrives, or both), no business owner, a High or
@@ -499,6 +501,9 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
             "agreement-not-executed",
             f"Active without an executed agreement (Agreement: {agreement}).",
         )
+    unrated = not record.get("risk") or record.get("risk") == "Unrated"
+    if unrated and record.get("status") == "Active":
+        add("high", "active-unrated", "Active with risk not yet rated.")
     if record.get("data_access") == "PHI" and not _text(record.get("phi_scope")):
         add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
     if record.get("data_access") == "PHI" and not _text(record.get("data_flow_direction")):
@@ -534,7 +539,7 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
             "assurance-unnamed",
             f"Certificate / assurance expiry {expiry} recorded with no assurance named.",
         )
-    if not record.get("risk") or record.get("risk") == "Unrated":
+    if unrated and record.get("status") != "Active":
         add("notice", "risk-unrated", "Risk not yet rated.")
     if not record.get("data_access") or record.get("data_access") == "Unknown":
         add("notice", "data-access-unknown", "Data access not established.")
@@ -588,6 +593,7 @@ ACCESS_CODES = frozenset(
         "baa-evidence-missing",
         "baa-not-yet-effective",
         "agreement-not-executed",
+        "active-unrated",
         "review-overdue",
         "assurance-expired",
     }
@@ -605,7 +611,7 @@ def partner_access(
     still at `Pending information` (the status a contributor's proposal starts
     at, so access runs ahead of any review of the relationship), or has a
     review-queue finding in `ACCESS_CODES`: a partner handling PHI
-    without an executed BAA, Active with no executed agreement, or whose review or assurance has lapsed, still
+    without an executed BAA, Active with no executed agreement or no risk rating, or whose review or assurance has lapsed, still
     holding a working token. A linked token holding an approver role
     (`APPROVE_ROLES`) is high: the partner could set the status, risk or BAA
     status of the record its access is held to. `tokens issue` refuses one;

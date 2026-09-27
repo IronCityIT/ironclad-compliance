@@ -759,7 +759,14 @@ Sage seed records carry it until their assurance is dated. An `Active`
 record whose agreement status is neither `Executed` nor `Not required` is
 high (`agreement-not-executed`): the relationship is live with no contract
 behind it. Onboarding and under-review records are not held to it. The
-Sage seed's DrChrono carries it (Active, agreement under review). PHI
+Sage seed's DrChrono carries it (Active, agreement under review). An
+`Active` record whose risk is `Unrated` (or blank) is high
+(`active-unrated`) in place of the `risk-unrated` notice: an approver made
+the relationship live without assessing it, and the rating is what decides
+whether it owes a dated assurance (`assurance-undated`), so nothing else
+would ask. It is an access code, so a partner token for such a record is
+high in `oversight access`. Records not yet `Active` keep the notice. No
+Sage seed record carries it (DrChrono, the one Active record, is rated High). PHI
 with no data flow direction recorded is a notice (`phi-flow-unrecorded`):
 whether PHI leaves the practice, arrives, or both is what transmission
 security is assessed on. The Sage seed's three partners carry it until
@@ -956,7 +963,8 @@ High, and the partner's access should end until it is fixed: the record is
 missing or retired, it is still at `Pending information` (`record-pending`:
 the status a contributor's proposal starts at, so the token runs ahead of any
 review of the relationship), it handles PHI without an executed BAA, it is
-`Active` with no executed agreement (`agreement-not-executed`), it claims a BAA
+`Active` with no executed agreement (`agreement-not-executed`) or with no
+risk rating (`active-unrated`), it claims a BAA
 without an execution date or document reference, its review or assurance
 has lapsed, the token holds `owner` or `compliance_manager` (`approver-role`:
 those roles set the record's status, risk and BAA status, so the partner

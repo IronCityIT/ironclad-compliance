@@ -194,6 +194,15 @@ class TestPartnerAccess:
         assert (codes(item), result["high"]) == (["agreement-not-executed"], 1)
         assert agreement in item["findings"][0]["message"]
 
+    def test_an_active_partner_never_risk_rated_is_high(self, store: Any) -> None:
+        # Live access to a relationship nobody has assessed.
+        record_id = add(store, "partners", {**GOVERNED, "risk": "Unrated"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (item["level"], codes(item), result["high"]) == ("high", ["active-unrated"], 1)
+
     def test_an_agreement_ruled_not_required_is_clean(self, store: Any) -> None:
         record_id = add(store, "partners", {**GOVERNED, "agreement_status": "Not required"})
         document: dict[str, Any] = {"tokens": []}
@@ -267,8 +276,11 @@ class TestPartnerAccess:
     def test_queue_notices_that_are_not_about_access_are_left_out(self, store: Any) -> None:
         # GOVERNED has no business owner or PHI scope either: notices, not access findings.
         record_id = add(
-            store, "partners", {**GOVERNED, "risk": "Unrated", "cert_expiration_date": "2026-10-10"}
-        )
+            store,
+            "partners",
+            {**GOVERNED, "status": "Onboarding", "risk": "Unrated",
+             "cert_expiration_date": "2026-10-10"},
+        )  # fmt: skip
         document: dict[str, Any] = {"tokens": []}
         # Ends before the assurance does, so it does not outlast it either.
         grant(document, "ops@governed.example", f"partners/{record_id}",

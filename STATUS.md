@@ -1972,6 +1972,63 @@ CI green at `698f1e9` (run 36327268920, `pull_request`; the duplicate `push`
 run 36327266508 was cancelled): all six jobs, pytest 1315 passed, 57 skipped
 on 3.10 and 3.12, persistence 286, dashboard 110/110, Firestore rules 91/91.
 
+**An Active relationship never risk-rated is high, 2026-09-27.** An
+unrated risk was a `risk-unrated` notice whatever the status. `Active` is an
+approver's decision, so an `Active` record at `Unrated` is a live
+relationship nobody assessed. The rating is also what decides whether the
+record owes a dated assurance (`assurance-undated` fires only on High or
+Critical), so an unrated live relationship escaped that check too, and a
+partner token acting for it reviewed clean in `oversight access`.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`active-unrated` (**high**) when `status` is `Active` and `risk` is
+`Unrated` or blank: "Active with risk not yet rated." It takes the place of
+the `risk-unrated` notice on that record, and follows
+`agreement-not-executed` when both apply. Records not yet `Active`
+(Pending information, Onboarding, Under review, Offboarding) keep the
+notice; retired records need no attention. It is an `ACCESS_CODE`, like
+every other high review-queue finding, so a partner token for such a record
+is high in `oversight access` and fails `--fail-on high`. The export's
+attention column and the packet's findings index carry it through the same
+function. No Sage seed record carries it: DrChrono, the seed's one `Active`
+record, is rated High.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue and
+`oversight access`) and `HANDOFF.md` §17.
+
+Tests (8 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 6 new cases
+  (66, up from 60). Unrated and cleared risk on an `Active` record raise
+  it. Onboarding and Pending information keep the notice. Retired is
+  clean. Agreement and rating both missing list the agreement first. Two
+  existing cases that model an unrated record from the `Active` base now set
+  `Under review`, so each still tests the notice its name says.
+- `tests/test_oversight.py`: no Sage seed record carries it. An unrated
+  DrChrono raises it and not the notice. The code is in `ACCESS_CODES`.
+- `tests/test_partner_access.py`: a token for an `Active`, unrated partner
+  is high with `active-unrated` alone. The "notices that are not about
+  access" case now uses an Onboarding record, since an `Active` unrated one
+  is now an access finding.
+- `dashboard/test/oversight.test.js`: the rule on the page for `Unrated`,
+  blank and missing risk, and the notice for each status that is not yet
+  `Active`. The sort-order test's record is now `Under review`.
+
+Two mutations each fail named tests. With the check disabled on the server,
+5 fail: three positive table cases, the seed test and the access test. With
+it disabled on the page, 2 page tests fail: the new rule test and the
+review-queue table.
+
+Local gates on Windows, 2026-09-27: pytest 1380 collected, 57 skipped, 10
+failed. Untouched `a274cb3` in a worktree: 1372 collected, 57 skipped, 10
+failed. The failure sets are identical (Windows-only: `fcntl`, symlinks,
+CRLF, the 20-writer lock test). None is in `tests/test_oversight.py` or
+`tests/test_partner_access.py`. Page tests (`oversight.test.js`,
+`render.test.js`) 98/98. `mypy --platform linux` clean, `ruff check` and
+`ruff format --check` clean, `scripts/check_white_label.sh` passes. CI
+pending at the time of writing.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

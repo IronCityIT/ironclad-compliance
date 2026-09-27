@@ -278,6 +278,17 @@ test("an Active relationship with no executed agreement is high",()=>{
   assert.deepEqual(codes({...clean,status:"Onboarding",agreement_status:"Required - pending"}),[],"not live yet");
 });
 
+test("an Active relationship never risk-rated is high, not the notice",()=>{
+  for(const risk of ["Unrated","",undefined]){
+    const f=attentionFindings({...clean,risk},TODAY);
+    assert.deepEqual(f.map(x=>[x.level,x.code]),[["high","active-unrated"]],String(risk));
+  }
+  for(const status of ["Pending information","Onboarding","Under review","Offboarding"]){
+    assert.deepEqual(codes({...clean,status,risk:"Unrated"}),["risk-unrated"],status);
+  }
+  assert.deepEqual(codes({...clean,status:"Retired",risk:"Unrated"}),[],"retired records need no attention");
+});
+
 test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{
   const edge=new Date(`${TODAY}T00:00:00Z`);edge.setUTCDate(edge.getUTCDate()+ATTENTION_WINDOW_DAYS);
   const inWindow=edge.toISOString().slice(0,10);
@@ -306,7 +317,7 @@ test("a review scheduled beyond the horizon is a notice",()=>{
 });
 
 test("high findings sort ahead of notices; retired records are excluded",()=>{
-  const f=attentionFindings({...clean,risk:"Unrated",baa_status:"Pending review",baa_execution_date:"",review_due:"2020-01-01"},TODAY);
+  const f=attentionFindings({...clean,status:"Under review",risk:"Unrated",baa_status:"Pending review",baa_execution_date:"",review_due:"2020-01-01"},TODAY);
   assert.deepEqual(f.map(x=>x.level),["high","high","notice"]);
   assert.deepEqual(attentionFindings({...clean,status:"Retired",baa_status:"",review_due:"2020-01-01"},TODAY),[]);
   assert.equal(isoToday(new Date("2026-09-26T23:59:00Z")),"2026-09-26");
