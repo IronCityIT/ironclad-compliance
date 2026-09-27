@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, getDocs, writeBatch, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { buildRecord, renderRecords, renderHistory, renderAttention, registerCsv, exportFileName, isoToday, saveFailureMessage, escapeHtml, FORM_FIELDS } from "/oversight-core.js";
+import { buildRecord, renderRecords, renderHistory, renderAttention, registerCsv, exportFileName, isoToday, saveFailureMessage, escapeHtml, FORM_FIELDS, SETTLED_FIELDS } from "/oversight-core.js";
 
 const $ = (id) => document.getElementById(id);
 const config = window.ICIT_CONFIG;
@@ -19,6 +19,15 @@ const BOM = String.fromCharCode(0xfeff);
 const records = { partners: new Map(), integrations: new Map() };
 // The record being edited, or null when the form adds a new one.
 let editing = null;
+// Set once the roles are read: a contributor proposes the settled fields but
+// does not change them on an existing record.
+let canApproveRecords = false;
+
+function holdSettled(held) {
+  if (canApproveRecords) return;
+  const form = $("oversight-form");
+  for (const f of SETTLED_FIELDS) if (form.elements[f]) form.elements[f].disabled = held;
+}
 
 function fail(message) { $("error").textContent = message; $("error").hidden = false; }
 function clearError() { $("error").hidden = true; }
@@ -31,6 +40,7 @@ function startEdit(kind, id) {
   form.reset();
   form.elements.record_type.value = kind === "integrations" ? "integration" : "partner";
   form.elements.record_type.disabled = true;
+  holdSettled(true);
   for (const f of FORM_FIELDS) if (form.elements[f]) form.elements[f].value = String(prior[f] ?? "");
   $("form-title").textContent = `Edit ${prior.name} (revision ${prior.revision ?? 0} → ${(prior.revision ?? 0) + 1})`;
   $("save-button").textContent = "Save changes";
@@ -43,6 +53,7 @@ function endEdit() {
   const form = $("oversight-form");
   form.reset();
   form.elements.record_type.disabled = false;
+  holdSettled(false);
   $("form-title").textContent = "Add oversight record";
   $("save-button").textContent = "Save record";
   $("cancel-edit").hidden = true;
@@ -71,6 +82,7 @@ onAuthStateChanged(auth, async (user) => {
   $("identity").textContent = `${clientId} · ${roles.join(", ") || "viewer"}`;
   const canEdit = roles.some((r) => EDIT_ROLES.has(r));
   const canApprove = roles.some((r) => APPROVE_ROLES.has(r));
+  canApproveRecords = canApprove;
   $("edit-panel").hidden = !canEdit;
   if (canEdit && !canApprove) {
     for (const name of ["risk", "agreement_status", "baa_status", "status"]) {

@@ -2215,7 +2215,77 @@ proven only by the emulator job in CI (no JDK on this machine).
 CI for this change: green at `19afe65` (run 36330620304, `pull_request`;
 the duplicate `push` run 36330617691 was cancelled): all six jobs, pytest
 1346 passed, 57 skipped on 3.10 and 3.12, persistence 313, dashboard
-113/113, Firestore rules 94/94.
+113/113, Firestore rules 94/94. `a56fa4a` (the STATUS commit) green too
+(run 36330793910, `pull_request`; the duplicate `push` run 36330791232
+was cancelled).
+
+**Data access is settled by an approver once stored, 2026-09-27.** The
+candidate recorded under the PHI-scope entry. A contributor could move
+`data_access`, and the BAA check turns on it. A partner's token may hold
+`contributor`. Moving its own record from `PHI` to `PII` cleared
+`phi-without-baa`, and with it the high finding on its own access in
+`oversight access`. Clearing the scope too left no notice.
+
+The open question was what a contributor's proposal starts at. This
+change leaves it open: a contributor still proposes `data_access` on a new
+record, as before, and the approver sees it when rating the record. What
+changed is the edit. Once a record is stored, only an owner or compliance
+manager moves `data_access`.
+
+- **Server.** `SETTLED_FIELDS = ("data_access",)` in
+  `ironclad/oversight.py`. `next_revision` refuses a contributor's edit
+  that moves it, adds it to a record stored without it, or moves it off
+  `Unknown`: "contrib-1 may not change data_access; an approver sets
+  them". Over HTTP that is 403 and nothing is written. Restating the
+  stored value is allowed, as it is for the ratings.
+- **Rules.** `contributorKeepsGovernanceState()` lists `data_access` with
+  the four governance fields. Create is unchanged.
+- **Page.** `SETTLED_FIELDS` in `oversight-core.js`. `buildRecord` ignores
+  a contributor's `data_access` on an edit, and the edit form disables the
+  select for a contributor (`holdSettled`), freeing it again for a new
+  record. The governance note says so.
+
+No route, stored field, vocabulary or finding changed. No Sage seed record
+changes. `phi-scope-contradicted` stays: it still catches an approver's
+move and records written before this. Docs: `docs/http-api.md`,
+`HANDOFF.md` (the phi-scope-contradicted paragraph).
+
+Tests: 3 new pytest cases, 1 extended HTTP case, 1 new page test, 2 new
+emulator cases.
+
+- `tests/test_oversight.py`: a contributor proposes `PHI`, cannot move it
+  to `PII`, a manager can, and a contributor may restate it. A contributor
+  cannot establish access an owner left `Unknown`, or add it to a record
+  stored without it. The rules-parity test now holds the rules' list to
+  `GOVERNANCE_FIELDS` plus `SETTLED_FIELDS`.
+- `tests/test_http.py`: the contributor flow ends with a `data_access`
+  edit refused 403 naming the field. The stored record is unchanged at
+  revision 3.
+- `dashboard/test/oversight.test.js`: the rules' list equals the page's
+  two lists. A contributor's proposal keeps `PHI`, a tampered edit form
+  cannot move it, and an approver's can. The form holds the select on edit
+  and frees it on a new record.
+- `tests/rules/rules.test.js`: a contributor's `PHI` proposal lands; moving
+  it to `PII` is refused; restating it with a note lands; a compliance
+  manager moves it. A contributor adding access to an owner's record that
+  has none is refused.
+
+Two mutations each fail named tests. With `SETTLED_FIELDS` dropped from
+the server check, 4 fail (the three new policy tests and the HTTP flow).
+With the page guard removed, the new page test fails.
+
+Local gates on Windows, 2026-09-27: pytest 1406 collected, 57 skipped, 10
+failed. The same 10 fail on untouched `a56fa4a` in a worktree (1403
+collected; Windows-only). None is in a changed file. Page
+tests (`oversight.test.js`, `render.test.js`) 101/101. `mypy --platform
+linux` clean, `ruff check` and `ruff format --check` clean,
+`scripts/check_white_label.sh` passes, `node --check` on the rules suite.
+The rules change is proven only by the emulator job in CI (no JDK here).
+
+Candidate next, not started: whether a contributor's proposal should start
+at `Unknown` data access instead of what the contributor enters. That is
+the decision this change left open. It trades a contributor's knowledge
+of the feed for a `data-access-unknown` notice on every proposal.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of

@@ -98,6 +98,12 @@ UNRATED = {
     "baa_status": "Pending review",
 }
 
+#: Fields a contributor may set on a proposal and an approver alone changes
+#: once stored. Whether a relationship owes a BAA turns on `data_access`: a
+#: contributor (a partner's own token among them) moving PHI to PII would clear
+#: `phi-without-baa` and the high finding on that partner's access.
+SETTLED_FIELDS = ("data_access",)
+
 MAINTAIN_ROLES = frozenset({Role.OWNER, Role.COMPLIANCE_MANAGER, Role.CONTRIBUTOR})
 APPROVE_ROLES = frozenset({Role.OWNER, Role.COMPLIANCE_MANAGER})
 
@@ -224,7 +230,8 @@ def next_revision(
     does not name carry over from `prior`. The refusals are the rules':
     another tenant, a role that cannot maintain the register, a field that is
     not in the register, a stamp supplied by the caller, a contributor setting
-    a governance field, and a record that would not satisfy the schema.
+    a governance field, a contributor changing a stored `SETTLED_FIELDS`
+    value, and a record that would not satisfy the schema.
     """
     # Tenant first, and the same refusal whether or not the caller holds the
     # role, so a probe learns nothing about another tenant.
@@ -261,11 +268,13 @@ def next_revision(
         record = {k: v for k, v in prior.items() if k in CONTENT_FIELDS}
         if not approver:
             moved = sorted(
-                f for f in GOVERNANCE_FIELDS if f in changes and changes[f] != prior.get(f)
+                f
+                for f in (*GOVERNANCE_FIELDS, *SETTLED_FIELDS)
+                if f in changes and changes[f] != prior.get(f)
             )
             if moved:
                 raise AuthorizationError(
-                    f"{principal.user_id} may not change {', '.join(moved)}; an approver rates"
+                    f"{principal.user_id} may not change {', '.join(moved)}; an approver sets them"
                 )
     record.update(changes)
 

@@ -107,7 +107,10 @@ class TestTheRulesAndThePolicyAgree:
     def test_the_governance_fields_and_the_unrated_proposal(self) -> None:
         guarded = re.search(r"affectedKeys\(\)\.hasAny\(\s*\[(.*?)\]", RULES, re.S)
         assert guarded
-        assert set(_rules_list(guarded.group(1))) == set(oversight.GOVERNANCE_FIELDS)
+        assert set(_rules_list(guarded.group(1))) == {
+            *oversight.GOVERNANCE_FIELDS,
+            *oversight.SETTLED_FIELDS,
+        }
         unrated = dict(re.findall(r"request\.resource\.data\.(\w+) == '([^']+)'", RULES))
         assert {k: unrated[k] for k in oversight.UNRATED} == oversight.UNRATED
 
@@ -157,6 +160,30 @@ class TestThePolicy:
             edit(rated, CONTRIBUTOR, risk="Low")
         # Restating the stored value is not a change, and is allowed.
         assert edit(rated, CONTRIBUTOR, risk="High", notes="x")["risk"] == "High"
+
+    def test_a_contributor_proposes_data_access_and_an_approver_settles_it(self) -> None:
+        proposed = create(CONTRIBUTOR, data_access="PHI", phi_scope="Demographics")
+        assert proposed["data_access"] == "PHI"
+        # Moving PHI to PII would clear phi-without-baa, and with it the high
+        # finding on a partner's token; a partner's token may be a contributor.
+        with pytest.raises(AuthorizationError, match="data_access"):
+            edit(proposed, CONTRIBUTOR, data_access="PII", phi_scope="")
+        settled = edit(proposed, MANAGER, data_access="PII", phi_scope="")
+        assert settled["data_access"] == "PII"
+        # Restating the stored value is not a change, and is allowed.
+        noted = edit(settled, CONTRIBUTOR, data_access="PII", notes="x")
+        assert noted["data_access"] == "PII" and noted["notes"] == "x"
+
+    def test_a_contributor_may_not_establish_access_an_approver_left_unknown(self) -> None:
+        unknown = create(OWNER, data_access="Unknown")
+        with pytest.raises(AuthorizationError, match="data_access"):
+            edit(unknown, CONTRIBUTOR, data_access="No production data")
+
+    def test_a_contributor_may_not_add_access_to_a_record_seeded_without_it(self) -> None:
+        seeded = {k: v for k, v in create(OWNER).items() if k != "data_access"}
+        with pytest.raises(AuthorizationError, match="data_access"):
+            edit(seeded, CONTRIBUTOR, data_access="PHI")
+        assert "data_access" not in edit(seeded, CONTRIBUTOR, notes="x")
 
     @pytest.mark.parametrize("reader", [AUDITOR, VIEWER])
     def test_a_reader_may_not_write(self, reader: Principal) -> None:

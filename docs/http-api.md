@@ -321,7 +321,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   over-long text is 400, and `errors` names every problem.
 - **A contributor proposes, an approver rates.** A contributor's new record
   starts unrated. A contributor who sets or moves `status`, `risk`,
-  `agreement_status` or `baa_status` gets 403.
+  `agreement_status` or `baa_status` gets 403. A contributor may propose
+  `data_access` on a new record; once stored, only an approver changes it
+  (403 otherwise), because whether a relationship owes a BAA turns on it.
 - **No lost updates.** An edit must carry `base_revision`, the revision its
   form was loaded from. If the record has moved on since, the edit gets 409 and
   nothing is written. Two editors who both start from revision *n* cannot both

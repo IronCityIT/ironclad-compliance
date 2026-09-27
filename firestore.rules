@@ -158,8 +158,10 @@ service cloud.firestore {
     function contributorKeepsGovernanceState() {
       return !callerRoles().hasAny(['contributor'])
         || callerRoles().hasAny(['owner', 'compliance_manager'])
+        // data_access is proposed on create and then settled by an approver:
+        // whether the relationship owes a BAA turns on it.
         || (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
-          ['risk', 'agreement_status', 'baa_status', 'status']
+          ['risk', 'agreement_status', 'baa_status', 'status', 'data_access']
         ));
     }
 

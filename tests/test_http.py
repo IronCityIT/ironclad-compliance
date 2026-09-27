@@ -1269,6 +1269,13 @@ class TestOversightRegister:
         assert noted[0] == 200
         assert noted[1]["data"]["record"]["risk"] == "Medium"
         assert noted[1]["data"]["record"]["revision"] == 3
+        # Data access was the contributor's proposal; moving it now is the
+        # approver's, and the refusal writes nothing.
+        unphi = contributor.post(path, {"base_revision": 3, "fields": {"data_access": "PII"}})
+        assert unphi[0] == 403
+        assert "data_access" in " ".join(unphi[1]["errors"])
+        stored = as_("acme-manager").get(path)[1]["data"]["record"]
+        assert (stored["data_access"], stored["revision"]) == ("PHI", 3)
 
     def test_a_viewer_reads_but_does_not_write(self, as_) -> None:
         record = _create(as_("acme-manager"), self.RATED)[1]["data"]["record"]

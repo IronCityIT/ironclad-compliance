@@ -370,6 +370,23 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
     await assertFails(revise(ref, { risk: "Low" }, "contributor"));
   });
 
+  await t.test("a contributor proposes data access, and only an approver moves it after", async () => {
+    const db = as(ACME, ["contributor"]);
+    const ref = ownPartner(db, "contributor-access");
+    await assertSucceeds(create(ref, { ...forUser(db, "contributor"), data_access: "PHI" }));
+    await assertFails(revise(ref, { data_access: "PII" }, "contributor"));
+    await assertSucceeds(revise(ref, { data_access: "PHI", notes: "Restated, not moved." }, "contributor"));
+    await assertSucceeds(revise(ownPartner(as(ACME, ["compliance_manager"]), "contributor-access"),
+      { data_access: "PII" }, "compliance_manager"));
+  });
+
+  await t.test("a contributor cannot add data access to a record that has none", async () => {
+    const ref = ownPartner(as(ACME, ["owner"]), "no-access-yet");
+    await assertSucceeds(create(ref, forUser(ref.firestore, "owner")));
+    await assertFails(revise(ownPartner(as(ACME, ["contributor"]), "no-access-yet"),
+      { data_access: "PHI" }, "contributor"));
+  });
+
   await t.test("a contributor can still correct the descriptive fields", async () => {
     const db = as(ACME, ["contributor"]);
     const ref = ownPartner(db, "contributor-notes");

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, REVIEW_HORIZON_DAYS, ELEVATED_RISK, AGREEMENT_SETTLED, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, SETTLED_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, REVIEW_HORIZON_DAYS, ELEVATED_RISK, AGREEMENT_SETTLED, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -112,6 +112,25 @@ test("an edit is the next revision: creation kept, untouched fields carried, gov
   const rated=buildRecord({form:{...base,risk:"High",data_access:""},prior,canApprove:true,uid:"u6",clientId:"sage-spine",stamp:STAMP}).record;
   assert.equal(rated.risk,"High");
   assert.equal(rated.data_access,"PHI","an unchosen select keeps the stored value");
+});
+
+test("a contributor proposes data access; once stored, only an approver moves it, as the rules hold it",()=>{
+  const guarded=rules.match(/affectedKeys\(\)\.hasAny\(\s*\[([^\]]*)\]/);
+  assert.ok(guarded);
+  assert.deepEqual(list(guarded[1]).sort(),[...GOVERNANCE_FIELDS,...SETTLED_FIELDS].sort());
+  const proposed=buildRecord({form:{name:"PRIMO",data_access:"PHI"},canApprove:false,uid:"u1",clientId:"sage-spine",stamp:STAMP}).record;
+  assert.equal(proposed.data_access,"PHI");
+  const prior={...base,tenant_id:"sage-spine",revision:2,created_at:CREATED,created_by:"u1",updated_at:CREATED,updated_by:"u1"};
+  // A tampered form that submits the disabled select is ignored all the same.
+  const edited=buildRecord({form:{name:"PRIMO",data_access:"PII",notes:"v2"},prior,canApprove:false,uid:"u5",clientId:"sage-spine",stamp:STAMP}).record;
+  assert.equal(edited.data_access,"PHI");
+  assert.equal(edited.notes,"v2");
+  const settled=buildRecord({form:{name:"PRIMO",data_access:"PII"},prior,canApprove:true,uid:"u6",clientId:"sage-spine",stamp:STAMP}).record;
+  assert.equal(settled.data_access,"PII");
+  // The edit form holds the settled select for a contributor, and frees it for a new record.
+  assert.match(js,/function holdSettled[\s\S]*?SETTLED_FIELDS[\s\S]*?disabled = held/);
+  assert.match(js,/function startEdit[\s\S]*?holdSettled\(true\)[\s\S]*?function endEdit[\s\S]*?holdSettled\(false\)/);
+  assert.match(html,/so is data access once a record is saved/);
 });
 
 test("a record seeded before history existed is edited as revision 1",()=>{

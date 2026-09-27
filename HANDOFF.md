@@ -782,9 +782,15 @@ or `Unknown` is a notice (`phi-scope-contradicted`): `phi-without-baa`
 reads data access alone, so moving a PHI partner to `PII` drops its missing
 BAA while its scope still describes PHI. Either the access or the scope is
 wrong; clear the scope or set the access back. Not an access code: which
-field is wrong is a question for the register, not for the token. Data
-access is a contributor field, not an approver one, so this notice is how
-the queue shows the change. No Sage seed record carries it (all six handle
+field is wrong is a question for the register, not for the token. Since
+2026-09-27 a contributor may no longer make that move: data access is
+proposed on a new record and, once stored, only an owner or compliance
+manager changes it (`SETTLED_FIELDS`; the rules' governance list; the
+page holds the select on an edit). A partner's token may be a contributor,
+and moving its own record from PHI to PII would have cleared
+`phi-without-baa` and the high finding on its own access. The notice now
+catches an approver's move, a stored record, or a Firestore write from
+before the change. No Sage seed record carries it (all six handle
 PHI). A
 review scheduled more than 365 days out is a notice (`review-too-distant`):
 a review date set years ahead would keep the record out of

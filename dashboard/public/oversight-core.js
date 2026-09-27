@@ -21,6 +21,11 @@ export const RECORD_FIELDS = [
 // must leave them as they were (contributorKeepsGovernanceState()).
 export const GOVERNANCE_FIELDS = ["status", "risk", "agreement_status", "baa_status"];
 
+// A contributor may propose these on a new record; once stored, only an owner
+// or compliance manager changes them. Whether a relationship owes a BAA turns
+// on data access (contributorKeepsGovernanceState() lists it too).
+export const SETTLED_FIELDS = ["data_access"];
+
 // Who wrote which revision, and when. Not content, so not shown as a change.
 const BOOKKEEPING = new Set(["tenant_id", "revision", "created_at", "created_by", "updated_at", "updated_by"]);
 
@@ -65,7 +70,7 @@ const CHOICE_FIELDS = new Set([...GOVERNANCE_FIELDS, "data_access"]);
  * record at revision 1. With a `prior` it is the next revision of that record:
  * every stored field carries over unless the form changed it, the creation
  * stamp is kept, and a caller who cannot approve keeps the governance state
- * exactly as it was. `stamp` is the server timestamp sentinel.
+ * and the settled fields exactly as they were. `stamp` is the server timestamp sentinel.
  */
 export function buildRecord({ form, prior = null, canApprove, uid, clientId, stamp }) {
   const record = {};
@@ -77,6 +82,7 @@ export function buildRecord({ form, prior = null, canApprove, uid, clientId, sta
   for (const f of FORM_FIELDS) {
     if (!(f in form)) continue;
     if (GOVERNANCE_FIELDS.includes(f) && !canApprove) continue;
+    if (SETTLED_FIELDS.includes(f) && prior && !canApprove) continue;
     const v = text(form[f]);
     // A select with nothing chosen keeps what the record already says.
     if (v === "" && CHOICE_FIELDS.has(f)) continue;
