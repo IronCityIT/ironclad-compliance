@@ -763,7 +763,11 @@ Sage seed's DrChrono carries it (Active, agreement under review). PHI
 with no data flow direction recorded is a notice (`phi-flow-unrecorded`):
 whether PHI leaves the practice, arrives, or both is what transmission
 security is assessed on. The Sage seed's three partners carry it until
-each direction is recorded; its integrations already record theirs. `export` writes the whole register,
+each direction is recorded; its integrations already record theirs. A
+review scheduled more than 365 days out is a notice (`review-too-distant`):
+a review date set years ahead would keep the record out of
+`review-overdue` for good. The horizon is ICIT policy
+(`REVIEW_HORIZON_DAYS`), not a standard. No Sage seed record carries it. `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,

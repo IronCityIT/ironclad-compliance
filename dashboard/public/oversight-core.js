@@ -162,6 +162,10 @@ export function saveFailureMessage(err, editing) {
 // How far ahead a review or assurance expiry is called out before it lapses.
 export const ATTENTION_WINDOW_DAYS = 30;
 
+// The furthest ahead a review may be scheduled (ICIT policy: at least yearly).
+// A review set years out would keep a record out of "overdue" for good.
+export const REVIEW_HORIZON_DAYS = 365;
+
 // Ratings at which a relationship must carry a dated assurance.
 export const ELEVATED_RISK = ["High", "Critical"];
 
@@ -186,7 +190,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * What a reviewer should look at on one record, most serious first: PHI moving
  * without an executed BAA, a BAA claimed without its evidence or dated after
  * today, an Active relationship with no executed agreement, a lapsed review or
- * assurance, and gaps that leave the record
+ * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
  * unassessable: PHI with no scope or no recorded direction of flow, no
  * business owner, a High or Critical
  * rating with no assurance expiry (so a lapse could never show). Derived only from
@@ -197,6 +201,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function attentionFindings(record, today) {
   if (record.status === "Retired") return [];
   const soon = addDays(today, ATTENTION_WINDOW_DAYS);
+  const horizon = addDays(today, REVIEW_HORIZON_DAYS);
   const findings = [];
   const add = (level, code, message) => findings.push({ level, code, message });
   const baa = text(record.baa_status) || "not recorded";
@@ -218,6 +223,7 @@ export function attentionFindings(record, today) {
   if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");
   else if (review < today) add("high", "review-overdue", `Review overdue since ${review}.`);
   else if (review <= soon) add("notice", "review-due-soon", `Review due ${review}.`);
+  else if (review > horizon) add("notice", "review-too-distant", `Review scheduled ${review}, more than ${REVIEW_HORIZON_DAYS} days out.`);
   const expiry = text(record.cert_expiration_date);
   if (ISO_DATE.test(expiry)) {
     if (expiry < today) add("high", "assurance-expired", `Certificate / assurance expired ${expiry}.`);

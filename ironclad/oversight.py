@@ -400,6 +400,11 @@ def save(
 #: How far ahead a review or assurance expiry is called out before it lapses.
 ATTENTION_WINDOW_DAYS = 30
 
+#: The furthest ahead a review may be scheduled. ICIT policy, not a standard: the
+#: register is reviewed at least yearly (as policies are, `VALIDITY_DAYS`), and a
+#: review set years out would keep a record out of `review-overdue` for good.
+REVIEW_HORIZON_DAYS = 365
+
 #: Ratings at which a relationship must carry a dated assurance.
 ELEVATED_RISK = ("High", "Critical")
 
@@ -433,7 +438,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
 
     PHI moving without an executed BAA, a BAA claimed without its evidence or
     dated after today, an Active relationship whose agreement is neither
-    executed nor ruled not required, a lapsed review or assurance, and gaps that leave the
+    executed nor ruled not required, a lapsed review or assurance, a review set
+    more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
     (whether PHI leaves the practice, arrives, or both), no business owner, a High or
     Critical rating with no assurance expiry (so a lapse could never show).
@@ -443,9 +449,9 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     """
     if record.get("status") == "Retired":
         return []
-    soon = (
-        date.fromisoformat(check_as_of(today)) + timedelta(days=ATTENTION_WINDOW_DAYS)
-    ).isoformat()
+    as_of = date.fromisoformat(check_as_of(today))
+    soon = (as_of + timedelta(days=ATTENTION_WINDOW_DAYS)).isoformat()
+    horizon = (as_of + timedelta(days=REVIEW_HORIZON_DAYS)).isoformat()
     findings: list[dict[str, str]] = []
 
     def add(level: str, code: str, message: str) -> None:
@@ -494,6 +500,12 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
         add("high", "review-overdue", f"Review overdue since {review}.")
     elif review <= soon:
         add("notice", "review-due-soon", f"Review due {review}.")
+    elif review > horizon:
+        add(
+            "notice",
+            "review-too-distant",
+            f"Review scheduled {review}, more than {REVIEW_HORIZON_DAYS} days out.",
+        )
     expiry = _text(record.get("cert_expiration_date"))
     if _ISO_DATE.match(expiry):
         if expiry < today:

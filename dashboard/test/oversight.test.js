@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, ELEVATED_RISK, AGREEMENT_SETTLED, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, REVIEW_HORIZON_DAYS, ELEVATED_RISK, AGREEMENT_SETTLED, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -273,6 +273,18 @@ test("review and assurance dates: overdue, within the window, beyond it, absent"
   assert.deepEqual(codes({...clean,cert_expiration_date:""}),[],"no expiry recorded is not itself a finding");
 });
 
+test("a review scheduled beyond the horizon is a notice",()=>{
+  assert.equal(REVIEW_HORIZON_DAYS,365);
+  const edge=new Date(`${TODAY}T00:00:00Z`);edge.setUTCDate(edge.getUTCDate()+REVIEW_HORIZON_DAYS);
+  const last=edge.toISOString().slice(0,10);
+  edge.setUTCDate(edge.getUTCDate()+1);
+  const beyond=edge.toISOString().slice(0,10);
+  assert.deepEqual(codes({...clean,review_due:last}),[],"the last day of the horizon");
+  assert.deepEqual(codes({...clean,review_due:beyond}),["review-too-distant"]);
+  assert.deepEqual(codes({...clean,review_due:"2099-12-31"}),["review-too-distant"]);
+  assert.deepEqual(codes({...clean,status:"Retired",review_due:"2099-12-31"}),[]);
+});
+
 test("high findings sort ahead of notices; retired records are excluded",()=>{
   const f=attentionFindings({...clean,risk:"Unrated",baa_status:"Pending review",review_due:"2020-01-01"},TODAY);
   assert.deepEqual(f.map(x=>x.level),["high","high","notice"]);
@@ -285,6 +297,7 @@ test("high findings sort ahead of notices; retired records are excluded",()=>{
 const spec=JSON.parse(fs.readFileSync(path.join(root,"tests","fixtures","oversight-attention.json"),"utf8"));
 test("the review queue matches the shared specification, case by case",()=>{
   assert.equal(spec.window_days,ATTENTION_WINDOW_DAYS);
+  assert.equal(spec.review_horizon_days,REVIEW_HORIZON_DAYS);
   assert.ok(spec.cases.length>=15);
   for(const c of spec.cases){
     const record={...spec.base};

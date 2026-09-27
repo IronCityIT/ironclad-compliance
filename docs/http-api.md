@@ -336,7 +336,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   the BAA's minimum necessary is measured against), PHI with no data flow
   direction recorded (`phi-flow-unrecorded`: whether PHI leaves the practice,
   arrives, or both is what transmission security is assessed on), a review or expiry within
-  30 days, no review date, risk unrated, data access unknown, no business
+  30 days, no review date, a review scheduled more than 365 days after
+  `as_of` (`review-too-distant`: ICIT policy, `REVIEW_HORIZON_DAYS`; a review
+  set years out would never read as overdue), risk unrated, data access unknown, no business
   owner, a High or Critical rating with no assurance expiry recorded
   (`assurance-undated`: without one the expiry checks can never fire)
   (notice). Retired records are left out.

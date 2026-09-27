@@ -2,6 +2,7 @@
   "about": "The review queue's specification: each case is `base` with `patch` applied (null clears a field), judged as of `today`. dashboard/public/oversight-core.js attentionFindings() and ironclad/oversight.py attention_findings() must both return `expected` exactly, in order. Held by dashboard/test/oversight.test.js and tests/test_oversight.py.",
   "today": "2026-09-26",
   "window_days": 30,
+  "review_horizon_days": 365,
   "base": {
     "name": "Clean",
     "business_owner": "Practice manager",
@@ -75,6 +76,15 @@
       {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
     {"name": "a review date that is not ISO counts as none", "patch": {"review_due": "2026/10/01"}, "expected": [
       {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
+    {"name": "a review on the last day of the horizon", "patch": {"review_due": "2027-09-26"}, "expected": []},
+    {"name": "a review one day past the horizon is too distant", "patch": {"review_due": "2027-09-27"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2027-09-27, more than 365 days out."}]},
+    {"name": "a review set decades out is too distant", "patch": {"review_due": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2099-12-31, more than 365 days out."}]},
+    {"name": "a distant review is listed before an assurance notice", "patch": {"review_due": "2030-01-01", "cert_expiration_date": "2026-10-10"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2030-01-01, more than 365 days out."},
+      {"level": "notice", "code": "assurance-expiring", "message": "Certificate / assurance expires 2026-10-10."}]},
+    {"name": "a retired record with a distant review needs no attention", "patch": {"status": "Retired", "review_due": "2099-12-31"}, "expected": []},
     {"name": "expired assurance", "patch": {"cert_expiration_date": "2026-01-01"}, "expected": [
       {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
     {"name": "assurance expiring on the last day of the window", "patch": {"cert_expiration_date": "2026-10-26"}, "expected": [

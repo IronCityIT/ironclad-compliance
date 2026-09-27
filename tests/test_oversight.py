@@ -232,6 +232,22 @@ class TestTheReviewQueue:
         window = re.search(r"ATTENTION_WINDOW_DAYS = (\d+);", core)
         assert window and int(window.group(1)) == oversight.ATTENTION_WINDOW_DAYS
 
+    def test_the_review_horizon_is_the_dashboards(self) -> None:
+        assert ATTENTION["review_horizon_days"] == oversight.REVIEW_HORIZON_DAYS
+        core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")
+        horizon = re.search(r"REVIEW_HORIZON_DAYS = (\d+);", core)
+        assert horizon and int(horizon.group(1)) == oversight.REVIEW_HORIZON_DAYS
+
+    def test_no_sage_seed_review_is_scheduled_beyond_the_horizon(self) -> None:
+        distant = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "review-too-distant"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert distant == []
+
     def test_the_elevated_ratings_are_the_dashboards_and_in_the_vocabulary(self) -> None:
         assert set(oversight.ELEVATED_RISK) <= set(oversight.VOCABULARY["risk"])
         core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")

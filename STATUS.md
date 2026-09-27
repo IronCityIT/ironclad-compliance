@@ -1773,6 +1773,54 @@ In CI at `5208b3b` (run 36323578375) all six jobs passed: pytest 1294
 passed, 57 skipped on 3.10 and 3.12, persistence 267, dashboard 107/107,
 Firestore rules 91/91.
 
+**A review scheduled more than a year out is a notice, 2026-09-27.**
+`review_due` was checked for overdue, due soon and missing, and never for
+how far ahead it was. A contributor could set it to 2099-12-31 and the record
+would never again read as `review-overdue`: the queue, the export, the
+packet's findings index and `oversight access` would all stay quiet for as
+long as the date said. It was the one date on the record that cleared a
+finding by being moved further away.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`review-too-distant` (**notice**) when `review_due` is later than `as_of`
+plus `REVIEW_HORIZON_DAYS` (365): "Review scheduled 2099-12-31, more than
+365 days out." The last day of the horizon is clean. The horizon is ICIT
+policy (the register is reviewed at least yearly, as a policy is), not a
+standard, and the constant says so on both sides. It is a notice, not an
+`ACCESS_CODE`: the date is not yet wrong, only unfalsifiable, so
+`oversight access` and `--fail-on high` are unchanged. Retired records are
+left out, as for every finding. No Sage seed record carries it (its reviews
+are due 2026-10-31 and 2026-12-31).
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue) and
+`HANDOFF.md` §17.
+
+Tests (7 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 5 new cases
+  (50, up from 45), and a `review_horizon_days` key beside `window_days`.
+  The last day of the horizon is clean; one day past it and 2099 are the
+  notice; a distant review is listed before an assurance notice; a retired
+  record with a distant review needs nothing.
+- `tests/test_oversight.py`: the horizon is the page's, parsed from
+  `oversight-core.js`, and the table's; no Sage seed record is past it.
+- `dashboard/test/oversight.test.js`: the horizon and its edges on the page,
+  and the table's horizon is the page's.
+
+Two mutations each fail named tests. With the check disabled on the server,
+3 fail: the three positive table cases. With it disabled on the page, 2 page
+tests fail: the new horizon test and the shared table.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1358
+tests, 1291 passed, 57 skipped, 10 failed. Untouched HEAD `d3111b6` in a
+worktree: 1351 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). Dashboard
+`oversight.test.js` and `render.test.js`: 95/95. ruff format and lint pass.
+`mypy --platform linux` passes. The white-label gate and `git diff --check`
+pass. bandit is not installed in the local venv; CI installs its own. CI:
+pending at the time of writing.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
