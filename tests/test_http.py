@@ -246,6 +246,48 @@ class TestAuthentication:
         token_file.unlink()
         assert as_("acme-manager").get("/api/v1/me")[0] == 503
 
+    @staticmethod
+    def _amend(token_file: Path, user: str, **changes: Any) -> None:
+        document = json.loads(token_file.read_text())
+        for entry in document["tokens"]:
+            if entry["user_id"] == user:
+                entry.update(changes)
+        token_file.write_text(json.dumps(document))
+
+    def test_an_expired_token_stops_working_without_a_restart(self, as_, token_file) -> None:
+        self._amend(token_file, "alice@acme.example", expires_at="2999-12-31")
+        assert as_("acme-manager").get("/api/v1/me")[0] == 200
+        self._amend(token_file, "alice@acme.example", expires_at="2000-01-01")
+        status, body, _ = as_("acme-manager").get("/api/v1/me")
+        assert status == 401
+        assert "not recognised" in body["errors"][0]
+        # Nobody else's access moved.
+        assert as_("acme-viewer").get("/api/v1/me")[0] == 200
+
+    @pytest.mark.parametrize("expiry", ["2999-02-30", "31/12/2999", "never", "2999-12-31T00:00"])
+    def test_an_expiry_that_is_not_a_date_refuses_the_token(
+        self, as_, token_file, expiry: str
+    ) -> None:
+        # A typo in an expiry must not become access that never ends.
+        self._amend(token_file, "alice@acme.example", expires_at=expiry)
+        assert as_("acme-manager").get("/api/v1/me")[0] == 401
+
+    def test_a_digest_listed_twice_is_refused_not_guessed(self, as_, token_file) -> None:
+        document = json.loads(token_file.read_text())
+        alice = next(e for e in document["tokens"] if e["user_id"] == "alice@acme.example")
+        # The same token granted again to another tenant: which one is meant
+        # cannot be known, so neither is served.
+        document["tokens"].append({**alice, "tenant_id": "beta"})
+        token_file.write_text(json.dumps(document))
+        assert as_("acme-manager").get("/api/v1/me")[0] == 401
+        assert as_("acme-viewer").get("/api/v1/me")[0] == 200
+
+    def test_a_non_ascii_digest_does_not_break_other_tokens(self, as_, token_file) -> None:
+        document = json.loads(token_file.read_text())
+        document["tokens"].insert(0, {"sha256": "é" * 64, "user_id": "x", "tenant_id": "acme"})
+        token_file.write_text(json.dumps(document))
+        assert as_("acme-viewer").get("/api/v1/me")[0] == 200
+
     def test_the_file_stores_digests_not_tokens(self, token_file: Path, secrets_for) -> None:
         text = token_file.read_text()
         for token in secrets_for.values():

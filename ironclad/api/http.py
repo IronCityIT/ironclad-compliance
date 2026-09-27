@@ -38,6 +38,7 @@ import mimetypes
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -49,6 +50,7 @@ from ironclad.api.access_log import AccessLog, AccessLogError
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest, ServiceResponse
 from ironclad.api.service import ComplianceService
+from ironclad.api.tokens import InvalidExpiryError, is_expired, parse_expiry, utc_now
 from ironclad.errors import AuthorizationError, IroncladError
 from ironclad.frameworks.loader import available_frameworks
 from ironclad.ids import slugify
@@ -118,8 +120,15 @@ class TokenFileAuthenticator:
 
         {"tokens": [
           {"sha256": "<hex of the token>", "user_id": "alice@example.com",
-           "tenant_id": "acme", "roles": ["compliance_manager"]}
+           "tenant_id": "acme", "roles": ["compliance_manager"],
+           "expires_at": "2026-12-31"}
         ]}
+
+    `expires_at` is optional; with it the token works through that UTC day and
+    is refused from the next, and a value that is not a calendar date refuses
+    the token outright (`ironclad.api.tokens`). A digest listed twice is
+    refused too, rather than resolved to whichever entry comes first: two
+    entries for one token are two different grants, and picking one is a guess.
 
     The file holds digests, never tokens, so reading it grants nothing. Every
     request re-reads it — the file is the record, not a cache, the same rule
@@ -132,8 +141,9 @@ class TokenFileAuthenticator:
     and it plugs in through the same protocol.
     """
 
-    def __init__(self, path: Path | str) -> None:
+    def __init__(self, path: Path | str, clock: Callable[[], datetime] = utc_now) -> None:
         self.path = Path(path)
+        self.clock = clock
 
     def _entries(self) -> list[dict[str, Any]]:
         document = json.loads(self.path.read_text(encoding="utf-8"))
@@ -143,25 +153,39 @@ class TokenFileAuthenticator:
         return [e for e in entries if isinstance(e, dict)]
 
     def principal_for(self, token: str) -> Principal | None:
-        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        for entry in self._entries():
-            stored = str(entry.get("sha256", "")).strip().lower()
-            if not stored or not hmac.compare_digest(stored, digest):
-                continue
-            tenant = str(entry.get("tenant_id", "")).strip()
-            if not tenant or slugify(tenant) != tenant:
-                # A token bound to no tenant, or to a name that is not a
-                # tenant id, is a misconfiguration; it authenticates nobody.
-                return None
-            return Principal.from_claims(
-                {
-                    "sub": str(entry.get("user_id", "")),
-                    "client_id": tenant,
-                    "roles": list(entry.get("roles") or []),
-                    "email": str(entry.get("email", "")),
-                }
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest().encode("ascii")
+        # Every entry is compared, so one listed twice is seen rather than
+        # shadowed; bytes, so a stored value that is not ASCII fails to match
+        # instead of raising for every caller.
+        matches = [
+            entry
+            for entry in self._entries()
+            if hmac.compare_digest(
+                str(entry.get("sha256", "")).strip().lower().encode("utf-8"), digest
             )
-        return None
+        ]
+        if len(matches) != 1:
+            return None
+        entry = matches[0]
+        try:
+            last_day = parse_expiry(entry.get("expires_at"))
+        except InvalidExpiryError:
+            return None
+        if is_expired(last_day, self.clock()):
+            return None
+        tenant = str(entry.get("tenant_id", "")).strip()
+        if not tenant or slugify(tenant) != tenant:
+            # A token bound to no tenant, or to a name that is not a
+            # tenant id, is a misconfiguration; it authenticates nobody.
+            return None
+        return Principal.from_claims(
+            {
+                "sub": str(entry.get("user_id", "")),
+                "client_id": tenant,
+                "roles": list(entry.get("roles") or []),
+                "email": str(entry.get("email", "")),
+            }
+        )
 
 
 def hash_token(token: str) -> str:

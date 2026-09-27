@@ -477,6 +477,57 @@ and lint pass; mypy reports only the known Windows `fcntl` errors in
 `policy_store.py`; white-label, secret-literal and `git diff --check` gates
 pass.
 
+**Service tokens that end, and an access review, 2026-09-26 (twelfth pass).**
+The access log names who used the register; nothing bounded how long they
+could. A token-file entry granted access for ever, so a partner whose contract
+ended kept a working token until someone remembered the file, and listing who
+held access to the Sage Spine workspace meant reading raw JSON. HIPAA's
+termination procedures and access review (164.308(a)(3)(ii)(C), (a)(4)) want
+both. `ironclad/api/tokens.py` and `TokenFileAuthenticator` now:
+
+- honour an optional `expires_at` (`YYYY-MM-DD`): the token works through that
+  UTC day and is 401 from the next, with no restart, since the file is re-read
+  per request. An expiry that is not a calendar date refuses the token; a typo
+  must not become access that never ends. Entries without one behave as before.
+- refuse a digest listed in two entries instead of serving whichever came
+  first (two grants for one token, e.g. two tenants, and picking one is a guess).
+- compare digests as bytes. Every entry is now scanned, and a stored value
+  that is not ASCII would have made `hmac.compare_digest` raise for every
+  caller; it now just fails to match.
+
+`ironclad tokens review FILE [--as-of D] [--fail-on high|any]` is the access
+review: per entry the user, tenant, recognised roles, expiry and a state
+(`active`, `expiring` within 30 days, `expired`, `refused`). High: an expired
+entry still in the file, a bad expiry, a duplicate digest, no or unslugged
+tenant, unknown or no roles, a malformed digest, no `user_id` (the access log
+could not name the caller). Notice: no expiry, or expiring soon. It reads
+digests only and prints a 12-character prefix. Exit 4 when tripped, 2 when the
+file or `--as-of` is unreadable. Runbook: `HANDOFF.md` §17, "Grant, renew and
+review a service token"; reference: `docs/http-api.md`.
+
+No route, stored field, rule or schema changed; an existing token file serves
+exactly as before unless it lists a digest twice.
+
+Tests: 25 new cases. 18 in `tests/test_tokens.py`: expiry parsing, the last
+day read in UTC (20:00 in New York on the 30th is past a token ending the 30th),
+the authenticator following its clock across midnight, every review state and
+finding, the 30-day window edges, the digest prefix, the CLI's exit codes, and
+one case holding the review and the authenticator to the same verdict for
+every entry. Seven in `tests/test_http.py::TestAuthentication` on a real
+socket: an expiry moved into the past refuses the next request and nobody
+else's; four malformed expiries refused; a duplicate digest refused; a
+non-ASCII digest not breaking other tokens. Ten mutations each fail a test by
+name: expiry ignored, a bad expiry read as none, a duplicate taking the first
+entry, `compare_digest` back on `str`, the last day off by one, local time
+instead of UTC, the warning window off by one, the review missing duplicates,
+the full digest printed, `--fail-on any` ignoring notices.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): the whole
+suite ran 1103 tests: 1038 passed, 55 skipped, 10 failed. The same 10 fail on
+the untouched tree, compared set for set. ruff format and lint pass; mypy
+reports only the known Windows `fcntl` errors in `policy_store.py`;
+white-label, secret-literal and `git diff --check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -21,9 +21,11 @@ printf '%s\n' "$TOKEN" | ironclad hash-token      # prints the sha256 digest
 cat > /srv/ironclad/tokens.json <<'EOF'
 {"tokens": [
   {"sha256": "<digest from step 1>", "user_id": "alice@acme.example",
-   "tenant_id": "acme", "roles": ["compliance_manager"]}
+   "tenant_id": "acme", "roles": ["compliance_manager"],
+   "expires_at": "2026-12-31"}
 ]}
 EOF
+ironclad tokens review /srv/ironclad/tokens.json   # who holds access, and what is wrong
 
 # 3. serve
 IRONCLAD_STORE=/srv/ironclad/results \
@@ -41,6 +43,16 @@ IRONCLAD_STORE=/srv/ironclad/results \
   half-written one.
 - Without `--tokens` the server starts and answers every request with 503. It
   never falls open.
+- `expires_at` (`YYYY-MM-DD`, optional) is the last day a token works, in UTC;
+  from the next day it is refused with 401, no restart needed, since the file
+  is re-read on every request. An `expires_at` that is not a calendar date
+  refuses the token, and so does a digest listed in two entries: neither is
+  guessed at. An entry without one works until it is removed, and
+  `ironclad tokens review` reports it. The review lists every entry's user,
+  tenant, roles, expiry and state (`active`, `expiring` within 30 days,
+  `expired`, `refused`) and exits 4 under `--fail-on high|any`; it reads
+  digests only and prints a 12-character prefix of each. An expired token is
+  logged like any unrecognised one: `user` is `null`.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
 - A connection that sends nothing for 30 seconds — the rest of a request, the

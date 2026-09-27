@@ -775,6 +775,26 @@ refuses to start because the log is not a whole chain, do not repair it: move
 it aside with its verdict, start a new file, and treat the break as an
 incident. Rotation is the same move while the server is stopped.
 
+### Grant, renew and review a service token
+
+Every token a Sage staff member or integration partner holds is one entry in
+the `--tokens` file. Give each an `expires_at` (`YYYY-MM-DD`, UTC): the token
+works through that day and is refused from the next, with no restart. An
+expiry that is not a calendar date refuses the token; so does a digest listed
+twice. Renewing is editing the date; revoking is removing the entry.
+
+```sh
+ironclad tokens review /srv/ironclad/tokens.json                   # who holds access, until when
+ironclad tokens review /srv/ironclad/tokens.json --fail-on high    # exit 4: expired entry still
+                                                                   # in the file, bad date, dup,
+                                                                   # no tenant or no known role
+```
+
+The review reads digests only, never a token, and prints the first 12 hex
+characters of each so an entry can be found. Entries without an expiry and
+those expiring within 30 days are notices (`--fail-on any`). Run it at each
+access review and keep the output with the access-log `head` for the same day.
+
 ### Verify an auditor package
 
 First the files: `sha256sum -c SHA256SUMS` in the package directory. Every

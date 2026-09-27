@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -476,6 +477,33 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     access_verify.add_argument("log", help="the access-log file")
+
+    tokens = sub.add_parser(
+        "tokens",
+        help="review a token file written for `serve --tokens`",
+    )
+    tokens_sub = tokens.add_subparsers(dest="tokens_command", required=True)
+    tokens_review = tokens_sub.add_parser(
+        "review",
+        help="list who holds access, to which tenant, until when, and what is wrong",
+        description=(
+            "The access review for `ironclad serve`: one item per token-file entry "
+            "with its user, tenant, roles, expiry and state (active, expiring, expired, "
+            "refused). High: an expired entry still in the file, an expiry that is not "
+            "a date, a digest listed twice, no tenant, no recognised role. Notice: no "
+            "expiry, or expiring within 30 days. Reads digests only; never needs a token. "
+            f"Exit {EXIT_FINDINGS} under --fail-on when tripped, {EXIT_BAD_INPUT} if the "
+            "file cannot be read."
+        ),
+    )
+    tokens_review.add_argument("file", help="the token file")
+    tokens_review.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    tokens_review.add_argument(
+        "--fail-on",
+        choices=("never", "high", "any"),
+        default="never",
+        help=f"exit {EXIT_FINDINGS} when an entry has a high finding, or any finding",
+    )
 
     hash_cmd = sub.add_parser(
         "hash-token",
@@ -1183,6 +1211,31 @@ def cmd_access_log(args: argparse.Namespace) -> int:
     return EXIT_OK if verdict["verified"] else EXIT_FINDINGS
 
 
+def cmd_tokens(args: argparse.Namespace) -> int:
+    """Review a token file. The only subcommand, for now."""
+    from ironclad.api.tokens import review_tokens, utc_now  # noqa: PLC0415
+
+    path = Path(args.file)
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        print(f"token file unreadable: {path}: {exc}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    as_of = utc_now().date()
+    if args.as_of:
+        as_of = date.fromisoformat(oversight.check_as_of(args.as_of))
+    try:
+        review = review_tokens(document, as_of)
+    except ValueError as exc:
+        print(f"{path}: {exc}", file=sys.stderr)
+        return EXIT_BAD_INPUT
+    _emit(review)
+    tripped = (args.fail_on == "high" and review["high"]) or (
+        args.fail_on == "any" and (review["high"] or review["notices"])
+    )
+    return EXIT_FINDINGS if tripped else EXIT_OK
+
+
 def cmd_hash_token() -> int:
     """Digest one token from stdin, so a token never appears in a command line."""
     from ironclad.api.http import hash_token  # noqa: PLC0415
@@ -1399,6 +1452,7 @@ def main(argv: list[str] | None = None) -> int:
         "oversight": lambda: cmd_oversight(args),
         "serve": lambda: cmd_serve(args),
         "access-log": lambda: cmd_access_log(args),
+        "tokens": lambda: cmd_tokens(args),
         "hash-token": lambda: cmd_hash_token(),
     }
 
