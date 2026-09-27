@@ -942,6 +942,94 @@ secret-literal, catalog and `git diff --check` gates pass. In CI (run
 36299568259) all six jobs passed: pytest 1182 passed, 57 skipped on 3.10 and
 3.12, and persistence 236.
 
+**Rotating the access log without breaking the review, 2026-09-27.** The
+runbook said to rotate the access log by stopping the server and moving the
+file aside. The next file then started a fresh chain, and the next
+`review-packet --previous` reported that as high ("lines were removed from the
+end, or the file was replaced"), because a routine rotation and a log deleted
+and restarted looked the same. There was no way to give the moved-aside file
+back to the review, and `tokens review` could only count use in the current
+file, so dormancy was judged on whatever was left after the last rotation.
+Now:
+
+- `ironclad access-log rotate LOG --to ARCHIVE --actor A` (`access_log.rotate`),
+  run with the server stopped, makes the archive a hard link to the log. The
+  link is exclusive, so an existing archive is refused and nothing moves. It
+  then replaces the log with one **rotation line**
+  (`seq`, `at`, `rotated_from`, `rotated_by`, `prev_hash`, `hash`) carrying the
+  next line number and the archive's last digest. It prints the archive's
+  anchor and the new one. A log that is not a whole chain is exit 4 and stays
+  where it is, as evidence.
+- The chain runs on across files. `verify_lines` accepts a rotation line as
+  the first line of a file, starting there, and reports `first` and
+  `continues` (the archive's anchor). Any other first line must still be
+  line 1 from the genesis digest, so lines cut from the front are still
+  broken. Anchors are numbered by the chain, not the file.
+- `access-log verify`, `tokens review --access-log` and `oversight
+  review-packet --access-log` take the archives and the current log, oldest
+  first, and verify them as one chain (`access_log.read_files`). An archive
+  left out of the middle, given twice or out of order breaks the chain where
+  the files should join, and the break is named by file and line. Given the
+  current file alone, an anchor from before the rotation is not passed: exit
+  4, "give the archives". The packet's manifest records `continues` when the
+  log it was given begins after a rotation.
+- A server still appending during the rotation holds the old file, which is
+  now the archive. Its lines land there, past the line the rotation line
+  follows, and break the chain at the join, so they are found and not lost.
+  (A copy-and-replace rotation would have sent them to an unlinked file.) If
+  the log cannot be replaced, the archive link is removed and the log is as
+  it was.
+- The token review skips rotation lines when it counts requests.
+
+No route, stored field, token-file field or request line changed. An
+existing log verifies exactly as before, and the server reopens a rotated
+log and carries on its numbering. Runbook: `HANDOFF.md` §17, "Who used the
+register"; reference: `docs/http-api.md`, "Access log".
+
+Tests: 10 new cases. Seven are in `tests/test_access_log.py::TestRotation`:
+
+- the archive byte-equal to the log, the rotation line and anchors, the server
+  carrying on the numbering, and the rotated file alone and rotated again;
+- an anchor from before the rotation needing the archive;
+- lines cut from the front still broken;
+- a forged rotation line that fails the anchor;
+- archives left out, out of order or repeated;
+- a server still writing (on Linux the join breaks; on Windows the replace is
+  refused and nothing moves);
+- five refusals.
+
+Two are in `tests/test_access_review.py`: continuity across a rotation with
+the archive, and high without it; and a CLI packet from an archive and the
+current log, refused when they are given backwards. One is in
+`tests/test_tokens.py`: the review of a rotated log with its archive
+identical to the review of the unrotated log, narrower without it, and
+refused out of order. The verdict's shape gained `first` and `continues`,
+and one existing assertion was updated for them. Eight mutations each fail a
+test by name:
+
+- a rotation line resetting the chain anywhere;
+- an anchor from before the rotation not refused;
+- anchors numbered by file line;
+- a reopened rotated log renumbering from 1;
+- a non-exclusive archive;
+- rotation lines counted as requests;
+- continuity checking only the last line;
+- `tokens review` dropping the archives.
+
+Two survived the first run. A rotated file was never anchored read alone, and
+the rotation line was dated after the review's `as_of`, so counting it
+changed nothing. Both tests were tightened, and both mutations now fail.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1249
+tests, 1182 passed, 57 skipped, 10 failed. Untouched HEAD `2485ec8` in a
+worktree, run after it: 1239 tests, 1172 passed, the same 10 failed, compared
+set for set. On this machine the "server still writing" case takes the
+Windows branch, where the replace is refused and nothing moves. The Linux
+branch, where the join breaks, runs in CI. ruff format and lint pass on the
+tree. `mypy` (the CI invocation) reports only the known Windows `fcntl` errors
+in `policy_store.py`. The white-label, secret-literal and `git diff --check`
+gates pass. No dashboard file changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

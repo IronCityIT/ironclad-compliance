@@ -780,12 +780,36 @@ into the review record at each review, and give the previous review's anchor
 to `--anchor` at the next. The chain alone cannot see lines cut from the end,
 a file replaced by a new one (a server restarted on an emptied file starts a
 fresh, whole chain), or a rewrite with every digest recomputed; the anchor
-can, and it is exit 4 with the reason. After a rotation, check the moved-aside
-file against the old anchor and start the new file's record from its first
-anchor. If the server
+can, and it is exit 4 with the reason. If the server
 refuses to start because the log is not a whole chain, do not repair it: move
 it aside with its verdict, start a new file, and treat the break as an
-incident. Rotation is the same move while the server is stopped.
+incident.
+
+Rotate with the command, never by moving the file. A moved-aside log makes
+the next file a fresh chain, which the next review cannot tell from a log
+deleted and restarted (continuity calls it high):
+
+```sh
+# stop `ironclad serve` first; nothing may hold the log during the rotation
+ironclad access-log rotate /srv/ironclad/logs/access.log \
+    --to /srv/ironclad/logs/access.log.2026-09 --actor ops-1
+# start `ironclad serve --access-log /srv/ironclad/logs/access.log` again
+ironclad access-log verify /srv/ironclad/logs/access.log.2026-09 \
+    /srv/ironclad/logs/access.log --anchor 1532:9c1e...   # archives first, oldest first
+```
+
+The archive keeps every line; the log restarts with one rotation line that
+carries the next line number and the archive's last digest, so the chain runs
+on across files. Record the printed `archive_anchor` and `anchor`. Keep every
+archive back to the last filed review, and give them to `tokens review` and
+`oversight review-packet` as repeated `--access-log`, oldest first, ending with
+the current log. Given the current file alone, an anchor from before the
+rotation is exit 4 ("give the archives"), not passed. An archive left out,
+repeated or out of order breaks the chain where the files join, and so does a
+server that was still running during the rotation (its lines land in the
+archive): treat that as the incident above. `rotate` refuses (exit 2, nothing
+moved) an existing archive, an empty log or no `--actor`; a log that is not a
+whole chain is exit 4 and stays where it is.
 
 ### Grant, renew and review a service token
 
@@ -852,7 +876,8 @@ goes in the review record. A 403 is a question to its holder: a role reaching
 past itself, or a partner's token pointed at another tenant. The log is
 verified before it is read; exit 4 and no review if it is not a whole chain
 (handle that as in the access-log runbook above). The review only sees what
-the current log holds, so review before rotating it.
+the logs it is given: after a rotation, give the archives as well
+(`--access-log ARCHIVE --access-log LOG`, oldest first).
 
 Give it the ledger and it also says whether the file is what was granted:
 

@@ -404,6 +404,42 @@ class TestReviewWithUsage:
         assert main(["tokens", "review", str(tokens), "--access-log", missing]) == 2
         assert "access log not found" in capsys.readouterr().err
 
+    def test_a_rotated_log_given_with_its_archive_reviews_as_one(
+        self, files: tuple[Path, Path], tmp_path: Path, capsys
+    ) -> None:
+        from ironclad.api.access_log import AccessLog, rotate
+
+        tokens, log = files
+        args = ["tokens", "review", str(tokens), "--as-of", "2026-09-26"]
+        assert main([*args, "--access-log", str(log)]) == 0
+        whole = json.loads(capsys.readouterr().out)
+        # The same requests, with the log rotated after the fourth.
+        lines = log.read_text(encoding="utf-8").splitlines(keepends=True)
+        log.write_text("".join(lines[:4]), encoding="utf-8")
+        archive = tmp_path / "access.log.1"
+        # Rotated inside the review window, so a rotation line counted as a request would show.
+        rotate(log, archive, actor="ops-1", at=datetime(2026, 9, 21, 20, tzinfo=timezone.utc))
+        reopened = AccessLog(log)
+        for line in lines[4:]:
+            entry = json.loads(line)
+            reopened.record(
+                user=entry["user"], user_tenant=entry["user_tenant"], method=entry["method"],
+                path=entry["path"], status=entry["status"],
+                at=datetime.fromisoformat(entry["at"].replace("Z", "+00:00")),
+            )  # fmt: skip
+        reopened.close()
+        assert main([*args, "--access-log", str(archive), "--access-log", str(log)]) == 0
+        assert json.loads(capsys.readouterr().out) == whole
+        # The current file alone is a narrower view, and the rotation line is no request.
+        assert main([*args, "--access-log", str(log)]) == 0
+        narrow = json.loads(capsys.readouterr().out)
+        assert narrow["access_log"]["entries"] == 2
+        assert narrow["access_log"]["from"] == "2026-09-22T12:00:00.000Z"
+        # Given out of order, nothing is reviewed.
+        assert main([*args, "--access-log", str(log), "--access-log", str(archive)]) == 4
+        captured = capsys.readouterr()
+        assert captured.out == "" and "no review is built on it" in captured.err
+
     def test_without_a_log_the_review_is_unchanged(self) -> None:
         review = review_tokens({"tokens": [_entry("partner")]}, AS_OF)
         assert "access_log" not in review and "dormant" not in review

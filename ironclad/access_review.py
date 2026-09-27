@@ -325,8 +325,7 @@ def _still_anchored(
         return None
     if entries is None:
         return {"anchor": anchor, "extended": None, "reason": "not given for this review"}
-    # check_anchor reads the `hash` of line N; the entries are those lines, parsed.
-    return check_anchor([json.dumps(entry) for entry in entries], anchor)
+    return check_anchor(entries, anchor)
 
 
 def _chain_input(chain: tuple[dict[str, Any], list[dict[str, Any]]] | None) -> Any:
@@ -334,7 +333,11 @@ def _chain_input(chain: tuple[dict[str, Any], list[dict[str, Any]]] | None) -> A
 
     if chain is None:
         return None
-    return {"entries": chain[0]["entries"], "anchor": anchor_of(chain[0])}
+    given = {"entries": chain[0]["entries"], "anchor": anchor_of(chain[0])}
+    if chain[0].get("continues"):
+        # The chain given begins after a rotation: this is where the review's view starts.
+        given["continues"] = chain[0]["continues"]
+    return given
 
 
 def write_packet(packet: dict[str, Any], out: Path) -> Path:

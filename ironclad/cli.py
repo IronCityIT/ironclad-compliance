@@ -30,6 +30,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -439,7 +440,13 @@ def build_parser() -> argparse.ArgumentParser:
     register_packet.add_argument("--tenant", required=True)
     register_packet.add_argument("--tokens", required=True, help="the token file `serve` reads")
     register_packet.add_argument(
-        "--access-log", default="", help="the server's access log, for each entry's use"
+        "--access-log",
+        action="append",
+        default=[],
+        help=(
+            "the server's access log, for each entry's use; repeat it for rotated "
+            "archives, oldest first, ending with the current log"
+        ),
     )
     register_packet.add_argument(
         "--ledger", default="", help="the grant ledger, to hold each entry to its grant"
@@ -605,12 +612,35 @@ def build_parser() -> argparse.ArgumentParser:
             "--anchor is not N:DIGEST."
         ),
     )
-    access_verify.add_argument("log", help="the access-log file")
+    access_verify.add_argument(
+        "log",
+        nargs="+",
+        help="the access-log file; after a rotation, its archives first, oldest first",
+    )
     access_verify.add_argument(
         "--anchor",
         default="",
         help="N:DIGEST from an earlier verify, kept where the server's operators cannot write",
     )
+    access_rotate = access_sub.add_parser(
+        "rotate",
+        help="archive the log and start it again, chained from the archive's last line",
+        description=(
+            "Run with the server stopped. Archives the log as --to, a hard link that must "
+            "not exist yet, and replaces the log with one rotation line naming the archive "
+            "and --actor, "
+            "carrying the next line number and the archive's last digest, so the chain "
+            "runs on across the two files. Give both to `verify`, `tokens review "
+            "--access-log` and `oversight review-packet --access-log`, archive first. "
+            "Prints the archive's anchor and the new log's. "
+            f"Exit {EXIT_FINDINGS} if the log is not a whole chain (it is evidence; "
+            f"nothing is moved); {EXIT_BAD_INPUT} if it cannot be read, is empty, the "
+            "archive exists, or no --actor is given."
+        ),
+    )
+    access_rotate.add_argument("log", help="the access-log file `serve` writes")
+    access_rotate.add_argument("--to", required=True, help="the archive file to create")
+    access_rotate.add_argument("--actor", required=True, help="who is rotating the log")
 
     tokens = sub.add_parser(
         "tokens",
@@ -637,8 +667,12 @@ def build_parser() -> argparse.ArgumentParser:
     tokens_review.add_argument("file", help="the token file")
     tokens_review.add_argument(
         "--access-log",
-        default="",
-        help="the `serve --access-log` file; verified before any of it is used",
+        action="append",
+        default=[],
+        help=(
+            "the `serve --access-log` file; verified before any of it is used. Repeat "
+            "it for rotated archives, oldest first, ending with the current log"
+        ),
     )
     tokens_review.add_argument(
         "--ledger",
@@ -1417,26 +1451,32 @@ def _review_packet(args: argparse.Namespace, store: Any, tenant: str, caller: Pr
         raise ValidationError(f"token file unreadable: {tokens_path} ({exc})") from exc
     chains: dict[str, Any] = {}
     for what, given, reader, error in (
-        ("access log", args.access_log, access_log.read_file, access_log.AccessLogError),
-        ("grant ledger", args.ledger, grant_ledger.read_file, grant_ledger.GrantLedgerError),
+        ("access log", args.access_log, access_log.read_files, access_log.AccessLogError),
+        (
+            "grant ledger",
+            [args.ledger] if args.ledger else [],
+            lambda paths: grant_ledger.read_file(paths[0]),
+            grant_ledger.GrantLedgerError,
+        ),
     ):
         if not given:
             chains[what] = None
             continue
-        path = Path(given)
-        if not path.is_file():
-            print(f"{what} not found: {path}", file=sys.stderr)
+        paths = [Path(p) for p in given]
+        missing = [p for p in paths if not p.is_file()]
+        if missing:
+            print(f"{what} not found: {missing[0]}", file=sys.stderr)
             return EXIT_BAD_INPUT
         try:
-            chains[what] = reader(path)
+            chains[what] = reader(paths)
         except error as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_BAD_INPUT
         verdict = chains[what][0]
         if not verdict["verified"]:
             print(
-                f"{path} is not a whole chain at line {verdict['broken_at']} "
-                f"({verdict['reason']}); no packet is built on it",
+                f"{paths[-1] if len(paths) == 1 else what} is not a whole chain at line "
+                f"{verdict['broken_at']} ({verdict['reason']}); no packet is built on it",
                 file=sys.stderr,
             )
             return EXIT_FINDINGS
@@ -1551,13 +1591,44 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def cmd_access_log(args: argparse.Namespace) -> int:
-    """Verify an access log's chain. The only subcommand, for now."""
-    from ironclad.api.access_log import FIELDS  # noqa: PLC0415
+    """Verify an access log's chain (across its rotated archives), or rotate it."""
+    from ironclad.api import access_log  # noqa: PLC0415
 
-    return _verify_chain(Path(args.log), "access log", FIELDS, "an access-log entry", args.anchor)
+    if args.access_command == "rotate":
+        path = Path(args.log)
+        if not path.is_file():
+            print(f"access log not found: {path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        try:
+            verdict = access_log.verify_file(path)
+            if not verdict["verified"]:
+                print(
+                    f"{path} is not a whole chain at line {verdict['broken_at']} "
+                    f"({verdict['reason']}); it is evidence, not something to rotate",
+                    file=sys.stderr,
+                )
+                return EXIT_FINDINGS
+            _emit(access_log.rotate(path, args.to, actor=args.actor))
+        except access_log.AccessLogError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_BAD_INPUT
+        return EXIT_OK
+    return _verify_chain(
+        [Path(p) for p in args.log],
+        "access log",
+        access_log.read_files,
+        access_log.AccessLogError,
+        args.anchor,
+    )
 
 
-def _verify_chain(path: Path, what: str, fields: tuple[str, ...], kind: str, anchor: str) -> int:
+def _verify_chain(
+    paths: list[Path],
+    what: str,
+    reader: Callable[[list[Path]], tuple[dict[str, Any], list[dict[str, Any]]]],
+    error: type[Exception],
+    anchor: str,
+) -> int:
     """Verify one chained log, and with an anchor, that it still extends it."""
     from ironclad.api import access_log  # noqa: PLC0415
 
@@ -1567,19 +1638,19 @@ def _verify_chain(path: Path, what: str, fields: tuple[str, ...], kind: str, anc
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_BAD_INPUT
-    if not path.is_file():
-        print(f"{what} not found: {path}", file=sys.stderr)
-        return EXIT_BAD_INPUT
+    for path in paths:
+        if not path.is_file():
+            print(f"{what} not found: {path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
     try:
-        lines = access_log.read_lines(path)
-    except access_log.AccessLogError as exc:
+        verdict, entries = reader(paths)
+    except error as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_BAD_INPUT
-    verdict = access_log.verify_lines(lines, fields, kind)
     verdict["anchor"] = access_log.anchor_of(verdict)
     ok = verdict["verified"]
     if anchor and ok:
-        verdict["extends"] = access_log.check_anchor(lines, anchor)
+        verdict["extends"] = access_log.check_anchor(entries, anchor)
         ok = verdict["extends"]["extended"]
     print(json.dumps(verdict, indent=2))
     return EXIT_OK if ok else EXIT_FINDINGS
@@ -1593,7 +1664,11 @@ def cmd_tokens(args: argparse.Namespace) -> int:
         from ironclad.api import grant_ledger  # noqa: PLC0415
 
         return _verify_chain(
-            Path(args.ledger), "grant ledger", grant_ledger.FIELDS, grant_ledger.KIND, args.anchor
+            [Path(args.ledger)],
+            "grant ledger",
+            lambda paths: grant_ledger.read_file(paths[0]),
+            grant_ledger.GrantLedgerError,
+            args.anchor,
         )
     from ironclad.api.tokens import review_tokens, utc_now  # noqa: PLC0415
 
@@ -1608,20 +1683,22 @@ def cmd_tokens(args: argparse.Namespace) -> int:
         as_of = date.fromisoformat(oversight.check_as_of(args.as_of))
     access_log = None
     if args.access_log:
-        from ironclad.api.access_log import AccessLogError, read_file  # noqa: PLC0415
+        from ironclad.api.access_log import AccessLogError, read_files  # noqa: PLC0415
 
-        log_path = Path(args.access_log)
-        if not log_path.is_file():
-            print(f"access log not found: {log_path}", file=sys.stderr)
-            return EXIT_BAD_INPUT
+        log_paths = [Path(p) for p in args.access_log]
+        for log_path in log_paths:
+            if not log_path.is_file():
+                print(f"access log not found: {log_path}", file=sys.stderr)
+                return EXIT_BAD_INPUT
         try:
-            verdict, access_log = read_file(log_path)
+            verdict, access_log = read_files(log_paths)
         except AccessLogError as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_BAD_INPUT
         if not verdict["verified"]:
+            named = log_paths[0] if len(log_paths) == 1 else "the access log"
             print(
-                f"{log_path} is not a whole chain at line {verdict['broken_at']} "
+                f"{named} is not a whole chain at line {verdict['broken_at']} "
                 f"({verdict['reason']}); no review is built on it",
                 file=sys.stderr,
             )

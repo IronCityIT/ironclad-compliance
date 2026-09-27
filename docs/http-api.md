@@ -56,7 +56,9 @@ IRONCLAD_STORE=/srv/ironclad/results \
   chain gets no review (exit 4). Lines after `--as-of` are not counted. Two
   notices follow: an active entry with no request in `--dormant-days` (90 by
   default, our number; "since the log begins" when it has none, so a rotated
-  log narrows what the review can see), and any 403, with the latest path.
+  log given without its archives narrows what the review can see; repeat
+  `--access-log` for each archive, oldest first), and any 403, with the latest
+  path.
   An expired entry's use is shown and not called dormant; it is already high.
 - `ironclad tokens issue` and `ironclad tokens revoke` are the edits. `issue`
   generates the token, prints it once and stores its digest with
@@ -132,6 +134,25 @@ write, and `ironclad access-log verify FILE --anchor N:DIGEST` later requires
 line N to be there with that digest (exit 4 otherwise, with the reason, and 2
 for an anchor that is not `N:DIGEST`). Since each digest covers the line
 before, that one line vouches for every line up to it.
+
+Rotate a log with `ironclad access-log rotate FILE --to ARCHIVE --actor A`,
+with the server stopped, and never by moving the file. The archive is made a
+hard link to the log (exclusive: an existing archive is exit 2 and nothing
+moves), and the log is replaced by one rotation line naming the archive and
+the actor, carrying the next `seq` and the archive's last digest. The chain
+runs on across the two files: `verify ARCHIVE FILE` (archives first, oldest
+first) checks them as one, and a rotated file read alone starts at its
+rotation line's `seq` with `continues` naming the archive's anchor. Only a
+rotation line may start a file mid-chain, so lines cut from the front are
+still broken. An anchor taken before the rotation needs the archive given too
+(exit 4 otherwise, with that reason). An archive left out of the middle, given
+twice or out of order breaks the chain where the files should join. A server
+still appending when the log was rotated writes into the archive, past the
+line the rotation line follows, and breaks the chain at the join: it is found,
+not lost. `rotate` prints the archive's anchor and the new file's; exit 4 if
+the log is not a whole chain (it is evidence and is not moved). `tokens review`
+and `oversight review-packet` take `--access-log` once per file, archives
+first, and read them as one chain.
 
 If a line cannot be written, the caller gets 503 and nothing else. A write that
 had already landed stays landed and is named in the register's own history;

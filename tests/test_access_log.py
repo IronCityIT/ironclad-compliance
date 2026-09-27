@@ -11,9 +11,12 @@ import pytest
 
 from ironclad.api.access_log import (
     GENESIS_HASH,
+    ROTATION_FIELDS,
     AccessLog,
     AccessLogError,
     line_digest,
+    read_files,
+    rotate,
     verify_file,
 )
 from ironclad.cli import main
@@ -54,6 +57,8 @@ def test_a_written_log_verifies_and_its_head_is_the_last_line(tmp_path: Path) ->
         "broken_at": None,
         "reason": "",
         "head": json.loads(_lines(path)[-1])["hash"],
+        "first": 1,
+        "continues": "",
     }
     first = json.loads(_lines(path)[0])
     assert (first["seq"], first["prev_hash"], first["at"]) == (
@@ -300,3 +305,162 @@ class TestAnchor:
         assert main(["access-log", "verify", str(path), f"--anchor={anchor}"]) == 2
         captured = capsys.readouterr()
         assert captured.out == "" and "not an anchor" in captured.err
+
+
+class TestRotation:
+    """A rotated log runs on from its archive; a file cut or swapped still does not."""
+
+    def _run(self, capsys, *argv: str) -> tuple[int, dict, str]:
+        code = main(list(argv))
+        captured = capsys.readouterr()
+        return code, json.loads(captured.out) if captured.out else {}, captured.err
+
+    def _rotate(self, capsys, log: Path, archive: Path) -> dict:
+        code, out, err = self._run(
+            capsys, "access-log", "rotate", str(log), "--to", str(archive), "--actor", "ops-1"
+        )
+        assert code == 0, err
+        return out
+
+    def test_the_archive_keeps_every_line_and_the_log_runs_on_from_it(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        log, archive = tmp_path / "access.log", tmp_path / "access.log.1"
+        _write(log, 3).close()
+        before = log.read_bytes()
+        _, verdict, _ = self._run(capsys, "access-log", "verify", str(log))
+        rotated = self._rotate(capsys, log, archive)
+        assert archive.read_bytes() == before
+        assert rotated["archive_anchor"] == verdict["anchor"]
+        (line,) = [json.loads(text) for text in _lines(log)]
+        assert (line["seq"], line["prev_hash"]) == (4, verdict["head"])
+        assert (line["rotated_from"], line["rotated_by"]) == ("access.log.1", "ops-1")
+        assert rotated["anchor"] == f"4:{line['hash']}"
+        # The new file alone is whole, and says where it begins.
+        alone = verify_file(log)
+        assert alone["verified"] and alone["first"] == 4
+        assert alone["continues"] == verdict["anchor"]
+        # A server reopening it carries on the numbering.
+        reopened = _write(log, 2)
+        reopened.close()
+        assert [json.loads(text)["seq"] for text in _lines(log)] == [4, 5, 6]
+        code, both, _ = self._run(capsys, "access-log", "verify", str(archive), str(log))
+        assert code == 0
+        assert (both["entries"], both["anchor"]) == (6, f"6:{reopened.head}")
+        # Read alone, the rotated file is numbered by the chain, not by its own lines.
+        _, alone_cli, _ = self._run(capsys, "access-log", "verify", str(log))
+        assert (alone_cli["entries"], alone_cli["anchor"]) == (3, f"6:{reopened.head}")
+        # And rotated again, its archive is anchored the same way.
+        again = self._rotate(capsys, log, tmp_path / "access.log.2")
+        assert again["archive_anchor"] == f"6:{reopened.head}"
+
+    def test_an_anchor_from_before_the_rotation_needs_the_archive(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        log, archive = tmp_path / "access.log", tmp_path / "access.log.1"
+        _write(log, 2).close()
+        _, early, _ = self._run(capsys, "access-log", "verify", str(log))
+        _write(log, 1).close()
+        rotated = self._rotate(capsys, log, archive)
+        _write(log, 1).close()
+        code, alone, _ = self._run(
+            capsys, "access-log", "verify", str(log), "--anchor", early["anchor"]
+        )
+        assert code == 4 and alone["verified"] is True
+        assert "give the archives" in alone["extends"]["reason"]
+        code, both, _ = self._run(
+            capsys, "access-log", "verify", str(archive), str(log), "--anchor", early["anchor"]
+        )
+        assert code == 0 and both["extends"]["extended"] is True
+        # The archive's own last line is the one the rotation line vouches for.
+        code, _, _ = self._run(
+            capsys, "access-log", "verify", str(log), "--anchor", rotated["archive_anchor"]
+        )
+        assert code == 0
+
+    def test_lines_cut_from_the_front_are_still_broken(self, tmp_path: Path) -> None:
+        log = tmp_path / "access.log"
+        _write(log, 3).close()
+        _rewrite(log, _lines(log)[1:])
+        verdict = verify_file(log)
+        assert (verdict["verified"], verdict["broken_at"]) == (False, 1)
+        assert "where 1 was expected" in verdict["reason"]
+
+    def test_a_forged_rotation_line_does_not_hold_an_anchor_it_never_saw(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # The log replaced by a file claiming to follow a rotation at the
+        # anchored line: whole on its own, and the digest gives it away.
+        log = tmp_path / "access.log"
+        _write(log, 3).close()
+        _, verdict, _ = self._run(capsys, "access-log", "verify", str(log))
+        forged: dict = {"seq": 4, "at": "2026-09-27T00:00:00.000Z", "rotated_from": "gone.log",
+                        "rotated_by": "x", "prev_hash": "b" * 64}  # fmt: skip
+        forged["hash"] = line_digest(forged, ROTATION_FIELDS)
+        _rewrite(log, [json.dumps(forged)])
+        assert verify_file(log)["verified"] is True
+        code, out, _ = self._run(
+            capsys, "access-log", "verify", str(log), "--anchor", verdict["anchor"]
+        )
+        assert code == 4
+        assert "line 3 is not the line anchored" in out["extends"]["reason"]
+
+    def test_an_archive_left_out_or_out_of_order_breaks_the_join(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        log, first, second = (tmp_path / n for n in ("access.log", "a.1", "a.2"))
+        _write(log, 2).close()
+        self._rotate(capsys, log, first)
+        _write(log, 2).close()
+        self._rotate(capsys, log, second)
+        _write(log, 1).close()
+        code, whole, _ = self._run(
+            capsys, "access-log", "verify", str(first), str(second), str(log)
+        )
+        assert code == 0 and whole["entries"] == 7
+        for order in ((first, log), (second, first, log), (first, first, second, log)):
+            code, out, _ = self._run(capsys, "access-log", "verify", *map(str, order))
+            assert code == 4 and out["verified"] is False
+            assert "does not chain" in out["reason"] or "was expected" in out["reason"]
+
+    def test_a_server_still_writing_is_found_not_lost(self, tmp_path: Path) -> None:
+        log, archive = tmp_path / "access.log", tmp_path / "access.log.1"
+        running = _write(log, 2)
+        try:
+            rotate(log, archive, actor="ops-1")
+        except AccessLogError:
+            # Where an open file cannot be replaced (Windows), nothing moved.
+            running.close()
+            assert not archive.exists() and verify_file(log)["entries"] == 2
+            return
+        running.record(user="late@sage.example", user_tenant="sage-spine", method="GET",
+                       path="/api/v1/me", status=200, at=AT)  # fmt: skip
+        running.close()
+        verdict, entries = read_files([archive, log])
+        assert verdict["verified"] is False and entries == []
+        assert str(log) in verdict["reason"] and "does not chain" in verdict["reason"]
+
+    def test_what_is_refused(self, tmp_path: Path, capsys) -> None:
+        log, archive = tmp_path / "access.log", tmp_path / "access.log.1"
+        _write(log, 2).close()
+        archive.write_text("kept\n", encoding="utf-8")
+        before = log.read_bytes()
+        rotate_args = ("access-log", "rotate", str(log), "--actor", "ops-1", "--to")
+        code, out, err = self._run(capsys, *rotate_args, str(archive))
+        assert (code, out) == (2, {}) and "never overwritten" in err
+        assert archive.read_text(encoding="utf-8") == "kept\n" and log.read_bytes() == before
+        code, _, err = self._run(capsys, *rotate_args, str(log))
+        assert code == 2 and "another file" in err
+        with pytest.raises(AccessLogError, match="names who"):
+            rotate(log, tmp_path / "a.2", actor=" ")
+        empty = tmp_path / "empty.log"
+        empty.write_text("", encoding="utf-8")
+        with pytest.raises(AccessLogError, match="no lines to rotate"):
+            rotate(empty, tmp_path / "a.3", actor="ops-1")
+        lines = _lines(log)
+        _rewrite(log, [lines[0].replace("user0@", "someone@"), lines[1]])
+        code, _, err = self._run(capsys, *rotate_args, str(tmp_path / "a.4"))
+        assert code == 4 and "evidence" in err and not (tmp_path / "a.4").exists()
+        code, _, err = self._run(capsys, "access-log", "rotate", str(tmp_path / "none.log"),
+                                 "--actor", "ops-1", "--to", str(tmp_path / "a.5"))  # fmt: skip
+        assert code == 2 and "not found" in err

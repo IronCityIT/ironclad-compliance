@@ -221,6 +221,8 @@ def _usage(
     last: str | None = None
     counted = 0
     for entry in access_log:
+        if "rotated_from" in entry:
+            continue  # a rotation line (`access_log.rotate`), not a request
         moment = _at(entry)
         if moment.astimezone(timezone.utc).date() > as_of:
             continue

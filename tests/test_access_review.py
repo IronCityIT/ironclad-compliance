@@ -382,6 +382,34 @@ class TestContinuity:
         assert (linked["broken"], linked["access_log"]["extended"]) == (1, False)
         assert "rewritten at or before" in linked["access_log"]["reason"]
 
+    def test_a_log_rotated_since_links_to_the_last_given_its_archive(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        log = self.spring_log(tmp_path)
+        earlier, _ = self.first(store, tmp_path, log)
+        write_log(log, ("staff@sage.example", "sage-spine", 200, "2026-07-01T10:00:00"))
+        archive = tmp_path / "access.log.2026-07"
+        access_log.rotate(log, archive, actor="ops-1")
+        write_log(log, ("staff@sage.example", "sage-spine", 403, "2026-09-01T10:00:00"))
+        packet = build(
+            store, two_tenants(), access_log=access_log.read_files([archive, log]), previous=earlier
+        )
+        linked = load(packet, access_review.CONTINUITY)
+        assert (linked["verified"], linked["broken"]) == (True, 0)
+        assert linked["access_log"]["extended"] is True
+        # Every request across both files is counted, and the rotation line is not one.
+        review = load(packet, "token-review.json")
+        assert review["access_log"]["entries"] == 3
+        (staff,) = [i for i in review["items"] if i["user_id"] == "staff@sage.example"]
+        assert (staff["requests"], staff["refused"]) == (3, 1)
+        assert "continues" not in packet["manifest"]["inputs"]["access_log"]
+        # The current file alone cannot vouch for the spring anchor: high, with the remedy.
+        alone = build(store, two_tenants(), access_log=access_log.read_file(log), previous=earlier)
+        linked = load(alone, access_review.CONTINUITY)
+        assert (linked["broken"], linked["access_log"]["extended"]) == (1, False)
+        assert "give the archives" in linked["access_log"]["reason"]
+        assert alone["manifest"]["inputs"]["access_log"]["continues"].startswith("3:")
+
     def test_an_anchored_log_left_out_is_unchecked_not_passed(
         self, store: Any, tmp_path: Path
     ) -> None:
@@ -495,6 +523,34 @@ class TestTheCommands:
         (path / "register.csv").write_bytes(b"record_type\r\n")
         code, verdict, _ = cli("oversight", "verify-packet", str(path), "--digest", filed["digest"])
         assert (code, verdict["files"]["register.csv"]) == (4, "changed")
+
+    def test_a_rotated_log_is_filed_from_its_archive_and_the_current_file(
+        self, cli: Any, tmp_path: Path
+    ) -> None:
+        tokens = self.issued(cli, tmp_path)
+        log = write_log(
+            tmp_path / "access.log",
+            ("dana@drchrono.example", "sage-spine", 200, "2026-08-25T08:00:00"),
+        )
+        archive = tmp_path / "access.log.1"
+        code, rotated, err = cli(
+            "access-log", "rotate", str(log), "--to", str(archive), "--actor", "ops-1"
+        )
+        assert code == 0, err
+        write_log(log, ("dana@drchrono.example", "sage-spine", 200, "2026-09-25T08:00:00"))
+        logs = ("--access-log", str(archive), "--access-log", str(log))
+        code, filed, err = self.packet(cli, tmp_path, tokens, *logs)
+        assert code == 0, err
+        manifest = json.loads((Path(filed["path"]) / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["inputs"]["access_log"]["entries"] == 3
+        assert manifest["inputs"]["access_log"]["anchor"].startswith("3:")
+        review = json.loads((Path(filed["path"]) / "token-review.json").read_text(encoding="utf-8"))
+        assert review["items"][0]["requests"] == 2
+        assert rotated["archive_anchor"].startswith("1:")
+        # The archive given after the current file: nothing filed.
+        backwards = ("--access-log", str(log), "--access-log", str(archive))
+        code, out, err = self.packet(cli, tmp_path / "again", tokens, *backwards)
+        assert (code, out) == (4, None) and "no packet is built on it" in err
 
     def test_the_next_quarter_is_filed_against_the_last(self, cli: Any, tmp_path: Path) -> None:
         tokens = self.issued(cli, tmp_path)
