@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `766bba3` (run 36283015277, `pull_request`; the duplicate `push` run 36283012703 was cancelled), all six jobs, Firestore rules 91/91 against the emulator (88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c4f8384` (run 36283606865, `pull_request`; the duplicate `push` run 36283605045 was cancelled), all six jobs, Firestore rules 91/91 against the emulator (unchanged by the review-queue pass; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
