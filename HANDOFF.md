@@ -767,7 +767,11 @@ each direction is recorded; its integrations already record theirs. A
 review scheduled more than 365 days out is a notice (`review-too-distant`):
 a review date set years ahead would keep the record out of
 `review-overdue` for good. The horizon is ICIT policy
-(`REVIEW_HORIZON_DAYS`), not a standard. No Sage seed record carries it. `export` writes the whole register,
+(`REVIEW_HORIZON_DAYS`), not a standard. No Sage seed record carries it.
+An assurance expiry recorded with nothing in `assurance` is a notice
+(`assurance-unnamed`): the date cannot be checked against a SOC 2 report,
+HITRUST letter or certificate nobody named. No Sage seed record carries it
+(each names its pending assurance and dates none). `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,

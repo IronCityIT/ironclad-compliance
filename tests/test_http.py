@@ -1362,6 +1362,7 @@ class TestOversightRegister:
                     "baa_document_ref": "BAA-7",
                     "review_due": "2027-01-01",
                     "cert_expiration_date": "2027-06-30",
+                    "assurance": "SOC 2 Type II report",
                 },
             )[0]
             == 200

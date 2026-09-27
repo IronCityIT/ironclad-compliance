@@ -198,7 +198,7 @@ test("every Sage Spine seed record renders with its actions",()=>{
 // The review queue. Fixed date so the cases do not drift with the calendar.
 const TODAY="2026-09-26";
 const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
-const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",data_flow_direction:"Bidirectional",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
+const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",data_flow_direction:"Bidirectional",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30",assurance:"SOC 2 Type II report, 2026"};
 
 test("a fully governed PHI record needs no attention",()=>{
   assert.deepEqual(attentionFindings(clean,TODAY),[]);
@@ -246,6 +246,15 @@ test("a High or Critical rating with no assurance expiry is a notice",()=>{
   assert.deepEqual(codes({...clean,risk:"Critical",cert_expiration_date:"soon"}),["assurance-undated"]);
   assert.deepEqual(codes({...clean,risk:"Medium",cert_expiration_date:""}),[],"only elevated ratings owe a dated assurance");
   assert.deepEqual(codes({...clean,risk:"High"}),[],"a dated assurance satisfies it");
+});
+
+test("an assurance expiry with no assurance named is a notice",()=>{
+  assert.deepEqual(codes({...clean,assurance:""}),["assurance-unnamed"]);
+  assert.deepEqual(codes({...clean,assurance:undefined}),["assurance-unnamed"]);
+  assert.deepEqual(codes({...clean,assurance:"  "}),["assurance-unnamed"]);
+  assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:""}),[],"no expiry, no name owed");
+  assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:"soon"}),[],"an unreadable expiry is not a recorded one");
+  assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:"2026-01-01"}),["assurance-expired","assurance-unnamed"]);
 });
 
 test("an Active relationship with no executed agreement is high",()=>{

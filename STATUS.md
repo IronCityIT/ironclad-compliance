@@ -1860,6 +1860,59 @@ installs its own. In CI at `44f5053` (run 36325380286) all six jobs passed:
 pytest 1303 passed, 57 skipped on 3.10 and 3.12, persistence 274, dashboard
 108/108, Firestore rules 91/91.
 
+**An assurance expiry with no assurance named is a notice, 2026-09-27.**
+`cert_expiration_date` drove `assurance-expired`, `assurance-expiring`, a
+token's `outlasts-assurance` and (by its absence) `assurance-undated`. None
+of them asked what the date belonged to. A record could carry an expiry with
+`assurance` blank, and it reviewed clean. A reviewer then had no report,
+letter or certificate to check the date against, and anyone could type an
+expiry to clear `assurance-undated` on a High or Critical record. The
+export's own golden fixture had one: its EHR feed integration dated an
+assurance to 2026-10-28 and named none, and it exported without a word.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`assurance-unnamed` (**notice**) when `cert_expiration_date` is an ISO date
+and `assurance` is blank, whitespace or absent: "Certificate / assurance
+expiry 2027-06-30 recorded with no assurance named." It follows the expiry
+checks, so a lapsed unnamed assurance lists the lapse (high) first. An
+unreadable expiry is not a recorded one and owes no name. It is not an
+`ACCESS_CODE`, so `oversight access` and `--fail-on high` are unchanged. The
+export's attention column and the packet's findings index carry it through
+the same function. No Sage seed record carries it: each names its pending
+assurance and dates none.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue) and
+`HANDOFF.md` §17.
+
+Tests (6 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 5 new cases
+  (55, up from 50). The base record gained `assurance`, so it stays the
+  clean control. Blank, cleared and whitespace are the notice. No expiry and
+  no name is clean. A lapsed unnamed assurance is the lapse, then the name.
+- `tests/fixtures/oversight-export.json`: the EHR feed row's attention
+  column gains the notice. The page and the server are both held to it.
+- `tests/test_oversight.py`: no Sage seed record carries it. Dating a seed
+  partner's named assurance stays clean; blanking the name raises it.
+- `tests/test_http.py`: the review-queue test's governed record gained an
+  `assurance`. It is the only test outside the shared tables that changed.
+- `dashboard/test/oversight.test.js`: the rule and its edges on the page.
+  Its `clean` record gained an `assurance`.
+
+Two mutations each fail named tests. With the check disabled on the server,
+6 fail: the four positive table cases, the seed test and the export table.
+With it disabled on the page, 3 page tests fail: the new rule test, the
+review-queue table and the export table.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1366
+tests, 1299 passed, 57 skipped, 10 failed. Untouched HEAD `9430a77` in a
+worktree: 1360 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). Dashboard
+`oversight.test.js` and `render.test.js`: 96/96. ruff format and lint pass.
+`mypy --platform linux` passes. The white-label gate and `git diff --check`
+pass. bandit is not installed in the local venv; CI installs its own.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -316,6 +316,25 @@ class TestTheReviewQueue:
         )
         assert elevated and undated == elevated
 
+    def test_no_sage_seed_record_dates_an_assurance_it_does_not_name(self) -> None:
+        # Every seed record names its pending assurance and dates none of them.
+        unnamed = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "assurance-unnamed"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert unnamed == []
+        dated = {**SEED["oversight"]["partners"][0], "cert_expiration_date": "2027-06-30"}
+        assert "assurance-unnamed" not in [
+            f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
+        ]
+        dated["assurance"] = ""
+        assert "assurance-unnamed" in [
+            f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
+        ]
+
     @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
     def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:
         with pytest.raises(OversightError, match="YYYY-MM-DD"):

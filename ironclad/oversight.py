@@ -442,7 +442,9 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
     (whether PHI leaves the practice, arrives, or both), no business owner, a High or
-    Critical rating with no assurance expiry (so a lapse could never show).
+    Critical rating with no assurance expiry (so a lapse could never show), an
+    assurance expiry with nothing naming the assurance (so the date cannot be
+    checked against a report or certificate).
     Derived only from stored fields, so it says nothing a reviewer cannot check
     on the record. Retired records need no attention. ISO dates compare
     correctly as strings.
@@ -517,6 +519,12 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
             "notice",
             "assurance-undated",
             f"Rated {record.get('risk')} with no certificate / assurance expiry recorded.",
+        )
+    if _ISO_DATE.match(expiry) and not _text(record.get("assurance")):
+        add(
+            "notice",
+            "assurance-unnamed",
+            f"Certificate / assurance expiry {expiry} recorded with no assurance named.",
         )
     if not record.get("risk") or record.get("risk") == "Unrated":
         add("notice", "risk-unrated", "Risk not yet rated.")

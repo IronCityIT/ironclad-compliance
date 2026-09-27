@@ -193,7 +193,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
  * unassessable: PHI with no scope or no recorded direction of flow, no
  * business owner, a High or Critical
- * rating with no assurance expiry (so a lapse could never show). Derived only from
+ * rating with no assurance expiry (so a lapse could never show), an assurance
+ * expiry with no assurance named (so the date cannot be checked). Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
  * Retired records need no attention. `today` is YYYY-MM-DD; ISO dates compare
  * correctly as strings.
@@ -231,6 +232,7 @@ export function attentionFindings(record, today) {
   } else if (ELEVATED_RISK.includes(record.risk)) {
     add("notice", "assurance-undated", `Rated ${record.risk} with no certificate / assurance expiry recorded.`);
   }
+  if (ISO_DATE.test(expiry) && !text(record.assurance)) add("notice", "assurance-unnamed", `Certificate / assurance expiry ${expiry} recorded with no assurance named.`);
   if (!record.risk || record.risk === "Unrated") add("notice", "risk-unrated", "Risk not yet rated.");
   if (!record.data_access || record.data_access === "Unknown") add("notice", "data-access-unknown", "Data access not established.");
   if (!text(record.business_owner)) add("notice", "owner-unassigned", "No business owner recorded.");

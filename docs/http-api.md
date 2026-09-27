@@ -341,8 +341,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   `as_of` (`review-too-distant`: ICIT policy, `REVIEW_HORIZON_DAYS`; a review
   set years out would never read as overdue), risk unrated, data access unknown, no business
   owner, a High or Critical rating with no assurance expiry recorded
-  (`assurance-undated`: without one the expiry checks can never fire)
-  (notice). Retired records are left out.
+  (`assurance-undated`: without one the expiry checks can never fire), an
+  assurance expiry recorded with no assurance named (`assurance-unnamed`: the
+  date cannot be checked against a report or certificate) (notice). Retired records are left out.
   Each item carries `kind`, `id`, `name`, `revision`, its highest `level` and
   its `findings` (`level`, `code`, `message`); high items come first, then by
   name, with `records` and `high` counts. The rules are
