@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `c4f8384` (run 36283606865, `pull_request`; the duplicate `push` run 36283605045 was cancelled), all six jobs, Firestore rules 91/91 against the emulator (unchanged by the review-queue pass; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `b159632` (run 36284444931, `pull_request`; the duplicate `push` run 36284441542 was cancelled), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -176,7 +176,8 @@ stamp as `Invalid Date`, un-excluding retired records from the queue, enabling
 the button before both kinds load) each fail a test by name. Local evidence:
 `npm --prefix dashboard test` 91/92 (the one failure is the same environmental
 `api.test.js`, which spawns `python3`); `node --check` on the page and core;
-white-label, secret-literal and `git diff --check` gates pass.
+white-label, secret-literal and `git diff --check` gates pass. In CI (run
+36284444931) the dashboard suite is 100/100, `api.test.js` included.
 
 Still open for this workspace: nothing loads `tenants/sage-spine/seed.json`
 into a store — it is data and a test fixture, not a migration (loading it
