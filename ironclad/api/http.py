@@ -267,6 +267,8 @@ class App:
         self._route("POST", tenant + "/exceptions/{exception_id}/approve", self.approve_exception)
         self._route("POST", tenant + "/exceptions/{exception_id}/revoke", self.revoke_exception)
         self._route("GET", tenant + "/audit", self.audit_trail)
+        # Before `{kind}`, which would otherwise read `attention` as a register.
+        self._route("GET", tenant + "/oversight/attention", self.oversight_attention)
         register = tenant + "/oversight/{kind}"
         self._route("GET", register, self.list_oversight)
         self._route("POST", register, self.create_oversight)
@@ -498,7 +500,8 @@ class App:
             raise HttpError(
                 HTTPStatus.FORBIDDEN, f"{principal.user_id} may not maintain the register"
             )
-        kind = request.params["kind"]
+        # The review queue spans both registers and names none.
+        kind = request.params.get("kind", oversight.KINDS[0])
         if kind not in oversight.KINDS:
             raise HttpError(
                 HTTPStatus.NOT_FOUND, f"no register {kind!r}; use {' or '.join(oversight.KINDS)}"
@@ -592,6 +595,16 @@ class App:
             }
 
         return self._oversight_answer(read)
+
+    def oversight_attention(self, request: Request, principal: Principal) -> Response:
+        """The review queue across both registers, as of `as_of` or today (UTC)."""
+        tenant, _ = self._oversight_scope(request, principal, write=False)
+        as_of = request.query.get("as_of", [""])[0] or oversight.today_utc()
+        return self._oversight_answer(
+            lambda: oversight.attention_queue(
+                self.results, tenant_id=tenant, principal=principal, today=as_of
+            )
+        )
 
     def create_oversight(self, request: Request, principal: Principal) -> Response:
         tenant, kind = self._oversight_scope(request, principal, write=True)

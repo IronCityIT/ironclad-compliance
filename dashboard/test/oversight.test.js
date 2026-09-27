@@ -240,6 +240,19 @@ test("high findings sort ahead of notices; retired records are excluded",()=>{
   assert.equal(isoToday(new Date("2026-09-26T23:59:00Z")),"2026-09-26");
 });
 
+// The same table ironclad/oversight.py is held to, so the browser's queue and
+// the server's cannot drift while both exist.
+const spec=JSON.parse(fs.readFileSync(path.join(root,"tests","fixtures","oversight-attention.json"),"utf8"));
+test("the review queue matches the shared specification, case by case",()=>{
+  assert.equal(spec.window_days,ATTENTION_WINDOW_DAYS);
+  assert.ok(spec.cases.length>=15);
+  for(const c of spec.cases){
+    const record={...spec.base};
+    for(const [k,v] of Object.entries(c.patch)) record[k]=v;
+    assert.deepEqual(attentionFindings(record,spec.today),c.expected,c.name);
+  }
+});
+
 test("every Sage Spine seed record surfaces its missing BAA",()=>{
   const all=[...sage.oversight.partners,...sage.oversight.integrations];
   for(const r of all) assert.ok(codes(r).includes("phi-without-baa"),r.name);

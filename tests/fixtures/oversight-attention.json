@@ -1,0 +1,57 @@
+{
+  "about": "The review queue's specification: each case is `base` with `patch` applied (null clears a field), judged as of `today`. dashboard/public/oversight-core.js attentionFindings() and ironclad/oversight.py attention_findings() must both return `expected` exactly, in order. Held by dashboard/test/oversight.test.js and tests/test_oversight.py.",
+  "today": "2026-09-26",
+  "window_days": 30,
+  "base": {
+    "name": "Clean",
+    "status": "Active",
+    "risk": "Low",
+    "data_access": "PHI",
+    "baa_status": "Executed",
+    "baa_execution_date": "2025-01-15",
+    "baa_document_ref": "Contract 42",
+    "review_due": "2027-03-01",
+    "cert_expiration_date": "2027-06-30"
+  },
+  "cases": [
+    {"name": "a fully governed PHI record needs no attention", "patch": {}, "expected": []},
+    {"name": "PHI with the BAA pending review", "patch": {"baa_status": "Pending review"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."}]},
+    {"name": "PHI with the BAA marked not required is still high", "patch": {"baa_status": "Not required"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Not required)."}]},
+    {"name": "PHI with no BAA status recorded", "patch": {"baa_status": ""}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: not recorded)."}]},
+    {"name": "operational data with no BAA required needs no attention", "patch": {"data_access": "Operational only", "baa_status": "Not required"}, "expected": []},
+    {"name": "an executed BAA with no execution date", "patch": {"baa_execution_date": ""}, "expected": [
+      {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date recorded."}]},
+    {"name": "an executed BAA with no date and no document", "patch": {"baa_execution_date": "", "baa_document_ref": null}, "expected": [
+      {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date or document reference recorded."}]},
+    {"name": "a review due yesterday is overdue", "patch": {"review_due": "2026-09-25"}, "expected": [
+      {"level": "high", "code": "review-overdue", "message": "Review overdue since 2026-09-25."}]},
+    {"name": "a review due today is due soon, not overdue", "patch": {"review_due": "2026-09-26"}, "expected": [
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-09-26."}]},
+    {"name": "a review on the last day of the window", "patch": {"review_due": "2026-10-26"}, "expected": [
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-10-26."}]},
+    {"name": "a review one day past the window", "patch": {"review_due": "2026-10-27"}, "expected": []},
+    {"name": "no review date", "patch": {"review_due": ""}, "expected": [
+      {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
+    {"name": "a review date that is not ISO counts as none", "patch": {"review_due": "2026/10/01"}, "expected": [
+      {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
+    {"name": "expired assurance", "patch": {"cert_expiration_date": "2026-01-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
+    {"name": "assurance expiring on the last day of the window", "patch": {"cert_expiration_date": "2026-10-26"}, "expected": [
+      {"level": "notice", "code": "assurance-expiring", "message": "Certificate / assurance expires 2026-10-26."}]},
+    {"name": "no assurance expiry recorded is not itself a finding", "patch": {"cert_expiration_date": ""}, "expected": []},
+    {"name": "risk unset and data access unknown", "patch": {"risk": null, "data_access": "Unknown"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."},
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "high findings in the order found, then notices", "patch": {"risk": "Unrated", "baa_status": "Pending review", "review_due": "2020-01-01"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
+      {"level": "high", "code": "review-overdue", "message": "Review overdue since 2020-01-01."},
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "a high found after a notice still sorts first", "patch": {"review_due": "2026-10-01", "cert_expiration_date": "2026-09-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-09-01."},
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-10-01."}]},
+    {"name": "a retired record needs no attention", "patch": {"status": "Retired", "baa_status": "", "review_due": "2020-01-01"}, "expected": []}
+  ]
+}

@@ -273,6 +273,41 @@ In CI (run 36286525753), unstubbed: 943 passed on 3.10 and 3.12, and the
 MariaDB persistence job 161 passed, which includes the new store-contract case
 on MariaDB.
 
+**The review queue on the target stack, 2026-09-26 (eighth pass).** The
+*Needs attention* queue (fourth pass) existed only in the browser, computed
+over Firestore snapshots, so it would have been lost with the path the
+architecture retires. Anything not holding a browser session (a Sage staff
+service token, a scheduled BAA sweep, an auditor's pull) could not ask what
+needed review. `attention_findings()` and `attention_queue()` in
+`ironclad/oversight.py` are the dashboard's `attentionFindings()` as Python,
+and `GET /api/v1/tenants/{t}/oversight/attention?as_of=YYYY-MM-DD` serves the
+queue across both registers. Any tenant member may read it, and it holds nothing
+they cannot already read. Another tenant gets 403, and a date that is not a
+calendar day gets 400. With no `as_of` it is today in UTC. Items come high first,
+then by name, with `records`/`high` counts. No write path, rule or schema
+changed.
+
+The two implementations are held to **one table of 20 cases**,
+`tests/fixtures/oversight-attention.json`, message for message and in order.
+It was written by hand as a specification and run against the existing JS
+first, which passed unchanged, so the spec describes shipped behaviour.
+`dashboard/test/oversight.test.js` and `tests/test_oversight.py` both read it,
+and the Python side also parses `ATTENTION_WINDOW_DAYS` out of
+`oversight-core.js`. Two store-contract cases (both kinds, high first, clean
+records absent, tenant isolation) run on the volume locally and on MariaDB in
+CI. Two HTTP cases run on a real socket, and cover the `as_of` shift that turns
+a governed record overdue and the route not being shadowed by `{kind}`. Six
+mutations each fail a test by name: exempting `Not required` from the BAA check,
+a window off by one, dropping the Retired exclusion, notices sorted first,
+the queue skipping the reader check, and findings left unsorted.
+
+Local evidence (Windows 11, Python 3.12 venv): `tests/test_oversight.py` and
+`tests/test_http.py` under the no-op `fcntl` stub: 196 passed, 22 skipped (MariaDB), and 1 failure, the 20-writer lock test, which fails the same way on the untouched tree because it needs a real lock. A seventh mutation, registering the queue route after `{kind}` so `attention` reads as a register name, fails both HTTP cases; ruff format and
+lint pass; mypy reports only the known Windows `fcntl` errors in
+`policy_store.py`; `npm --prefix dashboard test` 92/93 (the one failure is the
+environmental `api.test.js`); white-label, secret-literal and `git diff
+--check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

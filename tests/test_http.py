@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from ironclad import oversight
 from ironclad.api.http import (
     MAX_BODY_BYTES,
     App,
@@ -1302,6 +1303,40 @@ class TestOversightRegister:
         body = as_("acme-viewer").get(f"{path}/history")[1]["data"]
         assert body["verification"]["verified"] is False
         assert body["verification"]["broken_at"] == 1
+
+    QUEUE = "/api/v1/tenants/acme/oversight/attention"
+
+    def test_the_review_queue_is_read_by_any_member_as_of_a_date(self, as_) -> None:
+        manager = as_("acme-manager")
+        assert _create(manager, {"name": "Lab portal", "data_access": "PHI"})[0] == 200
+        assert (
+            _create(
+                manager, {**self.RATED, "baa_document_ref": "BAA-7", "review_due": "2027-01-01"}
+            )[0]
+            == 200
+        )
+        status, body, _ = as_("acme-viewer").get(f"{self.QUEUE}?as_of=2026-09-26")
+        assert status == 200, body
+        queue = body["data"]
+        assert (queue["as_of"], queue["records"], queue["high"]) == ("2026-09-26", 1, 1)
+        (item,) = queue["items"]
+        assert (item["name"], item["kind"], item["level"]) == ("Lab portal", "partners", "high")
+        assert item["findings"][0]["code"] == "phi-without-baa"
+        # Judged as of a later day, the governed record's review has lapsed.
+        later = as_("acme-viewer").get(f"{self.QUEUE}?as_of=2027-01-02")[1]["data"]
+        assert [i["name"] for i in later["items"]] == ["Clearinghouse", "Lab portal"]
+        # With no date it is today's queue, in UTC.
+        before = oversight.today_utc()
+        as_of = as_("acme-viewer").get(self.QUEUE)[1]["data"]["as_of"]
+        assert as_of in {before, oversight.today_utc()}
+
+    def test_the_review_queue_refuses_strangers_bad_dates_and_writes(self, as_) -> None:
+        status, body, _ = as_("beta-manager").get(self.QUEUE)
+        assert status == 403
+        assert as_("acme-viewer").get(f"{self.QUEUE}?as_of=2026-02-30")[0] == 400
+        # Not a register: a write there is refused and nothing is created.
+        status, body, _ = as_("acme-manager").post(self.QUEUE, {"fields": {"name": "x"}})
+        assert status == 404 and "no register 'attention'" in body["errors"][0]
 
     def test_a_store_without_the_register_is_503(
         self, tmp_path: Path, token_file: Path, secrets_for: dict[str, str]

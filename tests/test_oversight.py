@@ -28,6 +28,9 @@ from ironclad.store import FileResultStore, StoreError
 ROOT = Path(__file__).resolve().parent.parent
 RULES = (ROOT / "firestore.rules").read_text(encoding="utf-8")
 SEED = json.loads((ROOT / "tenants" / "sage-spine" / "seed.json").read_text(encoding="utf-8"))
+ATTENTION = json.loads(
+    (ROOT / "tests" / "fixtures" / "oversight-attention.json").read_text(encoding="utf-8")
+)
 
 TEST_DSN = os.environ.get("IRONCLAD_TEST_DSN", "")
 needs_mariadb = pytest.mark.skipif(
@@ -209,6 +212,34 @@ class TestTheSageSeed:
         assert all(oversight.check_record_id(i) == i for i in ids)
 
 
+class TestTheReviewQueue:
+    """`attentionFindings()` in the dashboard, as Python, held to one table."""
+
+    @pytest.mark.parametrize("case", ATTENTION["cases"], ids=lambda c: c["name"])
+    def test_the_shared_specification(self, case: dict[str, Any]) -> None:
+        record = {**ATTENTION["base"], **case["patch"]}
+        assert oversight.attention_findings(record, ATTENTION["today"]) == case["expected"]
+
+    def test_the_window_is_the_dashboards(self) -> None:
+        assert ATTENTION["window_days"] == oversight.ATTENTION_WINDOW_DAYS
+        core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")
+        window = re.search(r"ATTENTION_WINDOW_DAYS = (\d+);", core)
+        assert window and int(window.group(1)) == oversight.ATTENTION_WINDOW_DAYS
+
+    def test_every_sage_seed_record_surfaces_its_missing_baa(self) -> None:
+        for kind in oversight.KINDS:
+            for entry in SEED["oversight"][kind]:
+                codes = [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+                assert "phi-without-baa" in codes, entry["name"]
+
+    @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
+    def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:
+        with pytest.raises(OversightError, match="YYYY-MM-DD"):
+            oversight.check_as_of(bad)
+        with pytest.raises(OversightError):
+            oversight.attention_findings(ATTENTION["base"], bad)
+
+
 # ------------------------------------------------------------------ stores
 
 
@@ -360,6 +391,37 @@ class RegisterContract:
                 assert len(entries) == 1
                 assert entries[0]["created_by"] == "owner-1"
                 assert {k: entries[0][k] for k in entry} == entry
+
+    def test_the_review_queue_spans_both_kinds_high_first(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        clean = {k: v for k, v in ATTENTION["base"].items() if k != "status"}
+        self.save(store, changes={**clean, "name": "Aardvark Labs"})
+        self.save(store, changes={**clean, "name": "Zeta Fax", "review_due": "2026-10-01"})
+        queue = oversight.attention_queue(
+            store, tenant_id="sage-spine", principal=VIEWER, today="2026-09-26"
+        )
+        seeded = len(SEED["oversight"]["partners"]) + len(SEED["oversight"]["integrations"])
+        # Aardvark Labs is clean and absent; Zeta Fax is a notice, after every high.
+        assert (queue["records"], queue["high"]) == (seeded + 1, seeded)
+        assert [i["name"] for i in queue["items"]][-1] == "Zeta Fax"
+        assert "Aardvark Labs" not in [i["name"] for i in queue["items"]]
+        highs = [i["name"] for i in queue["items"] if i["level"] == "high"]
+        assert highs == sorted(highs, key=str.casefold)
+        assert {i["kind"] for i in queue["items"]} == set(oversight.KINDS)
+        assert all(i["id"] and i["revision"] == 1 for i in queue["items"])
+
+    def test_the_review_queue_is_the_tenants_own(self, tmp_path: Path) -> None:
+        store = self.store(tmp_path)
+        oversight.load_seed(store, SEED, principal=OWNER, at=AT)
+        with pytest.raises(AuthorizationError):
+            oversight.attention_queue(
+                store, tenant_id="sage-spine", principal=OUTSIDER, today="2026-09-26"
+            )
+        outsider_view = oversight.attention_queue(
+            store, tenant_id="other-clinic", principal=OUTSIDER, today="2026-09-26"
+        )
+        assert outsider_view["items"] == []
 
     def test_a_contributor_may_not_load_a_rated_seed(self, tmp_path: Path) -> None:
         with pytest.raises(AuthorizationError, match="rated seed"):

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from ironclad.errors import AuthorizationError, IroncladError
@@ -385,6 +385,132 @@ def save(
     )
     store.put_oversight(tenant_id, kind, record_id, record)
     return {"id": record_id, **record}
+
+
+# ------------------------------------------------------------ review queue
+#
+# `attentionFindings()` in `dashboard/public/oversight-core.js`, as Python, so
+# the review queue exists on the target stores and not only in a browser
+# reading Firestore. Both are held to one table of cases
+# (`tests/fixtures/oversight-attention.json`), finding for finding and message
+# for message, by `tests/test_oversight.py` and `dashboard/test/oversight.test.js`.
+
+#: How far ahead a review or assurance expiry is called out before it lapses.
+ATTENTION_WINDOW_DAYS = 30
+
+
+def today_utc() -> str:
+    """Today's date in UTC as YYYY-MM-DD, the form register dates are stored in."""
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def check_as_of(value: str) -> str:
+    """A queue date: a real calendar day as YYYY-MM-DD, or a refusal."""
+    try:
+        if not _ISO_DATE.match(value or ""):
+            raise ValueError
+        date.fromisoformat(value)
+    except ValueError:
+        raise OversightError(f"{value!r} is not a YYYY-MM-DD date") from None
+    return value
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip()
+
+
+def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str]]:
+    """What a reviewer should look at on one record, most serious first.
+
+    PHI moving without an executed BAA, a BAA claimed without its evidence, a
+    lapsed review or assurance, and gaps that leave the record unassessable.
+    Derived only from stored fields, so it says nothing a reviewer cannot check
+    on the record. Retired records need no attention. ISO dates compare
+    correctly as strings.
+    """
+    if record.get("status") == "Retired":
+        return []
+    soon = (
+        date.fromisoformat(check_as_of(today)) + timedelta(days=ATTENTION_WINDOW_DAYS)
+    ).isoformat()
+    findings: list[dict[str, str]] = []
+
+    def add(level: str, code: str, message: str) -> None:
+        findings.append({"level": level, "code": code, "message": message})
+
+    baa = _text(record.get("baa_status")) or "not recorded"
+    if record.get("data_access") == "PHI" and record.get("baa_status") != "Executed":
+        add("high", "phi-without-baa", f"Handles PHI without an executed BAA (BAA: {baa}).")
+    if record.get("baa_status") == "Executed":
+        missing = [
+            label
+            for field, label in (
+                ("baa_execution_date", "execution date"),
+                ("baa_document_ref", "document reference"),
+            )
+            if not _text(record.get(field))
+        ]
+        if missing:
+            add(
+                "high",
+                "baa-evidence-missing",
+                f"BAA marked executed with no {' or '.join(missing)} recorded.",
+            )
+    review = _text(record.get("review_due"))
+    if not _ISO_DATE.match(review):
+        add("notice", "review-unscheduled", "No review date set.")
+    elif review < today:
+        add("high", "review-overdue", f"Review overdue since {review}.")
+    elif review <= soon:
+        add("notice", "review-due-soon", f"Review due {review}.")
+    expiry = _text(record.get("cert_expiration_date"))
+    if _ISO_DATE.match(expiry):
+        if expiry < today:
+            add("high", "assurance-expired", f"Certificate / assurance expired {expiry}.")
+        elif expiry <= soon:
+            add("notice", "assurance-expiring", f"Certificate / assurance expires {expiry}.")
+    if not record.get("risk") or record.get("risk") == "Unrated":
+        add("notice", "risk-unrated", "Risk not yet rated.")
+    if not record.get("data_access") or record.get("data_access") == "Unknown":
+        add("notice", "data-access-unknown", "Data access not established.")
+    # Stable, so findings of one level keep the order they were found in.
+    return sorted(findings, key=lambda f: f["level"] != "high")
+
+
+def attention_queue(
+    store: Any, *, tenant_id: str, principal: Principal, today: str
+) -> dict[str, Any]:
+    """The tenant's review queue as of `today`: every record with a finding.
+
+    Records with a high-level finding come first, then by name. Any member of
+    the tenant may read it; it holds nothing they cannot already read.
+    """
+    check_reader(principal, tenant_id)
+    check_as_of(today)
+    items: list[dict[str, Any]] = []
+    for kind in KINDS:
+        for record in store.list_oversight(tenant_id, kind):
+            findings = attention_findings(record, today)
+            if findings:
+                level = findings[0]["level"]
+                items.append(
+                    {
+                        "kind": kind,
+                        "id": record.get("id"),
+                        "name": record.get("name"),
+                        "revision": record.get("revision"),
+                        "level": level,
+                        "findings": findings,
+                    }
+                )
+    items.sort(key=lambda item: (item["level"] != "high", str(item["name"]).casefold()))
+    return {
+        "as_of": today,
+        "window_days": ATTENTION_WINDOW_DAYS,
+        "records": len(items),
+        "high": sum(1 for item in items if item["level"] == "high"),
+        "items": items,
+    }
 
 
 def seed_record_id(name: str) -> str:

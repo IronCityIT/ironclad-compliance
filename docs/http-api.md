@@ -84,6 +84,7 @@ All under `/api/v1`. Every answer is JSON of the shape
 | POST | `/tenants/{t}/exceptions/{id}/approve` | `exception:approve` | approve; separation of duties is enforced by the model |
 | POST | `/tenants/{t}/exceptions/{id}/revoke` | `exception:approve` | revoke; body: `reason` |
 | GET | `/tenants/{t}/audit?limit=` | `audit:read` | the hash-chained trail |
+| GET | `/tenants/{t}/oversight/attention?as_of=` | any role in the tenant | the review queue across both registers, as of `as_of` (`YYYY-MM-DD`, default today in UTC) |
 | GET | `/tenants/{t}/oversight/{kind}` | any role in the tenant | the register's current records; `kind` is `partners` or `integrations` |
 | POST | `/tenants/{t}/oversight/{kind}` | owner, compliance manager, contributor | create; body: `{"fields": {...}}` |
 | GET | `/tenants/{t}/oversight/{kind}/{id}` | any role in the tenant | one record |
@@ -168,6 +169,18 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   written plus `verification`: `verified`, `revisions`, `broken_at` and
   `detail`. A missing or edited revision on the volume shows up there as
   `verified: false`.
+- **The review queue.** `/oversight/attention` is the page's *Needs attention*
+  list, computed on the server from stored fields only: PHI without an executed
+  BAA, a BAA marked executed without its date or document, a review overdue or
+  assurance expired (high); a review or expiry within 30 days, no review date,
+  risk unrated, data access unknown (notice). Retired records are left out.
+  Each item carries `kind`, `id`, `name`, `revision`, its highest `level` and
+  its `findings` (`level`, `code`, `message`); high items come first, then by
+  name, with `records` and `high` counts. The rules are
+  `attention_findings()` in `ironclad/oversight.py`, held finding for finding
+  to the dashboard's `attentionFindings()` by one table of cases,
+  `tests/fixtures/oversight-attention.json`. An `as_of` that is not a calendar
+  day is 400; a POST there is 404, since `attention` is not a register.
 - An unknown `kind` or record is 404. A record id outside `[A-Za-z0-9_-]` is
   400. A store that does not hold the register answers 503.
 
