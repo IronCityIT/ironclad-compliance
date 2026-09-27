@@ -124,6 +124,11 @@ class GrantLedger:
     def head(self) -> str:
         return self._head
 
+    @property
+    def anchor(self) -> str:
+        """`N:DIGEST` for the ledger as it stands, for `verify-ledger --anchor`."""
+        return f"{self._seq}:{self._head}" if self._seq else ""
+
     def record(
         self,
         action: str,

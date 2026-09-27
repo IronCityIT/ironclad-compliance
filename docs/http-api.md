@@ -72,7 +72,10 @@ IRONCLAD_STORE=/srv/ironclad/results \
   replaced: one chained JSON line per entry with the time, action, actor,
   user, tenant, roles, expiry and the entry's `sha256` (never the token). A
   ledger that is not a whole chain refuses further edits (exit 2). Both print
-  `ledger_head`, the digest to copy somewhere else.
+  `ledger_head` and `ledger_anchor` (`N:DIGEST`), the value to copy somewhere
+  else. `ironclad tokens verify-ledger LEDGER [--anchor N:DIGEST]` re-checks
+  the chain and, given an earlier anchor, that line N still carries that
+  digest: exit 4 if a grant was cut from the end or the ledger was replaced.
   `ironclad tokens review FILE --ledger LEDGER` holds the file to it: an entry
   with no grant on record (hand-written, or older than the ledger), one that
   differs from its grant in user, tenant, roles or expiry, or one revoked and
@@ -106,7 +109,13 @@ the first broken line and the head digest, and exits 4 if the chain is broken
 (2 if the file cannot be read). The server re-checks the file when it starts
 and refuses to append to a broken one: move it aside (it is the evidence) and
 start a new file. As with the register seal, the chain proves nothing on its
-own; copy the head digest somewhere the server's operators cannot write.
+own: lines cut from the end, a file replaced by a new one, or a rewrite with
+every digest recomputed all leave a whole chain. `verify` prints an `anchor`,
+`N:DIGEST` for the last line; copy it somewhere the server's operators cannot
+write, and `ironclad access-log verify FILE --anchor N:DIGEST` later requires
+line N to be there with that digest (exit 4 otherwise, with the reason, and 2
+for an anchor that is not `N:DIGEST`). Since each digest covers the line
+before, that one line vouches for every line up to it.
 
 If a line cannot be written, the caller gets 503 and nothing else. A write that
 had already landed stays landed and is named in the register's own history;

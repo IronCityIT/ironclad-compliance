@@ -13,6 +13,7 @@ from ironclad.api.access_log import (
     GENESIS_HASH,
     AccessLog,
     AccessLogError,
+    line_digest,
     verify_file,
 )
 from ironclad.cli import main
@@ -191,3 +192,111 @@ class TestVerifyCommand:
     def test_a_missing_log_exits_2(self, tmp_path: Path, capsys) -> None:
         assert main(["access-log", "verify", str(tmp_path / "none.log")]) == 2
         assert "not found" in capsys.readouterr().err
+
+
+class TestAnchor:
+    """The chain cannot see a cut tail or a replaced file; an anchor kept elsewhere can."""
+
+    def _verify(self, path: Path, capsys, *extra: str) -> tuple[int, dict]:
+        code = main(["access-log", "verify", str(path), *extra])
+        return code, json.loads(capsys.readouterr().out)
+
+    def _anchor(self, path: Path, capsys) -> str:
+        code, verdict = self._verify(path, capsys)
+        assert code == 0
+        return verdict["anchor"]
+
+    def test_verify_prints_the_anchor_as_the_last_line_and_its_digest(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        path = tmp_path / "access.log"
+        log = _write(path, 3)
+        log.close()
+        assert self._anchor(path, capsys) == f"3:{log.head}"
+        empty = tmp_path / "empty.log"
+        empty.write_text("", encoding="utf-8")
+        assert self._anchor(empty, capsys) == ""
+
+    def test_a_log_that_grew_since_the_anchor_extends_it(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "access.log"
+        _write(path, 3).close()
+        anchor = self._anchor(path, capsys)
+        _write(path, 2).close()
+        code, verdict = self._verify(path, capsys, "--anchor", anchor)
+        assert code == 0
+        assert verdict["entries"] == 5 and verdict["extends"]["extended"] is True
+        # Copied by hand, in capitals or with a space after the colon, it still reads.
+        code, _ = self._verify(path, capsys, "--anchor", anchor.upper().replace(":", ": "))
+        assert code == 0
+
+    def test_a_tail_cut_off_verifies_alone_and_fails_the_anchor(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        path = tmp_path / "access.log"
+        _write(path, 4).close()
+        anchor = self._anchor(path, capsys)
+        _rewrite(path, _lines(path)[:2])
+        assert self._verify(path, capsys)[0] == 0
+        code, verdict = self._verify(path, capsys, "--anchor", anchor)
+        assert code == 4
+        assert verdict["verified"] is True and verdict["extends"]["extended"] is False
+        assert "removed from the end" in verdict["extends"]["reason"]
+
+    def test_a_replaced_log_as_long_as_the_old_one_fails_the_anchor(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # The server restarted on an emptied file and wrote as many lines again:
+        # a fresh chain, whole and the same length, with none of the old lines.
+        path = tmp_path / "access.log"
+        _write(path, 3).close()
+        anchor = self._anchor(path, capsys)
+        path.unlink()
+        log = AccessLog(path)
+        for n in range(3):
+            log.record(user=f"u{n}@x.example", user_tenant="sage-spine", method="GET",
+                       path="/api/v1/me", status=200, at=AT)  # fmt: skip
+        log.close()
+        code, verdict = self._verify(path, capsys, "--anchor", anchor)
+        assert code == 4 and verdict["verified"] is True
+        assert "line 3 is not the line anchored" in verdict["extends"]["reason"]
+
+    def test_a_consistently_rehashed_rewrite_fails_the_anchor(self, tmp_path: Path, capsys) -> None:
+        # A success turned into a refusal and every digest after it recomputed:
+        # the chain is whole again, and only the anchor still knows.
+        path = tmp_path / "access.log"
+        _write(path, 3).close()
+        anchor = self._anchor(path, capsys)
+        prev, rewritten = GENESIS_HASH, []
+        for n, line in enumerate(_lines(path)):
+            entry = json.loads(line)
+            if n == 0:
+                entry["status"] = 403
+            entry["prev_hash"] = prev
+            entry["hash"] = prev = line_digest(entry)
+            rewritten.append(json.dumps(entry, sort_keys=True, separators=(",", ":")))
+        _rewrite(path, rewritten)
+        assert self._verify(path, capsys)[0] == 0
+        code, verdict = self._verify(path, capsys, "--anchor", anchor)
+        assert code == 4 and not verdict["extends"]["extended"]
+
+    def test_a_broken_chain_is_not_held_to_the_anchor(self, tmp_path: Path, capsys) -> None:
+        path = tmp_path / "access.log"
+        _write(path, 2).close()
+        anchor = self._anchor(path, capsys)
+        lines = _lines(path)
+        _rewrite(path, [lines[0].replace("user0@", "someone@"), lines[1]])
+        code, verdict = self._verify(path, capsys, "--anchor", anchor)
+        assert code == 4 and verdict["broken_at"] == 1 and "extends" not in verdict
+
+    @pytest.mark.parametrize(
+        "anchor",
+        ["3", "0:" + "a" * 64, "-1:" + "a" * 64, "x:" + "a" * 64, "3:" + "a" * 63, "3:" + "g" * 64],
+    )
+    def test_an_anchor_that_is_not_n_colon_digest_is_bad_input(
+        self, tmp_path: Path, capsys, anchor: str
+    ) -> None:
+        path = tmp_path / "access.log"
+        _write(path, 3).close()
+        assert main(["access-log", "verify", str(path), f"--anchor={anchor}"]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and "not an anchor" in captured.err

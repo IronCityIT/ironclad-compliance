@@ -471,12 +471,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="re-check every line's digest and print the verdict",
         description=(
             "Prints the number of entries, the verdict, the first broken line if any, "
-            "and the head digest to record somewhere else. Exit "
-            f"{EXIT_FINDINGS} if a line was edited, removed or reordered, "
-            f"{EXIT_BAD_INPUT} if the file cannot be read."
+            "the head digest, and the anchor (N:DIGEST) to record somewhere else. With "
+            "--anchor, the file must still hold the line that anchor was taken at. Exit "
+            f"{EXIT_FINDINGS} if a line was edited, removed or reordered, or the file no "
+            f"longer extends --anchor; {EXIT_BAD_INPUT} if the file cannot be read or "
+            "--anchor is not N:DIGEST."
         ),
     )
     access_verify.add_argument("log", help="the access-log file")
+    access_verify.add_argument(
+        "--anchor",
+        default="",
+        help="N:DIGEST from an earlier verify, kept where the server's operators cannot write",
+    )
 
     tokens = sub.add_parser(
         "tokens",
@@ -526,6 +533,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("never", "high", "any"),
         default="never",
         help=f"exit {EXIT_FINDINGS} when an entry has a high finding, or any finding",
+    )
+    tokens_ledger = tokens_sub.add_parser(
+        "verify-ledger",
+        help="re-check the grant ledger's chain, optionally against an earlier anchor",
+        description=(
+            "Prints the number of entries, the verdict, the first broken line if any, "
+            "the head digest, and the anchor (N:DIGEST) to record somewhere else. With "
+            "--anchor, the ledger must still hold the line that anchor was taken at, so "
+            "a grant cut from the end, or a ledger replaced by a new one, is found. Exit "
+            f"{EXIT_FINDINGS} if the chain is broken or does not extend --anchor, "
+            f"{EXIT_BAD_INPUT} if the file cannot be read or --anchor is not N:DIGEST."
+        ),
+    )
+    tokens_ledger.add_argument("ledger", help="the grant ledger (by default FILE.ledger)")
+    tokens_ledger.add_argument(
+        "--anchor",
+        default="",
+        help="N:DIGEST from an earlier verify, issue or revoke, kept elsewhere",
     )
     tokens_issue = tokens_sub.add_parser(
         "issue",
@@ -1277,25 +1302,49 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 def cmd_access_log(args: argparse.Namespace) -> int:
     """Verify an access log's chain. The only subcommand, for now."""
-    from ironclad.api.access_log import AccessLogError, verify_file  # noqa: PLC0415
+    from ironclad.api.access_log import FIELDS  # noqa: PLC0415
 
-    path = Path(args.log)
+    return _verify_chain(Path(args.log), "access log", FIELDS, "an access-log entry", args.anchor)
+
+
+def _verify_chain(path: Path, what: str, fields: tuple[str, ...], kind: str, anchor: str) -> int:
+    """Verify one chained log, and with an anchor, that it still extends it."""
+    from ironclad.api import access_log  # noqa: PLC0415
+
+    if anchor:
+        try:
+            access_log.parse_anchor(anchor)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_BAD_INPUT
     if not path.is_file():
-        print(f"access log not found: {path}", file=sys.stderr)
+        print(f"{what} not found: {path}", file=sys.stderr)
         return EXIT_BAD_INPUT
     try:
-        verdict = verify_file(path)
-    except AccessLogError as exc:
+        lines = access_log.read_lines(path)
+    except access_log.AccessLogError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_BAD_INPUT
+    verdict = access_log.verify_lines(lines, fields, kind)
+    verdict["anchor"] = access_log.anchor_of(verdict)
+    ok = verdict["verified"]
+    if anchor and ok:
+        verdict["extends"] = access_log.check_anchor(lines, anchor)
+        ok = verdict["extends"]["extended"]
     print(json.dumps(verdict, indent=2))
-    return EXIT_OK if verdict["verified"] else EXIT_FINDINGS
+    return EXIT_OK if ok else EXIT_FINDINGS
 
 
 def cmd_tokens(args: argparse.Namespace) -> int:
     """Review a token file (and its use, given the access log), or issue or revoke an entry."""
     if args.tokens_command in ("issue", "revoke"):
         return _edit_tokens(args)
+    if args.tokens_command == "verify-ledger":
+        from ironclad.api import grant_ledger  # noqa: PLC0415
+
+        return _verify_chain(
+            Path(args.ledger), "grant ledger", grant_ledger.FIELDS, grant_ledger.KIND, args.anchor
+        )
     from ironclad.api.tokens import review_tokens, utc_now  # noqa: PLC0415
 
     path = Path(args.file)
@@ -1401,7 +1450,14 @@ def _edit_tokens(args: argparse.Namespace) -> int:
                     f"{entry['user_id']} over a channel you would trust with the access",
                     file=sys.stderr,
                 )
-                _emit({"token": token, "entry": tokens.summary(entry), "ledger_head": ledger.head})
+                _emit(
+                    {
+                        "token": token,
+                        "entry": tokens.summary(entry),
+                        "ledger_head": ledger.head,
+                        "ledger_anchor": ledger.anchor,
+                    }
+                )
                 return EXIT_OK
             removed = tokens.revoke_tokens(
                 document,
@@ -1421,6 +1477,7 @@ def _edit_tokens(args: argparse.Namespace) -> int:
             "as_of": as_of.isoformat(),
             "removed": [tokens.summary(e) for e in removed],
             "ledger_head": ledger.head,
+            "ledger_anchor": ledger.anchor,
         }
     )
     return EXIT_OK

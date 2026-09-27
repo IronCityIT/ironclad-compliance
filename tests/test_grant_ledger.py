@@ -250,3 +250,73 @@ class TestReconcile:
         review = review_tokens(document, AS_OF)
         assert "ledger" not in review
         assert all("granted_by" not in item for item in review["items"])
+
+
+class TestLedgerAnchor:
+    """A grant cut from the end of the ledger, or a ledger started afresh, is found."""
+
+    def _issue(self, cli, tokens: Path, user: str) -> dict:
+        code, out, _ = cli("tokens", "issue", str(tokens), "--user", user, *ISSUE)
+        assert code == 0
+        return out  # type: ignore[return-value]
+
+    def _verify(self, cli, ledger: Path, *extra: str) -> tuple[int, dict]:
+        code, out, _ = cli("tokens", "verify-ledger", str(ledger), *extra)
+        return code, out  # type: ignore[return-value]
+
+    def test_issue_and_revoke_print_an_anchor_later_ledgers_extend(self, tmp_path, cli) -> None:
+        tokens = tmp_path / "tokens.json"
+        ledger = grant_ledger.default_path(tokens)
+        first = self._issue(cli, tokens, "dana@partner.example")
+        assert first["ledger_anchor"] == f"1:{first['ledger_head']}"
+        self._issue(cli, tokens, "erin@sage.example")
+        code, revoked, _ = cli(
+            "tokens", "revoke", str(tokens), "--user", "dana@partner.example",
+            "--tenant", "sage-spine", "--actor", "bill", "--as-of", "2026-09-27",
+        )  # fmt: skip
+        assert code == 0 and revoked["ledger_anchor"].startswith("3:")  # type: ignore[index]
+        code, verdict = self._verify(cli, ledger, "--anchor", first["ledger_anchor"])
+        assert code == 0 and verdict["extends"]["extended"] is True
+        assert verdict["anchor"] == revoked["ledger_anchor"]  # type: ignore[index]
+
+    def test_a_grant_cut_from_the_end_fails_the_anchor(self, tmp_path, cli) -> None:
+        # The last grant's line removed: the chain is still whole, and the
+        # review with --ledger would no longer know the grant was made.
+        tokens = tmp_path / "tokens.json"
+        ledger = grant_ledger.default_path(tokens)
+        self._issue(cli, tokens, "dana@partner.example")
+        second = self._issue(cli, tokens, "erin@sage.example")
+        text = ledger.read_text(encoding="utf-8").splitlines()
+        ledger.write_text(text[0] + "\n", encoding="utf-8")
+        assert self._verify(cli, ledger)[0] == 0
+        code, verdict = self._verify(cli, ledger, "--anchor", second["ledger_anchor"])
+        assert code == 4 and "removed from the end" in verdict["extends"]["reason"]
+
+    def test_a_ledger_started_afresh_fails_the_anchor(self, tmp_path, cli) -> None:
+        tokens = tmp_path / "tokens.json"
+        ledger = grant_ledger.default_path(tokens)
+        anchor = self._issue(cli, tokens, "dana@partner.example")["ledger_anchor"]
+        ledger.unlink()
+        tokens.unlink()
+        self._issue(cli, tokens, "mallory@partner.example")
+        code, verdict = self._verify(cli, ledger, "--anchor", anchor)
+        assert code == 4 and "line 1 is not the line anchored" in verdict["extends"]["reason"]
+
+    def test_an_access_log_is_not_a_ledger(self, tmp_path, cli) -> None:
+        from ironclad.api.access_log import AccessLog
+
+        path = tmp_path / "access.log"
+        log = AccessLog(path)
+        log.record(user=None, user_tenant=None, method="GET", path="/api/v1/me", status=401)
+        log.close()
+        code, verdict = self._verify(cli, path)
+        assert code == 4 and verdict["reason"] == f"not {grant_ledger.KIND}"
+
+    def test_a_missing_ledger_or_a_bad_anchor_is_bad_input(self, tmp_path, cli) -> None:
+        code, out, err = cli("tokens", "verify-ledger", str(tmp_path / "none.ledger"))
+        assert (code, out) == (2, None) and "grant ledger not found" in err
+        tokens = tmp_path / "tokens.json"
+        self._issue(cli, tokens, "dana@partner.example")
+        ledger = grant_ledger.default_path(tokens)
+        code, out, err = cli("tokens", "verify-ledger", str(ledger), "--anchor", "1:nothex")
+        assert (code, out) == (2, None) and "not an anchor" in err

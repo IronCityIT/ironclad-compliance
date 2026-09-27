@@ -13,9 +13,11 @@ A line holds the time, the authenticated user and their tenant (or none),
 the method, the path, and the status. Never the query string (a filter a
 client typed), the body (a record's contents) or any header.
 
-The chain is only as good as where the file is kept and who can write it;
-the digest of the last line is the value to copy somewhere else, as with the
-register seal. One server per file: two processes appending to one log would
+The chain is only as good as where the file is kept and who can write it.
+It cannot see lines cut from the end, or the file replaced by a new one, so
+the anchor (`N:DIGEST`, the last line's number and digest) is the value to
+copy somewhere else, as with the register seal; `check_anchor` holds a later
+file to it. One server per file: two processes appending to one log would
 each chain from their own head.
 """
 
@@ -110,6 +112,61 @@ def read_file(path: Path | str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not verdict["verified"]:
         return verdict, []
     return verdict, [json.loads(line) for line in lines]
+
+
+def anchor_of(verdict: dict[str, Any]) -> str:
+    """`N:DIGEST` for a whole chain of N lines: the value to record elsewhere.
+
+    Empty for an empty or broken chain, which has nothing worth anchoring.
+    """
+    if not verdict["verified"] or not verdict["entries"]:
+        return ""
+    return f"{verdict['entries']}:{verdict['head']}"
+
+
+def parse_anchor(text: str) -> tuple[int, str]:
+    """`N:DIGEST` as `anchor_of` writes it. Raises `ValueError` otherwise."""
+    seq, sep, digest = text.strip().partition(":")
+    digest = digest.strip().lower()
+    if (
+        not sep
+        or not seq.isdigit()
+        or int(seq) < 1
+        or len(digest) != 64
+        or any(c not in "0123456789abcdef" for c in digest)
+    ):
+        raise ValueError(f"not an anchor: {text!r}; expected N:DIGEST as verify prints it")
+    return int(seq), digest
+
+
+def check_anchor(lines: list[str], anchor: str) -> dict[str, Any]:
+    """Does a chain still hold the line an earlier `anchor_of` recorded?
+
+    The chain alone cannot see lines removed from the end, or the file
+    replaced by a new one (a server restarted on an empty file starts a fresh,
+    whole chain). An anchor taken earlier and kept elsewhere can: line N must
+    still be there and still carry the digest recorded for it. Because each
+    digest covers the one before, that one comparison vouches for lines 1..N.
+
+    Call it only on lines `verify_lines` found whole. Raises `ValueError` for
+    an anchor that is not `N:DIGEST`.
+    """
+    seq, digest = parse_anchor(anchor)
+    result = {"anchor": f"{seq}:{digest}", "extended": False, "reason": ""}
+    if len(lines) < seq:
+        result["reason"] = (
+            f"the anchor was taken at line {seq} and the file now has {len(lines)}: "
+            "lines were removed from the end, or the file was replaced"
+        )
+        return result
+    if json.loads(lines[seq - 1])["hash"] != digest:
+        result["reason"] = (
+            f"line {seq} is not the line anchored: the file was rewritten at or before "
+            "that line, or replaced"
+        )
+        return result
+    result["extended"] = True
+    return result
 
 
 class AccessLog:

@@ -674,6 +674,56 @@ and lint pass; mypy reports only the known Windows `fcntl` errors;
 white-label, secret-literal, catalog and `git diff --check` gates pass. bandit
 is not installed here; CI runs it.
 
+**Anchors for the access log and the grant ledger, 2026-09-27 (sixteenth
+pass).** Both logs told the operator to copy the head digest somewhere else,
+and nothing could check a log against that copy. Three tamperings leave a
+whole chain and passed every check: lines cut from the end (the last grants,
+or the requests of the last hour), the file replaced by a new one (a server
+restarted on an emptied access log starts a fresh chain; a deleted ledger is
+recreated by the next `issue`), and a rewrite with every digest after it
+recomputed. The review with `--ledger` cannot see a grant cut from the ledger's
+end either; it only knows the lines that are left. Now:
+
+- `access_log.anchor_of`, `parse_anchor` and `check_anchor`: an anchor is
+  `N:DIGEST`, the last line's number and digest. A later file extends it if
+  line N is still there with that digest, and since each digest covers the
+  line before, that one line vouches for lines 1..N. Checked only on a whole
+  chain; a broken one is already exit 4.
+- `ironclad access-log verify FILE` prints `anchor`; `--anchor N:DIGEST` adds
+  `extends` (`extended`, `reason`) and exits 4 if the file no longer extends
+  it, 2 if the anchor is not `N:DIGEST`.
+- `ironclad tokens verify-ledger LEDGER [--anchor N:DIGEST]` does the same for
+  the grant ledger, through the same code with the ledger's field set (an
+  access log given as a ledger is refused as "not a grant-ledger entry").
+  `issue` and `revoke` print `ledger_anchor` beside `ledger_head`.
+
+No route, stored field, token-file field or log line changed; the server reads
+neither. Runbooks: `HANDOFF.md` §17, "Who used the register" and "Grant, renew
+and review a service token"; reference: `docs/http-api.md`.
+
+Tests: 17 new cases. Twelve in `tests/test_access_log.py::TestAnchor`: the
+anchor is the last line and empty for an empty log; a grown log extends it
+(also typed in capitals with a space); a cut tail verifies alone and fails the
+anchor; a replaced log of the same length fails it; a 200 turned into a 403
+with every digest recomputed verifies alone and fails it; a broken chain is
+not held to it; six malformed anchors are exit 2 with nothing on stdout. Five
+in `tests/test_grant_ledger.py::TestLedgerAnchor`: `issue`/`revoke` print
+anchors a later ledger extends; a grant cut from the end; a ledger started
+afresh; an access log is not a ledger; a missing ledger and a bad anchor are
+exit 2. Seven mutations each fail a test by name: the digest comparison
+dropped, the length check off by one, anchor line 0 accepted, the CLI ignoring
+the anchor verdict, a broken chain held to the anchor, `verify-ledger` checking
+with the access log's fields, the ledger anchor off by one.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1152 tests,
+1086 passed, 55 skipped, 11 failed; untouched HEAD `6ccd1e1` in a worktree, run
+after it and not alongside: 1135 tests, 1070 passed, 10 failed. The extra one is
+again `test_store.py::TestTheVolume::test_two_tenants_may_use_the_same_assessment_id`
+(a Windows `os.replace` "Access is denied"), which passed three times re-run
+alone; otherwise the failed sets match. ruff format and lint pass; mypy reports
+only the known Windows `fcntl` errors; white-label, secret-literal and `git diff
+--check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

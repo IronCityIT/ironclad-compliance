@@ -767,10 +767,18 @@ included (`docs/http-api.md`, "Access log"). To review it:
 
 ```sh
 ironclad access-log verify /srv/ironclad/logs/access.log     # exit 4 if edited
+ironclad access-log verify /srv/ironclad/logs/access.log --anchor 1532:9c1e...  # last review's
 grep '"status":403' /srv/ironclad/logs/access.log             # refused, by name
 ```
 
-Copy the printed `head` into the review record at each review. If the server
+Copy the printed `anchor` (`N:DIGEST`, the last line's number and digest)
+into the review record at each review, and give the previous review's anchor
+to `--anchor` at the next. The chain alone cannot see lines cut from the end,
+a file replaced by a new one (a server restarted on an emptied file starts a
+fresh, whole chain), or a rewrite with every digest recomputed; the anchor
+can, and it is exit 4 with the reason. After a rotation, check the moved-aside
+file against the old anchor and start the new file's record from its first
+anchor. If the server
 refuses to start because the log is not a whole chain, do not repair it: move
 it aside with its verdict, start a new file, and treat the break as an
 incident. Rotation is the same move while the server is stopped.
@@ -804,8 +812,11 @@ renewal is `revoke` then `issue`, so the credential changes with the term.
 Both append to the grant ledger, `tokens.json.ledger` beside the file (or
 `--ledger PATH`), before the file is replaced: who granted or revoked what,
 when, chained so an edited or removed line shows. It keeps the grant after the
-entry is gone. Copy the `ledger_head` they print somewhere the NAS operator
-cannot write. A ledger that is not a whole chain refuses further edits; keep
+entry is gone. Copy the `ledger_anchor` they print somewhere the NAS operator
+cannot write, and check the ledger against the last one recorded with
+`ironclad tokens verify-ledger /srv/ironclad/tokens.json.ledger --anchor N:DIGEST`
+(exit 4 if a grant was cut from the end or the ledger started afresh, which
+the review with `--ledger` cannot see). A ledger that is not a whole chain refuses further edits; keep
 it as the evidence, start a new one, and expect the next review with the new
 ledger to call every existing entry "no grant on record" until each is
 reissued. Removing nothing is exit 2, so a mistyped name
