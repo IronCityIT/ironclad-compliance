@@ -87,6 +87,23 @@ def parse_on_behalf_of(value: object) -> tuple[str, str] | None:
     return kind, record_id
 
 
+def link_withdrawn(register: Any, tenant_id: str, kind: str, record_id: str) -> str | None:
+    """Why the register withholds access acting for `kind/record_id`, or `None`.
+
+    One rule for `serve` and for `tokens issue`: the token's own tenant must
+    hold the record, and it must not be `Retired`. A link to another tenant's
+    record is a record this tenant does not hold. `register` is a store with
+    `get_oversight`; whatever it raises is left to the caller.
+    """
+    link = f"{kind}/{record_id}"
+    record = register.get_oversight(tenant_id, kind, record_id)
+    if record is None:
+        return f"the register does not hold {link}"
+    if str(record.get("status", "")) == "Retired":
+        return f"{link} is retired in the register"
+    return None
+
+
 class InvalidExpiryError(ValueError):
     """An `expires_at` that is present and is not a calendar date."""
 
@@ -413,6 +430,7 @@ def issue_token(
 
     `on_behalf_of` links the grant to a register record in the same tenant
     (`partners/<id>` or `integrations/<id>`); only its form is checked here.
+    `tokens issue` also holds it to the register first (`link_withdrawn`).
     """
     entries = _entries_of(document)
     user, tenant, actor = user_id.strip(), tenant_id.strip(), issued_by.strip()

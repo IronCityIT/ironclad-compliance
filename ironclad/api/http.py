@@ -53,6 +53,7 @@ from ironclad.api.service import ComplianceService
 from ironclad.api.tokens import (
     InvalidExpiryError,
     is_expired,
+    link_withdrawn,
     parse_expiry,
     parse_on_behalf_of,
     utc_now,
@@ -236,11 +237,9 @@ class TokenFileAuthenticator:
             raise IroncladError(f"a token acts for {link} and there is no register to check it")
         # The token's own tenant: a link to another tenant's record is a
         # record this register does not hold.
-        record = self.register.get_oversight(tenant, kind, record_id)
-        if record is None:
-            raise AccessWithdrawnError(principal, f"the register does not hold {link}")
-        if str(record.get("status", "")) == "Retired":
-            raise AccessWithdrawnError(principal, f"{link} is retired in the register")
+        reason = link_withdrawn(self.register, tenant, kind, record_id)
+        if reason is not None:
+            raise AccessWithdrawnError(principal, reason)
         return principal
 
 

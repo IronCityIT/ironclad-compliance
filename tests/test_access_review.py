@@ -539,7 +539,8 @@ class TestTheCommands:
     def issued(self, cli: Any, tmp_path: Path) -> Path:
         tokens = tmp_path / "tokens.json"
         cli("tokens", "issue", str(tokens), "--user", "dana@drchrono.example",
-            "--tenant", "sage-spine", "--on-behalf-of", "partners/drchrono", *self.ISSUE)  # fmt: skip
+            "--tenant", "sage-spine", "--on-behalf-of", "partners/drchrono",
+            "--register", str(tmp_path / "volume"), *self.ISSUE)  # fmt: skip
         cli("tokens", "issue", str(tokens), "--user", "nurse@other.example",
             "--tenant", "other-clinic", *self.ISSUE)  # fmt: skip
         return tokens

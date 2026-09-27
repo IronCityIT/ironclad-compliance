@@ -89,7 +89,13 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `tokens issue ... --on-behalf-of partners/<id>` (or `integrations/<id>`)
   writes `on_behalf_of` into the entry and onto its ledger line, where it is
   part of the grant: re-pointed or removed by hand, the review with
-  `--ledger` calls it high. Only its form is checked at issue.
+  `--ledger` calls it high. Issue holds it to the register first, by the
+  rule the server applies below: the store named by `--register` (default
+  `$IRONCLAD_STORE`) must hold the record in `--tenant` and it must not be
+  `Retired`, or the grant is refused and neither the token file nor the
+  ledger is written. No register to check against, a store without one, or
+  one that cannot answer is refused too, rather than trusted. A malformed
+  link is refused by its form.
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
   retired, or it handles PHI without an executed BAA, claims a BAA without

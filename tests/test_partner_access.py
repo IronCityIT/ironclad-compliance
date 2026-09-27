@@ -219,8 +219,17 @@ class TestPartnerAccess:
 
 class TestTheLinkOnTheLedger:
     @pytest.fixture
-    def cli(self, capsys: pytest.CaptureFixture[str]) -> Any:
+    def cli(
+        self,
+        store: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> Any:
         from ironclad.cli import main  # noqa: PLC0415 -- imports fcntl, POSIX only
+
+        # The register a linked issue is checked against, as an operator sets it.
+        monkeypatch.setenv("IRONCLAD_STORE", str(tmp_path / "volume"))
 
         def run(*argv: str) -> tuple[int, Any, str]:
             code = main(list(argv))
@@ -486,3 +495,109 @@ class TestRetiringEndsAccess:
             pass
         (app,) = started
         assert app.authenticator.register is app.results
+
+
+class TestIssueHeldToTheRegister:
+    """`tokens issue --on-behalf-of` applies the rule `serve` applies.
+
+    A grant `serve` would refuse on its first request is refused when it is
+    made, so the ledger holds no grant nobody could use. Nothing is written:
+    neither the token file nor the ledger.
+    """
+
+    ISSUE = ("--tenant", "sage-spine", "--role", "contributor", "--expires", "2026-12-31",
+             "--actor", "bill", "--as-of", "2026-09-27")  # fmt: skip
+
+    @pytest.fixture
+    def cli(
+        self,
+        store: Any,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> Any:
+        from ironclad.cli import main  # noqa: PLC0415 -- imports fcntl, POSIX only
+
+        monkeypatch.delenv("IRONCLAD_STORE", raising=False)
+        tokens = tmp_path / "tokens.json"
+
+        def run(link: str, *extra: str) -> tuple[int, Any, str]:
+            code = main(["tokens", "issue", str(tokens), "--user", DANA,
+                         "--on-behalf-of", link, *self.ISSUE, *extra])  # fmt: skip
+            out, err = capsys.readouterr()
+            return code, (json.loads(out) if out.strip() else None), err
+
+        return run
+
+    @staticmethod
+    def nothing_written(tmp_path: Path) -> bool:
+        tokens = tmp_path / "tokens.json"
+        return not tokens.exists() and not grant_ledger.default_path(tokens).exists()
+
+    def test_a_live_record_is_granted(self, cli: Any, tmp_path: Path) -> None:
+        code, out, _ = cli("partners/drchrono", "--register", str(tmp_path / "volume"))
+        assert code == 0 and out["entry"]["on_behalf_of"] == "partners/drchrono"
+
+    def test_the_register_defaults_to_the_store_variable(
+        self, cli: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("IRONCLAD_STORE", str(tmp_path / "volume"))
+        assert cli("partners/drchrono")[0] == 0
+
+    def test_offboarding_is_still_granted(self, cli: Any, store: Any, tmp_path: Path) -> None:
+        TestRetiringEndsAccess.set_status(store, "Offboarding")
+        assert cli("partners/drchrono", "--register", str(tmp_path / "volume"))[0] == 0
+
+    def test_a_retired_record_is_refused(self, cli: Any, store: Any, tmp_path: Path) -> None:
+        TestRetiringEndsAccess.set_status(store, "Retired")
+        code, out, err = cli("partners/drchrono", "--register", str(tmp_path / "volume"))
+        assert (code, out) == (2, None)
+        assert "partners/drchrono is retired in the register" in err
+        assert "nothing was written" in err and self.nothing_written(tmp_path)
+
+    def test_a_record_the_tenant_does_not_hold_is_refused(
+        self, cli: Any, store: Any, tmp_path: Path
+    ) -> None:
+        elsewhere = oversight.save(
+            store, tenant_id="other-clinic", kind="partners", changes={"name": "Elsewhere"},
+            principal=STRANGER, at=AT,
+        )["id"]  # fmt: skip
+        for link in ("partners/gone", f"partners/{elsewhere}", "integrations/drchrono"):
+            code, _, err = cli(link, "--register", str(tmp_path / "volume"))
+            assert code == 2 and f"the register does not hold {link}" in err
+        assert self.nothing_written(tmp_path)
+
+    def test_no_register_is_refused_rather_than_trusted(self, cli: Any, tmp_path: Path) -> None:
+        code, _, err = cli("partners/drchrono")
+        assert code == 2 and "--register" in err and "IRONCLAD_STORE" in err
+        assert self.nothing_written(tmp_path)
+
+    def test_a_store_without_a_register_is_refused(
+        self, cli: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Rows:  # a store that keeps assessments and nothing else
+            pass
+
+        monkeypatch.setattr("ironclad.cli.store_from_target", lambda target: Rows())
+        code, _, err = cli("partners/drchrono", "--register", "mysql://db.example/ironclad")
+        assert code == 2 and "does not hold the register" in err
+        assert self.nothing_written(tmp_path)
+
+    def test_a_register_that_cannot_answer_is_refused(
+        self, cli: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ironclad.store import StoreError  # noqa: PLC0415
+
+        class Down:
+            def get_oversight(self, *_: Any) -> Any:
+                raise StoreError("connection refused")
+
+        monkeypatch.setattr("ironclad.cli.store_from_target", lambda target: Down())
+        code, _, err = cli("partners/drchrono", "--register", "mysql://db.example/ironclad")
+        assert code == 2 and "could not be read (connection refused)" in err
+        assert self.nothing_written(tmp_path)
+
+    def test_a_malformed_link_is_named_without_a_register(self, cli: Any, tmp_path: Path) -> None:
+        code, _, err = cli("drchrono")
+        assert code == 2 and "on_behalf_of 'drchrono'" in err and "--register" not in err
+        assert self.nothing_written(tmp_path)

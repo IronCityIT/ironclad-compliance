@@ -1166,6 +1166,50 @@ secret-literal and `git diff --check` gates pass. No dashboard file or rule
 changed. In CI at `314cfc3` (run 36302226951) all six jobs passed: pytest
 1205 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**Granting access the register already withholds is refused, 2026-09-27.**
+`tokens issue --on-behalf-of` checked only the link's form. A grant for a
+partner the register had retired, or never held, was issued, written to the
+token file and recorded on the grant ledger, and then refused by `serve` on
+its first request: a grant nobody could use, on the record as approved
+access. Now:
+
+- `tokens issue` holds the link to the register before anything is written,
+  by the rule `serve` applies (one function, `tokens.link_withdrawn`, used by
+  both): the store named by the new `--register` (default `$IRONCLAD_STORE`)
+  must hold the record in `--tenant`, and it must not be `Retired`. Otherwise
+  exit 2 naming the reason (`partners/drchrono is retired in the register;
+  `serve` would refuse this token`), and neither the token file nor the
+  ledger is touched.
+- Fail closed, as `serve` does: a linked issue with no register named, a
+  store that does not hold the register, or one that cannot answer is
+  refused rather than trusted.
+- Unchanged: staff grants (no link) need no register; `Offboarding` and a
+  missing BAA are still granted, since they are review findings rather than
+  refusals; a malformed link is still refused by its form, without asking
+  for a register.
+
+No route, stored field, token-file field, ledger line or access-log line
+changed. Runbook: `HANDOFF.md` §17, "Grant, renew and review a service token".
+Reference: `docs/http-api.md`, authentication.
+
+Tests: 9 new cases in `tests/test_partner_access.py::TestIssueHeldToTheRegister`
+(a live record granted; the store variable as default; `Offboarding`
+granted; retired refused; missing, another tenant's and wrong-kind records
+refused; no register, a store without one and a store that fails each
+refused; a malformed link named without asking for a register), each
+refusal asserting nothing was written. The existing CLI cases that issue a
+linked token now name the register. Six mutations each fail a test by name:
+the check not called, retired honoured, missing record honoured, no register
+trusted, store errors not wrapped, a malformed link sent to the register.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1271
+tests, 1204 passed, 57 skipped, 10 failed. Untouched HEAD `fa7c867` in a
+worktree, run after it: 1262 tests, 1195 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. `mypy` (the CI invocation) reports
+only the known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file or rule
+changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

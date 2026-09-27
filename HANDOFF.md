@@ -904,7 +904,11 @@ record. Entries carry `granted_by` and `granted_at` from the ledger. A broken
 ledger is exit 4 and no review.
 
 A token for an integration partner names the register record it acts for, and
-the partner's access is then held to what the register says about it:
+the partner's access is then held to what the register says about it. `issue`
+checks the record first against the store in `$IRONCLAD_STORE` (or
+`--register`): a record the tenant does not hold, or one already `Retired`, is
+refused with nothing written, since `serve` would refuse that token on its
+first request. Without a register to check, a linked issue is refused.
 
 ```sh
 ironclad tokens issue /srv/ironclad/tokens.json --user ops@drchrono.example --tenant sage-spine \

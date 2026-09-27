@@ -772,8 +772,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help=(
             "partners/<id> or integrations/<id>: the register record this token acts for, "
-            "so `oversight access` can hold it to that record's BAA and review"
+            "so `oversight access` can hold it to that record's BAA and review. Refused "
+            "unless --register holds that record in --tenant and it is not Retired, the "
+            "same rule `serve` applies to every request"
         ),
+    )
+    tokens_issue.add_argument(
+        "--register",
+        default="",
+        help=f"the store holding the tenant's register, for --on-behalf-of; defaults to ${STORE_ENV}",
     )
     tokens_issue.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
     tokens_issue.add_argument(
@@ -1810,6 +1817,41 @@ def cmd_tokens(args: argparse.Namespace) -> int:
     return EXIT_FINDINGS if tripped else EXIT_OK
 
 
+def _check_link(args: argparse.Namespace) -> None:
+    """Refuse a linked grant the register already withholds, before anything is written.
+
+    `serve` would answer such a token 403 on its first request, so issuing it
+    would only put a grant nobody can use on the ledger. A malformed link is
+    left to `issue_token`, which names it alongside anything else wrong, and
+    so is a tenant that is not one.
+    """
+    from ironclad.api import tokens  # noqa: PLC0415
+
+    link = args.on_behalf_of.strip()
+    try:
+        parsed = tokens.parse_on_behalf_of(link)
+    except ValueError:
+        return
+    tenant = args.tenant.strip()
+    if parsed is None or not tenant or slugify(tenant) != tenant:
+        return
+    target = args.register or os.environ.get(STORE_ENV, "")
+    if not target:
+        raise tokens.TokenFileError(
+            f"--on-behalf-of {link} needs the register to check it against; "
+            f"pass --register or set {STORE_ENV}"
+        )
+    try:
+        store = store_from_target(target)
+        if not hasattr(store, "get_oversight"):
+            raise tokens.TokenFileError(f"{target_summary(target)} does not hold the register")
+        reason = tokens.link_withdrawn(store, tenant, *parsed)
+    except IroncladError as exc:
+        raise tokens.TokenFileError(f"the register could not be read ({exc})") from None
+    if reason is not None:
+        raise tokens.TokenFileError(f"{reason}; `serve` would refuse this token")
+
+
 def _edit_tokens(args: argparse.Namespace) -> int:
     """`tokens issue` and `tokens revoke`: one locked read-modify-write of the file."""
     from ironclad.api import grant_ledger, tokens  # noqa: PLC0415
@@ -1819,6 +1861,8 @@ def _edit_tokens(args: argparse.Namespace) -> int:
     as_of = as_of or tokens.utc_now().date()
     ledger_path = Path(args.ledger) if args.ledger else grant_ledger.default_path(path)
     try:
+        if args.tokens_command == "issue":
+            _check_link(args)
         with tokens.TokenFileLock(path):
             document = tokens.read_token_file(path)
             try:
