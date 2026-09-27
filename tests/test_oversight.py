@@ -232,6 +232,12 @@ class TestTheReviewQueue:
         window = re.search(r"ATTENTION_WINDOW_DAYS = (\d+);", core)
         assert window and int(window.group(1)) == oversight.ATTENTION_WINDOW_DAYS
 
+    def test_the_elevated_ratings_are_the_dashboards_and_in_the_vocabulary(self) -> None:
+        assert set(oversight.ELEVATED_RISK) <= set(oversight.VOCABULARY["risk"])
+        core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")
+        listed = re.search(r"ELEVATED_RISK = \[([^\]]*)\];", core)
+        assert listed and re.findall(r'"([^"]+)"', listed.group(1)) == list(oversight.ELEVATED_RISK)
+
     def test_every_sage_seed_record_surfaces_its_missing_baa(self) -> None:
         for kind in oversight.KINDS:
             for entry in SEED["oversight"][kind]:
@@ -247,6 +253,23 @@ class TestTheReviewQueue:
         ownerless = sorted(name for name, codes in found.items() if "owner-unassigned" in codes)
         assert ownerless == sorted(e["name"] for e in SEED["oversight"]["integrations"])
         assert not [name for name, codes in found.items() if "phi-scope-missing" in codes]
+
+    def test_every_high_rated_sage_seed_record_asks_for_a_dated_assurance(self) -> None:
+        undated = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "assurance-undated"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        )
+        elevated = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if entry.get("risk") in oversight.ELEVATED_RISK
+            and not entry.get("cert_expiration_date")
+        )
+        assert elevated and undated == elevated
 
     @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
     def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:

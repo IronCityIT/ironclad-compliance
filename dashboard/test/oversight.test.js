@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, ELEVATED_RISK, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -229,6 +229,14 @@ test("PHI with no scope, and a record with no business owner, are notices",()=>{
   assert.deepEqual(codes({...clean,phi_scope:""}),["phi-scope-missing"]);
   assert.deepEqual(codes({...clean,data_access:"PII",phi_scope:""}),[],"no PHI, no scope owed");
   assert.deepEqual(codes({...clean,business_owner:" "}),["owner-unassigned"]);
+});
+
+test("a High or Critical rating with no assurance expiry is a notice",()=>{
+  assert.deepEqual(ELEVATED_RISK,["High","Critical"]);
+  assert.deepEqual(codes({...clean,risk:"High",cert_expiration_date:""}),["assurance-undated"]);
+  assert.deepEqual(codes({...clean,risk:"Critical",cert_expiration_date:"soon"}),["assurance-undated"]);
+  assert.deepEqual(codes({...clean,risk:"Medium",cert_expiration_date:""}),[],"only elevated ratings owe a dated assurance");
+  assert.deepEqual(codes({...clean,risk:"High"}),[],"a dated assurance satisfies it");
 });
 
 test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{

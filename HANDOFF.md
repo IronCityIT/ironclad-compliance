@@ -751,7 +751,11 @@ today is high (`baa-not-yet-effective`: typed ahead of signature, or a
 typo); PHI with no scope and a record with no business owner are notices
 (`phi-scope-missing`, `owner-unassigned`). The Sage seed's three
 integrations carry `owner-unassigned` until someone at Sage is named for
-each. `export` writes the whole register,
+each. A High or Critical rating with no certificate / assurance expiry is a
+notice (`assurance-undated`): with no date, `assurance-expired` and a
+token's `outlasts-assurance` can never fire, so the relationships that most
+need a dated assurance were the ones whose lapse could not show. All six
+Sage seed records carry it until their assurance is dated. `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,

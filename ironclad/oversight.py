@@ -400,6 +400,9 @@ def save(
 #: How far ahead a review or assurance expiry is called out before it lapses.
 ATTENTION_WINDOW_DAYS = 30
 
+#: Ratings at which a relationship must carry a dated assurance.
+ELEVATED_RISK = ("High", "Critical")
+
 
 def today_utc() -> str:
     """Today's date in UTC as YYYY-MM-DD, the form register dates are stored in."""
@@ -426,7 +429,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
 
     PHI moving without an executed BAA, a BAA claimed without its evidence or
     dated after today, a lapsed review or assurance, and gaps that leave the
-    record unassessable: PHI with no scope, no business owner.
+    record unassessable: PHI with no scope, no business owner, a High or
+    Critical rating with no assurance expiry (so a lapse could never show).
     Derived only from stored fields, so it says nothing a reviewer cannot check
     on the record. Retired records need no attention. ISO dates compare
     correctly as strings.
@@ -481,6 +485,12 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
             add("high", "assurance-expired", f"Certificate / assurance expired {expiry}.")
         elif expiry <= soon:
             add("notice", "assurance-expiring", f"Certificate / assurance expires {expiry}.")
+    elif record.get("risk") in ELEVATED_RISK:
+        add(
+            "notice",
+            "assurance-undated",
+            f"Rated {record.get('risk')} with no certificate / assurance expiry recorded.",
+        )
     if not record.get("risk") or record.get("risk") == "Unrated":
         add("notice", "risk-unrated", "Risk not yet rated.")
     if not record.get("data_access") or record.get("data_access") == "Unknown":

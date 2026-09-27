@@ -328,7 +328,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   overdue or assurance expired (high); PHI with no PHI scope recorded (what
   the BAA's minimum necessary is measured against), a review or expiry within
   30 days, no review date, risk unrated, data access unknown, no business
-  owner (notice). Retired records are left out.
+  owner, a High or Critical rating with no assurance expiry recorded
+  (`assurance-undated`: without one the expiry checks can never fire)
+  (notice). Retired records are left out.
   Each item carries `kind`, `id`, `name`, `revision`, its highest `level` and
   its `findings` (`level`, `code`, `message`); high items come first, then by
   name, with `records` and `high` counts. The rules are

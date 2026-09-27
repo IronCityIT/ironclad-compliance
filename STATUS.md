@@ -1550,6 +1550,65 @@ secret-literal and `git diff --check` gates pass. No dashboard file
 changed. In CI at `85b9f05` (run 36319645389) all six jobs passed:
 pytest 1256 passed, 57 skipped on 3.10 and 3.12, persistence 246.
 
+**A High or Critical rating with no assurance expiry is a notice,
+2026-09-27.** The review queue calls out an assurance that has lapsed
+(`assurance-expired`) or is about to (`assurance-expiring`), and
+`oversight access` calls out a token that runs past it
+(`outlasts-assurance`). All three read `cert_expiration_date`. A record
+with no date recorded tripped none of them, and the fixture said so on
+purpose ("no assurance expiry recorded is not itself a finding"). That is
+right for a Low-risk vendor. It is wrong for the relationships rated High
+or Critical, which are the ones whose lapse most needs to show. All six
+Sage seed records are rated High and none has an expiry, so every
+assurance check was silent across the whole tenant.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`assurance-undated` (**notice**) when the risk is in `ELEVATED_RISK`
+(`High`, `Critical`) and `cert_expiration_date` is not an ISO date: "Rated
+High with no certificate / assurance expiry recorded." A dated assurance
+satisfies it. A lapsed one is reported as the lapse, not as undated.
+`Low`, `Medium` and `Unrated` owe no date, so the existing "not itself a
+finding" case keeps its meaning for the Low-rated base record. It is a
+notice, not an `ACCESS_CODE`: a token is not called out for it, and
+`--fail-on high` is unchanged. The six Sage seed records each gain it.
+The export's attention column and the packet's findings index carry it
+through the same function.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue) and
+`HANDOFF.md` §17.
+
+Tests:
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 5 new cases
+  (34, up from 29). Medium with no date is clean, High with no date, Critical
+  with a non-ISO date, High with a dated assurance is clean, and High with
+  a lapsed assurance is `assurance-expired` only. Both sides must return
+  each case exactly.
+- `tests/test_oversight.py`: `ELEVATED_RISK` is inside the risk vocabulary
+  and is the page's list, parsed from `oversight-core.js`; every High-rated
+  Sage seed record without a date carries the notice.
+- `dashboard/test/oversight.test.js`: the rule and its edges on the page.
+- Two expectations moved with the rule. The packet's findings index now
+  lists the notice (`test_access_review.py`). The HTTP queue test's
+  "governed" High record gained a dated assurance, so it stays the clean
+  control (`test_http.py`).
+
+Four mutations each fail a named test: the check disabled on the server
+(the two table cases and the seed test), and on the page (2 page tests);
+`ELEVATED_RISK` widened to `Medium` on the server (the Medium case and the
+parity test); the page's list narrowed to `High` (the parity test and the
+page test).
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1320
+tests, 1253 passed, 57 skipped, 10 failed. Untouched HEAD `1f7289f` in a
+worktree: 1313 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). Dashboard
+`oversight.test.js` and `render.test.js`: 92/92 (`api.test.js` starts the
+Python server and needs real `fcntl`, so it runs in CI). ruff format and
+lint pass. `mypy --platform linux` passes. The white-label and
+`git diff --check` gates pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -162,6 +162,9 @@ export function saveFailureMessage(err, editing) {
 // How far ahead a review or assurance expiry is called out before it lapses.
 export const ATTENTION_WINDOW_DAYS = 30;
 
+// Ratings at which a relationship must carry a dated assurance.
+export const ELEVATED_RISK = ["High", "Critical"];
+
 // Today's date in UTC as YYYY-MM-DD, the form register dates are stored in.
 export function isoToday(now = new Date()) {
   return now.toISOString().slice(0, 10);
@@ -179,7 +182,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * What a reviewer should look at on one record, most serious first: PHI moving
  * without an executed BAA, a BAA claimed without its evidence or dated after
  * today, a lapsed review or assurance, and gaps that leave the record
- * unassessable: PHI with no scope, no business owner. Derived only from
+ * unassessable: PHI with no scope, no business owner, a High or Critical
+ * rating with no assurance expiry (so a lapse could never show). Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
  * Retired records need no attention. `today` is YYYY-MM-DD; ISO dates compare
  * correctly as strings.
@@ -208,6 +212,8 @@ export function attentionFindings(record, today) {
   if (ISO_DATE.test(expiry)) {
     if (expiry < today) add("high", "assurance-expired", `Certificate / assurance expired ${expiry}.`);
     else if (expiry <= soon) add("notice", "assurance-expiring", `Certificate / assurance expires ${expiry}.`);
+  } else if (ELEVATED_RISK.includes(record.risk)) {
+    add("notice", "assurance-undated", `Rated ${record.risk} with no certificate / assurance expiry recorded.`);
   }
   if (!record.risk || record.risk === "Unrated") add("notice", "risk-unrated", "Risk not yet rated.");
   if (!record.data_access || record.data_access === "Unknown") add("notice", "data-access-unknown", "Data access not established.");

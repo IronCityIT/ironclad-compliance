@@ -1360,6 +1360,7 @@ class TestOversightRegister:
                     "phi_scope": "Claims",
                     "baa_document_ref": "BAA-7",
                     "review_due": "2027-01-01",
+                    "cert_expiration_date": "2027-06-30",
                 },
             )[0]
             == 200
