@@ -390,6 +390,25 @@ class TestTheReviewQueue:
             f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
         ]
 
+    def test_no_sage_seed_record_scopes_phi_it_says_it_does_not_handle(self) -> None:
+        # Every seed record handles PHI and names its scope.
+        contradicted = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "phi-scope-contradicted"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert contradicted == []
+        # DrChrono moved off PHI: its missing BAA drops out, and its scope says why it should not.
+        drchrono = {**SEED["oversight"]["partners"][0], "data_access": "PII"}
+        found = [
+            (f["level"], f["code"]) for f in oversight.attention_findings(drchrono, "2026-09-26")
+        ]
+        assert "phi-without-baa" not in [code for _, code in found]
+        assert ("notice", "phi-scope-contradicted") in found
+        assert "phi-scope-contradicted" not in oversight.ACCESS_CODES
+
     @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
     def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:
         with pytest.raises(OversightError, match="YYYY-MM-DD"):

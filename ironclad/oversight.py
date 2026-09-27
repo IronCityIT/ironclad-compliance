@@ -445,7 +445,10 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     BAA turns on PHI, so the BAA check could not fire), a lapsed review or assurance, a review set
     more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
-    (whether PHI leaves the practice, arrives, or both), no business owner, a High or
+    (whether PHI leaves the practice, arrives, or both), a PHI scope on a record
+    whose data access is set to something other than PHI (the BAA check reads
+    only data access, so the record contradicts the one field that would raise
+    it), no business owner, a High or
     Critical rating with no assurance expiry (so a lapse could never show), an
     assurance expiry with nothing naming the assurance (so the date cannot be
     checked against a report or certificate).
@@ -512,6 +515,12 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
         add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
     if record.get("data_access") == "PHI" and not _text(record.get("data_flow_direction")):
         add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.")
+    if not access_unknown and record.get("data_access") != "PHI" and _text(record.get("phi_scope")):
+        add(
+            "notice",
+            "phi-scope-contradicted",
+            f"PHI scope recorded but data access is {record.get('data_access')}.",
+        )
     review = _text(record.get("review_due"))
     if not _ISO_DATE.match(review):
         add("notice", "review-unscheduled", "No review date set.")

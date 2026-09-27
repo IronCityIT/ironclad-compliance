@@ -193,8 +193,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * relationship with no executed agreement, no risk rating or no established
  * data access, a lapsed review or
  * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
- * unassessable: PHI with no scope or no recorded direction of flow, no
- * business owner, a High or Critical
+ * unassessable: PHI with no scope or no recorded direction of flow, a PHI
+ * scope on a record whose data access is not PHI, no business owner, a High or Critical
  * rating with no assurance expiry (so a lapse could never show), an assurance
  * expiry with no assurance named (so the date cannot be checked). Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
@@ -228,6 +228,7 @@ export function attentionFindings(record, today) {
   if (accessUnknown && record.status === "Active") add("high", "active-access-unknown", "Active with data access not established.");
   if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
   if (record.data_access === "PHI" && !text(record.data_flow_direction)) add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.");
+  if (!accessUnknown && record.data_access !== "PHI" && text(record.phi_scope)) add("notice", "phi-scope-contradicted", `PHI scope recorded but data access is ${record.data_access}.`);
   const review = text(record.review_due);
   if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");
   else if (review < today) add("high", "review-overdue", `Review overdue since ${review}.`);

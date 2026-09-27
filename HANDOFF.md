@@ -776,7 +776,16 @@ seed record carries it (DrChrono handles PHI). PHI
 with no data flow direction recorded is a notice (`phi-flow-unrecorded`):
 whether PHI leaves the practice, arrives, or both is what transmission
 security is assessed on. The Sage seed's three partners carry it until
-each direction is recorded; its integrations already record theirs. A
+each direction is recorded; its integrations already record theirs. A PHI
+scope recorded on a record whose data access is set to anything but `PHI`
+or `Unknown` is a notice (`phi-scope-contradicted`): `phi-without-baa`
+reads data access alone, so moving a PHI partner to `PII` drops its missing
+BAA while its scope still describes PHI. Either the access or the scope is
+wrong; clear the scope or set the access back. Not an access code: which
+field is wrong is a question for the register, not for the token. Data
+access is a contributor field, not an approver one, so this notice is how
+the queue shows the change. No Sage seed record carries it (all six handle
+PHI). A
 review scheduled more than 365 days out is a notice (`review-too-distant`):
 a review date set years ahead would keep the record out of
 `review-overdue` for good. The horizon is ICIT policy

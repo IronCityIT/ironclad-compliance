@@ -221,6 +221,19 @@ class TestPartnerAccess:
             1,
         )
 
+    def test_a_contradicted_phi_scope_is_for_the_queue_not_the_token(self, store: Any) -> None:
+        # The record says both PHI and not PHI; which is wrong is a register question.
+        record_id = add(
+            store,
+            "partners",
+            {**GOVERNED, "data_access": "PII", "baa_status": "Not required",
+             "baa_execution_date": "", "phi_scope": "Demographics and imaging"},
+        )  # fmt: skip
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert (item["level"], item["findings"]) == ("ok", [])
+
     def test_an_agreement_ruled_not_required_is_clean(self, store: Any) -> None:
         record_id = add(store, "partners", {**GOVERNED, "agreement_status": "Not required"})
         document: dict[str, Any] = {"tokens": []}

@@ -27,7 +27,7 @@
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Not required)."}]},
     {"name": "PHI with no BAA status recorded", "patch": {"baa_execution_date": "", "baa_status": ""}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: not recorded)."}]},
-    {"name": "operational data with no BAA required needs no attention", "patch": {"baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": []},
+    {"name": "operational data with no BAA required needs no attention", "patch": {"phi_scope": "", "baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": []},
     {"name": "an executed BAA with no execution date", "patch": {"baa_execution_date": ""}, "expected": [
       {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date recorded."}]},
     {"name": "an executed BAA with no date and no document", "patch": {"baa_execution_date": "", "baa_document_ref": null}, "expected": [
@@ -41,12 +41,12 @@
     {"name": "an execution date on a BAA still under review", "patch": {"baa_status": "Under review"}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Under review)."},
       {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is Under review."}]},
-    {"name": "an execution date on a BAA ruled not required", "patch": {"data_access": "Operational only", "baa_status": "Not required"}, "expected": [
+    {"name": "an execution date on a BAA ruled not required", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": [
       {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is Not required."}]},
-    {"name": "an execution date with no BAA status recorded", "patch": {"data_access": "Operational only", "baa_status": null}, "expected": [
+    {"name": "an execution date with no BAA status recorded", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": null}, "expected": [
       {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is not recorded."}]},
-    {"name": "a document reference alone on an unexecuted BAA is a draft, not a contradiction", "patch": {"data_access": "Operational only", "baa_status": "Under review", "baa_execution_date": ""}, "expected": []},
-    {"name": "an unreadable execution date on an unexecuted BAA is not a recorded one", "patch": {"data_access": "Operational only", "baa_status": "Not required", "baa_execution_date": "Jan 2025"}, "expected": []},
+    {"name": "a document reference alone on an unexecuted BAA is a draft, not a contradiction", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Under review", "baa_execution_date": ""}, "expected": []},
+    {"name": "an unreadable execution date on an unexecuted BAA is not a recorded one", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Not required", "baa_execution_date": "Jan 2025"}, "expected": []},
     {"name": "an active relationship with its agreement under review", "patch": {"agreement_status": "Under review"}, "expected": [
       {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."}]},
     {"name": "an active relationship with its agreement required and pending", "patch": {"agreement_status": "Required - pending"}, "expected": [
@@ -90,13 +90,25 @@
       {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
     {"name": "PHI with the data flow direction cleared", "patch": {"data_flow_direction": null}, "expected": [
       {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
-    {"name": "no PHI, no direction of flow owed", "patch": {"data_access": "PII", "data_flow_direction": ""}, "expected": []},
+    {"name": "no PHI, no direction of flow owed", "patch": {"phi_scope": "", "data_access": "PII", "data_flow_direction": ""}, "expected": []},
     {"name": "PHI with neither scope nor direction: scope first", "patch": {"phi_scope": "", "data_flow_direction": ""}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
       {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
     {"name": "a blank PHI scope counts as none", "patch": {"phi_scope": "   "}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
     {"name": "no PHI scope is not a finding when no PHI is handled", "patch": {"baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required", "phi_scope": ""}, "expected": []},
+    {"name": "a PHI scope on a record set to operational data only", "patch": {"baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is Operational only."}]},
+    {"name": "a PHI scope on a record set to PII", "patch": {"baa_execution_date": "", "data_access": "PII", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is PII."}]},
+    {"name": "a PHI scope on a record set to no production data", "patch": {"baa_execution_date": "", "data_access": "No production data", "baa_status": "Pending review"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is No production data."}]},
+    {"name": "a PHI scope contradicted while onboarding is still a notice", "patch": {"status": "Onboarding", "baa_execution_date": "", "data_access": "PII", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is PII."}]},
+    {"name": "a blank PHI scope on a non-PHI record is no contradiction", "patch": {"baa_execution_date": "", "data_access": "PII", "baa_status": "Not required", "phi_scope": "  "}, "expected": []},
+    {"name": "a PHI scope with data access cleared is the unknown access, not a contradiction", "patch": {"status": "Onboarding", "data_access": null}, "expected": [
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a PHI scope retired with the record needs no attention", "patch": {"status": "Retired", "data_access": "PII"}, "expected": []},
     {"name": "no business owner", "patch": {"business_owner": null}, "expected": [
       {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
     {"name": "a blank business owner counts as none", "patch": {"business_owner": "  "}, "expected": [

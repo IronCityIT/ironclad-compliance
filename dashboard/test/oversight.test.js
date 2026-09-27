@@ -210,7 +210,7 @@ test("PHI without an executed BAA is a high finding, whatever the BAA status say
     assert.equal(f[0].code,"phi-without-baa",baa_status);
     assert.equal(f[0].level,"high");
   }
-  assert.ok(!codes({...clean,data_access:"Operational only",baa_status:"Not required"}).includes("phi-without-baa"));
+  assert.ok(!codes({...clean,data_access:"Operational only",baa_status:"Not required",phi_scope:""}).includes("phi-without-baa"));
 });
 
 test("an executed BAA without its evidence is called out",()=>{
@@ -234,7 +234,7 @@ test("PHI with no scope, and a record with no business owner, are notices",()=>{
 test("PHI with no data flow direction recorded is a notice",()=>{
   assert.deepEqual(codes({...clean,data_flow_direction:""}),["phi-flow-unrecorded"]);
   assert.deepEqual(codes({...clean,data_flow_direction:undefined}),["phi-flow-unrecorded"]);
-  assert.deepEqual(codes({...clean,data_access:"Operational only",baa_status:"Not required",baa_execution_date:"",data_flow_direction:""}),[],"no PHI, no direction owed");
+  assert.deepEqual(codes({...clean,data_access:"Operational only",baa_status:"Not required",baa_execution_date:"",phi_scope:"",data_flow_direction:""}),[],"no PHI, no direction owed");
   for(const data_flow_direction of ["Bidirectional","Outbound / push","Inbound / pull","Unidirectional"]){
     assert.deepEqual(codes({...clean,data_flow_direction}),[],data_flow_direction);
   }
@@ -258,7 +258,7 @@ test("an assurance expiry with no assurance named is a notice",()=>{
 });
 
 test("a BAA execution date on a BAA not marked executed is a notice",()=>{
-  const ops={...clean,data_access:"Operational only"};
+  const ops={...clean,data_access:"Operational only",phi_scope:""};
   for(const baa_status of ["Pending review","Under review","Required - pending","Not required","",undefined]){
     assert.deepEqual(codes({...ops,baa_status}),["baa-date-unexecuted"],String(baa_status));
   }
@@ -266,6 +266,19 @@ test("a BAA execution date on a BAA not marked executed is a notice",()=>{
   assert.deepEqual(codes({...ops,baa_status:"Under review",baa_execution_date:""}),[],"a document reference alone is a draft");
   assert.deepEqual(codes({...ops,baa_status:"Not required",baa_execution_date:"Jan 2025"}),[],"an unreadable date is not a recorded one");
   assert.deepEqual(codes({...ops,baa_status:"Not required",status:"Retired"}),[],"retired records need no attention");
+});
+
+test("a PHI scope on a record whose data access is not PHI is a notice",()=>{
+  const off={...clean,baa_status:"Not required",baa_execution_date:""};
+  for(const data_access of ["PII","Operational only","No production data"]){
+    const f=attentionFindings({...off,data_access},TODAY);
+    assert.deepEqual(f.map(x=>[x.level,x.code]),[["notice","phi-scope-contradicted"]],data_access);
+    assert.equal(f[0].message,`PHI scope recorded but data access is ${data_access}.`);
+  }
+  assert.deepEqual(codes({...off,data_access:"PII",phi_scope:" "}),[],"a blank scope is none");
+  assert.ok(!codes({...off,data_access:"Unknown"}).includes("phi-scope-contradicted"),"unknown access is its own finding");
+  assert.deepEqual(codes(clean),[],"a PHI record may carry its scope");
+  assert.deepEqual(codes({...off,data_access:"PII",status:"Retired"}),[],"retired records need no attention");
 });
 
 test("an Active relationship with no executed agreement is high",()=>{
