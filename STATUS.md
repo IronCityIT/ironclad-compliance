@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `58321de` (run 36288773882, `pull_request`; the duplicate `push` run 36288771743 was cancelled): all six jobs, pytest 986 passed / 52 skipped on 3.10 and 3.12, the MariaDB persistence suite 205 passed with none skipped (the register sweep and the deleted-record-row case among them), dashboard 101/101, Firestore rules 91/91. Green before that at `0de87dd` (run 36287629428), 974 passed, persistence 192. Green before that at `298b2e0` (run 36286525753), 943 passed, persistence 161. Green before that at `a11a6ed` (run 36285596781) and `b159632` (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `12cfef7` (run 36290114408, `pull_request`; the duplicate `push` run 36290112891 was cancelled): all six jobs, pytest 1004 passed / 55 skipped on 3.10 and 3.12, the MariaDB persistence suite 224 passed with none skipped (the register seal and the history row rewritten in place among them), dashboard 101/101, Firestore rules 91/91. Green before that at `58321de` (run 36288773882), 986 passed, persistence 205. Green before that at `0de87dd` (run 36287629428), 974 passed, persistence 192. Green before that at `298b2e0` (run 36286525753), 943 passed, persistence 161. Green before that at `a11a6ed` (run 36285596781) and `b159632` (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -413,8 +413,13 @@ and the route registered after `{kind}`.
 Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub as before):
 `tests/test_oversight.py` + `tests/test_http.py` 226 passed, 28 skipped
 (MariaDB), 1 failed: the 20-writer lock test, unchanged from the untouched
-tree (208 passed, 25 skipped, same failure). ruff format and lint pass; mypy
-reports only the known Windows `fcntl` errors in `policy_store.py`.
+tree (208 passed, 25 skipped, same failure). Whole suite: 1059 run, 10 failed,
+every one also failing on the untouched tree (Windows `fcntl`, symlinks, CRLF),
+which failed 11. ruff format and lint pass; mypy reports only the known Windows
+`fcntl` errors in `policy_store.py`; white-label, secret-literal and `git diff
+--check` gates pass. In CI (run 36290114408): 1004 passed on 3.10 and 3.12, and
+the MariaDB persistence job 224 passed, 0 skipped, so the three MariaDB seal
+cases ran against a real server.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
