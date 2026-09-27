@@ -273,6 +273,99 @@ class TestOneTenant:
             build(store, two_tenants(), ledger=broken)
 
 
+class TestAccessChanges:
+    """What was granted and revoked in the tenant during the period, from the ledger."""
+
+    WHOLE = {"verified": True, "entries": 0, "head": ""}
+
+    @staticmethod
+    def line(action: str, user: str, at: str, **kw: Any) -> dict[str, Any]:
+        return {"action": action, "user_id": user, "tenant_id": kw.get("tenant", "sage-spine"),
+                "actor": kw.get("actor", "bill"), "at": at, "as_of": at[:10],
+                "roles": ["viewer"], "expires_at": "2026-12-31",
+                "on_behalf_of": kw.get("link", ""), "sha256": "b" * 64}  # fmt: skip
+
+    def changes(self, store: Any, ledger: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:
+        packet = build(store, {"tokens": []}, ledger=(self.WHOLE, ledger), **kw)
+        return load(packet, "token-review.json")["ledger"]["changes"]  # type: ignore[no-any-return]
+
+    def test_a_partner_granted_and_offboarded_inside_the_period_is_listed(self, store: Any) -> None:
+        # Nothing is left in the token file: only the ledger says it happened.
+        ledger = [
+            self.line("issue", "ops@drchrono.example", "2026-07-02T09:00:00Z",
+                      link="partners/drchrono"),
+            self.line("revoke", "ops@drchrono.example", "2026-09-01T09:00:00Z",
+                      link="partners/drchrono"),
+        ]  # fmt: skip
+        packet = build(store, {"tokens": []}, ledger=(self.WHOLE, ledger))
+        changes = load(packet, "token-review.json")["ledger"]["changes"]
+        assert [(c["action"], c["on_behalf_of"]) for c in changes["items"]] == [
+            ("issue", "partners/drchrono"),
+            ("revoke", "partners/drchrono"),
+        ]
+        assert changes["items"][0]["digest_prefix"] == "b" * 12
+        assert "sha256" not in changes["items"][0]
+        assert packet["manifest"]["summary"]["access_changes"] == {
+            "since": None, "through": TODAY, "granted": 1, "revoked": 1, "self_granted": 0,
+        }  # fmt: skip
+
+    def test_only_the_tenant_and_only_up_to_the_review_date(self, store: Any) -> None:
+        ledger = [
+            self.line(
+                "issue", "nurse@other.example", "2026-09-02T09:00:00Z", tenant="other-clinic"
+            ),
+            self.line("issue", "staff@sage.example", "2026-09-27T23:59:00Z"),
+            self.line("issue", "late@sage.example", "2026-09-28T00:00:01Z"),
+        ]
+        items = self.changes(store, ledger)["items"]
+        assert [c["user_id"] for c in items] == ["staff@sage.example"]
+
+    def test_filed_against_the_last_review_only_the_quarter_since(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        ledger = [
+            self.line("issue", "spring@sage.example", "2026-06-30T20:00:00Z"),
+            self.line("issue", "summer@sage.example", "2026-07-01T00:00:00Z"),
+        ]
+        spring = build(store, {"tokens": []}, today="2026-06-30", at="2026-06-30T21:00:00Z",
+                       ledger=(self.WHOLE, ledger[:1]))  # fmt: skip
+        earlier = write_packet(spring, tmp_path)
+        before = load(spring, "token-review.json")["ledger"]["changes"]
+        assert [c["user_id"] for c in before["items"]] == ["spring@sage.example"]
+        changes = self.changes(
+            store, ledger, previous=earlier, previous_digest=spring["manifest"]["digest"]
+        )
+        assert (changes["since"], changes["through"]) == ("2026-06-30", TODAY)
+        assert [c["user_id"] for c in changes["items"]] == ["summer@sage.example"]
+
+    def test_a_grant_to_oneself_is_a_notice(self, store: Any) -> None:
+        ledger = [
+            self.line("issue", "Bill", "2026-09-02T09:00:00Z", actor="bill"),
+            self.line("revoke", "bill", "2026-09-03T09:00:00Z", actor="bill"),
+            self.line("issue", "dana@sage.example", "2026-09-04T09:00:00Z"),
+        ]
+        quiet = load(build(store, {"tokens": []}, ledger=(self.WHOLE, ledger[2:])), "manifest.json")
+        packet = build(store, {"tokens": []}, ledger=(self.WHOLE, ledger))
+        tokens = load(packet, "token-review.json")
+        assert [c["self_granted"] for c in tokens["ledger"]["changes"]["items"]] == [
+            True, False, False,
+        ]  # fmt: skip
+        # Dana's grant, with no entry and no revocation, is unrecorded in both.
+        assert tokens["notices"] == quiet["summary"]["token_review"]["notices"] + 1 == 2
+        summary = packet["manifest"]["summary"]
+        assert summary["access_changes"]["self_granted"] == 1
+        assert summary["notices"] == quiet["summary"]["notices"] + 1
+
+    def test_a_line_whose_time_cannot_be_read_is_listed_not_dropped(self, store: Any) -> None:
+        ledger = [self.line("issue", "odd@sage.example", "not a time")]
+        assert [c["user_id"] for c in self.changes(store, ledger)["items"]] == ["odd@sage.example"]
+
+    def test_without_a_ledger_there_is_no_change_list(self, store: Any) -> None:
+        packet = build(store, two_tenants())
+        assert "ledger" not in load(packet, "token-review.json")
+        assert "access_changes" not in packet["manifest"]["summary"]
+
+
 class TestFilingAndChecking:
     def test_a_filed_packet_verifies_against_its_digest(self, store: Any, tmp_path: Path) -> None:
         packet = build(store, two_tenants())
@@ -628,6 +721,7 @@ class TestTheCommands:
         code, filed, err = self.packet(cli, tmp_path, tokens, "--ledger", str(ledger), *linked)
         assert code == 0, err
         assert filed["summary"]["continuity"] == {"verified": True, "broken": 0, "unchecked": 0}
+        assert filed["summary"]["access_changes"]["since"] == "2026-06-30"
         code, verdict, _ = cli(
             "oversight", "verify-packet", filed["path"], "--previous", first["path"]
         )

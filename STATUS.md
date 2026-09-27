@@ -1310,6 +1310,62 @@ secret-literal and `git diff --check` gates pass. No dashboard file or rule
 changed. In CI at `cfc6fbe` (run 36304211252) all six jobs passed: pytest
 1228 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**The quarterly packet lists what changed in the quarter, 2026-09-27.** The
+packet filed who holds access on the review date, and only counted the
+tenant's ledger lines. A partner granted in July and offboarded in August
+(the one-act revocation above) was in no packet's entries, and nothing in the
+packet said the grant or the removal had happened. HIPAA's access review
+(164.308(a)(4)(ii)(C)) and termination procedures ((a)(3)(ii)(C)) ask about
+that too. Now, with `--ledger`:
+
+- `token-review.json` holds `ledger.changes`: each of the tenant's grants and
+  revocations in the period, oldest first. Each shows who took it, the holder,
+  roles, expiry, register link and digest prefix (never the digest).
+- The period ends on the review date. Filed against the previous packet, it
+  starts the day after that packet's date, so each change is in exactly one
+  packet. A line is placed by the time it was written, not the `--as-of` its
+  writer typed. A line whose time cannot be read is listed, not dropped.
+- A grant whose issuer is its own holder is a notice: nobody else approved
+  that access.
+- The manifest summary carries `access_changes` (since, through, granted,
+  revoked, self-granted).
+
+Only the tenant's lines are listed. The existing isolation test fails too if
+another tenant's line gets in. No route, stored field, token-file field,
+ledger line or access-log line changed. No file was added to the packet, so
+`verify-packet` and packets already filed are unaffected. The runbook in
+`HANDOFF.md` §17 ("File the quarterly access review") and the CLI help
+describe it.
+
+Tests: 6 new cases in `tests/test_access_review.py::TestAccessChanges`:
+
+- a partner granted and offboarded inside the period is listed, digest cut
+  to its prefix;
+- only the tenant, and nothing after the review date;
+- filed against the last review, only the quarter since;
+- a grant to oneself is a notice, matched without regard to case;
+- a line whose time cannot be read is listed;
+- without a ledger there is no list.
+
+The CLI next-quarter case checks the period starts at the previous packet's
+date. Seven mutations each fail a test by name:
+
+- `since` ignored;
+- `since` not passed;
+- another tenant's lines kept;
+- lines after the review date kept;
+- a self-grant not counted;
+- a self-grant compared case-sensitively;
+- an unreadable time dropped.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1291
+tests, 1224 passed, 57 skipped, 10 failed. Untouched HEAD `73482e2` in a
+worktree, run after it: 1285 tests, 1218 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. `mypy` (the CI invocation) reports
+only the known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file or rule
+changed. CI: pending at the time of writing.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -35,6 +35,14 @@ one whole-file figure kept is each chain's anchor (`N:DIGEST`), since that is
 what the operator recorded and what a later check must match. Requests for
 the tenant's workspace refused to other tenants' tokens, or to no token, are
 filed too, with the callers merged and unnamed (`refused_from_outside`).
+
+A review asks what changed as well as what stands. Given the ledger, the
+token review also lists the tenant's grants and revocations in the period
+(`ledger.changes`): after the previous packet's date when filed against one,
+otherwise everything up to the review date. The token file shows only who
+holds access today; a partner granted and offboarded inside one quarter is
+in no packet's entries, and is in this list. A grant whose issuer is its
+holder is a notice: nobody else approved that access.
 """
 
 from __future__ import annotations
@@ -97,12 +105,15 @@ def tenant_token_review(
     as_of: date,
     access_log: list[dict[str, Any]] | None,
     ledger: list[dict[str, Any]] | None,
+    since: date | None = None,
 ) -> dict[str, Any]:
     """A whole-file token review cut down to one tenant, and recounted.
 
     Only entries naming the tenant are kept; an entry with no readable tenant
     belongs to none and stays in the whole-file review. The access-log span
     counts only the tenant's own requests, and the ledger only its own lines.
+    The ledger's `changes` are the tenant's grants and revocations after
+    `since` (the previous review's date, if any) up to `as_of`.
     """
     items = [item for item in review["items"] if item.get("tenant_id") == tenant_id]
     unrecorded = [
@@ -135,11 +146,64 @@ def tenant_token_review(
         scoped["dormant"] = sum(1 for i in items if i.get("dormant"))
         scoped["refused_from_outside"] = refused_from_outside(access_log, tenant_id, as_of)
     if ledger is not None:
+        changes = access_changes(ledger, tenant_id, as_of, since)
         scoped["ledger"] = {
             "entries": sum(1 for line in ledger if line.get("tenant_id") == tenant_id),
             "unrecorded": unrecorded,
+            "changes": changes,
         }
+        scoped["notices"] += changes["self_granted"]
     return scoped
+
+
+def access_changes(
+    ledger: list[dict[str, Any]], tenant_id: str, as_of: date, since: date | None
+) -> dict[str, Any]:
+    """The tenant's grants and revocations in the period under review, oldest first.
+
+    A line counts from the UTC day it was written (`at`), not the `as_of` its
+    writer gave: that one is whatever the operator typed. The period runs from
+    the day after `since` through `as_of`, so a packet filed against the last
+    one lists each change in exactly one of them. A line whose time cannot be
+    read is listed rather than dropped: it cannot be placed outside the period.
+    Digests are cut to the prefix the token review prints. `self_granted`: an
+    issue whose actor is the user it granted to.
+    """
+    changes: list[dict[str, Any]] = []
+    for line in ledger:
+        if line.get("tenant_id") != tenant_id:
+            continue
+        try:
+            day: date | None = _utc_day(line.get("at"))
+        except (TypeError, ValueError):
+            day = None
+        if day is not None and (day > as_of or (since is not None and day <= since)):
+            continue
+        actor = str(line.get("actor") or "").strip()
+        user = str(line.get("user_id") or "").strip()
+        changes.append(
+            {
+                "at": line.get("at"),
+                "action": line.get("action"),
+                "actor": actor,
+                "user_id": user,
+                "roles": line.get("roles"),
+                "expires_at": line.get("expires_at"),
+                "on_behalf_of": line.get("on_behalf_of") or "",
+                "digest_prefix": str(line.get("sha256") or "")[:12],
+                "self_granted": line.get("action") == "issue"
+                and bool(actor)
+                and actor.casefold() == user.casefold(),
+            }
+        )
+    return {
+        "since": since.isoformat() if since is not None else None,
+        "through": as_of.isoformat(),
+        "granted": sum(1 for c in changes if c["action"] == "issue"),
+        "revoked": sum(1 for c in changes if c["action"] == "revoke"),
+        "self_granted": sum(1 for c in changes if c["self_granted"]),
+        "items": changes,
+    }
 
 
 def refused_from_outside(
@@ -238,12 +302,13 @@ def build_packet(
         whole = review_tokens(document, as_of, log_entries, dormant_days, ledger_entries)
     except ValueError as exc:
         raise PacketError(str(exc)) from exc
-    tokens = tenant_token_review(whole, tenant_id, as_of, log_entries, ledger_entries)
     linked = (
         continuity(previous, previous_digest, tenant_id, today, seal, log_entries, ledger_entries)
         if previous is not None
         else None
     )
+    since = date.fromisoformat(str(linked["previous"]["as_of"])) if linked is not None else None
+    tokens = tenant_token_review(whole, tenant_id, as_of, log_entries, ledger_entries, since)
 
     contents = {
         "register.csv": export["csv"].encode("utf-8"),
@@ -274,6 +339,11 @@ def build_packet(
     }
     high = queue["high"] + access["high"] + tokens["high"] + (0 if sweep["verified"] else 1)
     notices = (queue["records"] - queue["high"]) + access["notices"] + tokens["notices"]
+    if "ledger" in tokens:
+        changes = tokens["ledger"]["changes"]
+        summary["access_changes"] = {
+            key: changes[key] for key in ("since", "through", "granted", "revoked", "self_granted")
+        }
     outside = tokens.get("refused_from_outside")
     if outside is not None:
         summary["refused_from_outside"] = {

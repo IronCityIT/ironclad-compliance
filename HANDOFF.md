@@ -974,6 +974,18 @@ holds `refused_from_outside`: requests for the tenant's workspace refused to
 other tenants' tokens (merged, unnamed, one high in the summary) and to no
 recognised token (one notice). `access-log refusals` above names them.
 
+With `--ledger`, `token-review.json` also holds `ledger.changes`: every grant
+and revocation in the tenant during the period, oldest first, with who took
+it, the holder, roles, expiry, register link and digest prefix. The token
+file only shows who holds access today, so a partner granted and offboarded
+inside one quarter appears only in this list. The period ends on the review
+date and, from the second review on, starts the day after the previous
+packet's date, so each change is filed exactly once. Each line is placed by
+the time it was written, not by the `--as-of` its writer typed. A grant whose
+issuer is its own holder (`--actor` the same as `--user`) is a notice, since
+nobody else approved that access. The manifest summary carries the counts
+under `access_changes`.
+
 It exits 4 with nothing written if the log or ledger is not a whole chain. It
 exits 2 if an input is unreadable, `--dormant-days` is below 1, or a packet for
 that tenant and date is already filed. A filed packet is never overwritten.
