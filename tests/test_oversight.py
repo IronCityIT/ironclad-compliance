@@ -272,6 +272,17 @@ class TestTheReviewQueue:
         assert ownerless == sorted(e["name"] for e in SEED["oversight"]["integrations"])
         assert not [name for name, codes in found.items() if "phi-scope-missing" in codes]
 
+    def test_the_sage_seed_names_every_phi_partner_with_no_direction_of_flow(self) -> None:
+        unrecorded = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "phi-flow-unrecorded"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        )
+        # Each integration records its direction; no partner does yet.
+        assert unrecorded == sorted(e["name"] for e in SEED["oversight"]["partners"])
+
     def test_every_high_rated_sage_seed_record_asks_for_a_dated_assurance(self) -> None:
         undated = sorted(
             entry["name"]

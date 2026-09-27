@@ -198,7 +198,7 @@ test("every Sage Spine seed record renders with its actions",()=>{
 // The review queue. Fixed date so the cases do not drift with the calendar.
 const TODAY="2026-09-26";
 const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
-const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
+const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",data_flow_direction:"Bidirectional",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
 
 test("a fully governed PHI record needs no attention",()=>{
   assert.deepEqual(attentionFindings(clean,TODAY),[]);
@@ -229,6 +229,15 @@ test("PHI with no scope, and a record with no business owner, are notices",()=>{
   assert.deepEqual(codes({...clean,phi_scope:""}),["phi-scope-missing"]);
   assert.deepEqual(codes({...clean,data_access:"PII",phi_scope:""}),[],"no PHI, no scope owed");
   assert.deepEqual(codes({...clean,business_owner:" "}),["owner-unassigned"]);
+});
+
+test("PHI with no data flow direction recorded is a notice",()=>{
+  assert.deepEqual(codes({...clean,data_flow_direction:""}),["phi-flow-unrecorded"]);
+  assert.deepEqual(codes({...clean,data_flow_direction:undefined}),["phi-flow-unrecorded"]);
+  assert.deepEqual(codes({...clean,data_access:"Operational only",baa_status:"Not required",data_flow_direction:""}),[],"no PHI, no direction owed");
+  for(const data_flow_direction of ["Bidirectional","Outbound / push","Inbound / pull","Unidirectional"]){
+    assert.deepEqual(codes({...clean,data_flow_direction}),[],data_flow_direction);
+  }
 });
 
 test("a High or Critical rating with no assurance expiry is a notice",()=>{

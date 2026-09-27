@@ -434,7 +434,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     PHI moving without an executed BAA, a BAA claimed without its evidence or
     dated after today, an Active relationship whose agreement is neither
     executed nor ruled not required, a lapsed review or assurance, and gaps that leave the
-    record unassessable: PHI with no scope, no business owner, a High or
+    record unassessable: PHI with no scope or no recorded direction of flow
+    (whether PHI leaves the practice, arrives, or both), no business owner, a High or
     Critical rating with no assurance expiry (so a lapse could never show).
     Derived only from stored fields, so it says nothing a reviewer cannot check
     on the record. Retired records need no attention. ISO dates compare
@@ -484,6 +485,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
         )
     if record.get("data_access") == "PHI" and not _text(record.get("phi_scope")):
         add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
+    if record.get("data_access") == "PHI" and not _text(record.get("data_flow_direction")):
+        add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.")
     review = _text(record.get("review_due"))
     if not _ISO_DATE.match(review):
         add("notice", "review-unscheduled", "No review date set.")

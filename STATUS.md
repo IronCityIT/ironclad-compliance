@@ -1721,6 +1721,56 @@ pass. `mypy --platform linux` passes. The white-label, secret-literal and
 jobs passed: pytest 1289 passed, 57 skipped on 3.10 and 3.12, persistence
 262, dashboard 106/106, Firestore rules 91/91.
 
+**PHI with no data flow direction recorded is a notice, 2026-09-27.**
+`data_flow_direction` was validated against its vocabulary and allowed empty,
+and nothing asked for it. A record could handle PHI and not say whether the
+PHI leaves the practice, arrives, or both. That is the question transmission
+security (45 CFR 164.312(e)) and the risk analysis are assessed on. The
+review queue said nothing. The Sage seed has three of these: DrChrono, PRIMO
+and Fujifilm are all PHI partners with no direction. The three integrations
+each record theirs.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`phi-flow-unrecorded` (**notice**) when `data_access` is `PHI` and
+`data_flow_direction` is blank or absent: "Handles PHI with no data flow
+direction recorded." It sits after `phi-scope-missing`. It is not an
+`ACCESS_CODE`, so `oversight access` and `--fail-on high` are unchanged. The
+export's attention column and the packet's findings index carry it through
+the same function.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue) and
+`HANDOFF.md` §17.
+
+Tests (5 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 4 new cases
+  (45, up from 41). The base record gained `data_flow_direction:
+  Bidirectional`, so it stays the clean control. Blank and cleared are the
+  notice. Non-PHI owes no direction. With scope and direction both missing,
+  the scope is listed first.
+- `tests/test_oversight.py`: of the Sage seed, exactly the three partners
+  carry the finding.
+- `tests/test_http.py`: the review-queue test's governed record gained a
+  direction. Without it, it now carries the notice, and the first full run
+  failed on it. That is the only test outside the shared table that changed.
+- `dashboard/test/oversight.test.js`: the rule and its edges, each of the four
+  directions clean. Its `clean` record gained a direction.
+
+Two mutations each fail named tests. With the check replaced by `pass` on
+the server, 4 fail: the three positive table cases and the seed test. With
+the line removed on the page, 2 page tests fail: the new rule test and the
+shared table.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub):
+1351
+tests, 1284 passed, 57 skipped, 10 failed. Untouched HEAD `d930754` in a
+worktree: 1346 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). Dashboard `oversight.test.js` and `render.test.js`: 94/94.
+ruff format and lint pass. `mypy --platform linux` passes. The white-label
+gate passes. bandit is not installed in the local venv. CI installs its own.
+CI at the commit is recorded in the header once it reports.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

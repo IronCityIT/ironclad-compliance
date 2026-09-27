@@ -13,6 +13,7 @@
     "baa_execution_date": "2025-01-15",
     "baa_document_ref": "Contract 42",
     "phi_scope": "Demographics and imaging",
+    "data_flow_direction": "Bidirectional",
     "review_due": "2027-03-01",
     "cert_expiration_date": "2027-06-30"
   },
@@ -48,6 +49,14 @@
       {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Pending review)."}]},
     {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
+    {"name": "PHI with no data flow direction recorded", "patch": {"data_flow_direction": ""}, "expected": [
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
+    {"name": "PHI with the data flow direction cleared", "patch": {"data_flow_direction": null}, "expected": [
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
+    {"name": "no PHI, no direction of flow owed", "patch": {"data_access": "PII", "data_flow_direction": ""}, "expected": []},
+    {"name": "PHI with neither scope nor direction: scope first", "patch": {"phi_scope": "", "data_flow_direction": ""}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
     {"name": "a blank PHI scope counts as none", "patch": {"phi_scope": "   "}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
     {"name": "no PHI scope is not a finding when no PHI is handled", "patch": {"data_access": "Operational only", "baa_status": "Not required", "phi_scope": ""}, "expected": []},

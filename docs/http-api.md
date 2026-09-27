@@ -333,7 +333,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   `Active` relationship whose agreement is neither `Executed` nor `Not
   required` (`agreement-not-executed`), a review overdue or assurance expired
   (high); PHI with no PHI scope recorded (what
-  the BAA's minimum necessary is measured against), a review or expiry within
+  the BAA's minimum necessary is measured against), PHI with no data flow
+  direction recorded (`phi-flow-unrecorded`: whether PHI leaves the practice,
+  arrives, or both is what transmission security is assessed on), a review or expiry within
   30 days, no review date, risk unrated, data access unknown, no business
   owner, a High or Critical rating with no assurance expiry recorded
   (`assurance-undated`: without one the expiry checks can never fire)

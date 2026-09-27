@@ -187,7 +187,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * without an executed BAA, a BAA claimed without its evidence or dated after
  * today, an Active relationship with no executed agreement, a lapsed review or
  * assurance, and gaps that leave the record
- * unassessable: PHI with no scope, no business owner, a High or Critical
+ * unassessable: PHI with no scope or no recorded direction of flow, no
+ * business owner, a High or Critical
  * rating with no assurance expiry (so a lapse could never show). Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
  * Retired records need no attention. `today` is YYYY-MM-DD; ISO dates compare
@@ -212,6 +213,7 @@ export function attentionFindings(record, today) {
     add("high", "agreement-not-executed", `Active without an executed agreement (Agreement: ${text(record.agreement_status) || "not recorded"}).`);
   }
   if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
+  if (record.data_access === "PHI" && !text(record.data_flow_direction)) add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.");
   const review = text(record.review_due);
   if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");
   else if (review < today) add("high", "review-overdue", `Review overdue since ${review}.`);

@@ -1358,6 +1358,7 @@ class TestOversightRegister:
                     **self.RATED,
                     "business_owner": "Revenue cycle",
                     "phi_scope": "Claims",
+                    "data_flow_direction": "Outbound / push",
                     "baa_document_ref": "BAA-7",
                     "review_due": "2027-01-01",
                     "cert_expiration_date": "2027-06-30",
