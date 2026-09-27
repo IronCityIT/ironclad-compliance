@@ -7,18 +7,15 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-23
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `87f2b28` (run 35923149183), all six jobs; green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `791f510` (run 35942480346, `pull_request`; the duplicate `push` run 35942477344 was cancelled), all six jobs; green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
-> **The working tree carries uncommitted work that is not this branch's.**
-> A rebranded dashboard with a named healthcare client's demo data, a
-> `tenants/` baseline and `automation/`, dated 2026-09-10 evening. Reviewed,
-> not committed, not touched: it names a SIEM product on a served surface,
-> renders one client's name to every visitor, and uses a framework id the
-> engine refuses. `PRODUCTIZE_NOTES.md` §14 has the item-by-item review.
-> `sh scripts/gates.sh` is **red on white-label** while those files sit in
-> `dashboard/public/`; it is green on the committed tree.
+> **The working tree is clean as of 2026-09-26** (checked with `git status`).
+> The uncommitted 2026-09-10 dashboard/`tenants/`/`automation/` work described
+> in `PRODUCTIZE_NOTES.md` §14 is no longer present; `tenants/sage-spine/seed.json`
+> was committed in `791f510` and `sh scripts/check_white_label.sh` passes on the
+> tree as it stands.
 
 `ironclad-compliance` is not listed in any tier in `CLAUDE.md`, and the fallback
 rule is "treat as HANDS OFF and ask Bill". Asked, and directed to take the
@@ -52,6 +49,53 @@ deploy, no `workflow_dispatch` fired against a real client.
 | Cloud Functions | **BEING RETIRED** — decisions tested, never deployed | `functions/`, `functions/test/` |
 | Firestore rules | **DONE, emulator-tested, not deployed** | `firestore.rules`, `tests/rules/` |
 | Dashboard | **DONE, rendering tested, not deployed; the `ironclad serve` read path is built and tested against a real server, and is not wired in until B6 (§16.39)** | `dashboard/public/`, `dashboard/test/` |
+
+## Partner & integration oversight — Sage Spine tenant workspace
+
+`791f510` added a tenant-scoped register of partners and integrations
+(`dashboard/public/oversight.html`, `firestore.rules`), seeded for Sage Spine.
+It is the **only browser-writable path** in the tenant tree. As committed, the
+rules checked tenant, role, authorship and timestamps, and nothing about the
+record itself: any contributor or owner could write an arbitrary field (a place
+to park PHI nobody reviews), any string as a risk rating or BAA status, any
+size of text, a non-ISO date.
+
+Closed on 2026-09-26:
+
+- **Schema enforced at the data layer.** `validOversightShape()` fixes the
+  field list (`hasOnly`), requires the governance fields, closes the vocabulary
+  of `status`, `risk`, `agreement_status`, `baa_status`, `data_access` and
+  `data_flow_direction`, requires ISO `YYYY-MM-DD` (or empty) dates, and bounds
+  every text field. Applied to create **and** update, so a merge cannot smuggle
+  a field in later. The two collections now share one create and one update
+  predicate instead of two copies.
+- **Emulator tests added** (`tests/rules/rules.test.js`): ten malformed records
+  refused, a missing required field refused, an unknown field smuggled in by
+  update refused, a complete valid record accepted, a contributor correcting
+  notes accepted, and an approver rating a contributor's proposal accepted —
+  the update path had no positive test before.
+- **Page, seed and rules held to one vocabulary** without an emulator
+  (`dashboard/test/oversight.test.js`): every `<select>` option, every field the
+  page writes and its defaults, and every Sage seed record are checked against
+  the lists parsed out of `firestore.rules`. Mutation-checked: adding an
+  `Approved` risk option to the page fails the test by name.
+- **The page's vocabulary now matches the seed's**: `Under review` for
+  agreement/BAA status and `Retired` for the lifecycle (records are retired, not
+  deleted). Three `Loading…` strings rendered as `Loadingâ€¦` (UTF-8 read as
+  cp1252 on commit); now `&hellip;`.
+
+Still open for this workspace: no change history per record beyond
+`updated_by`/`updated_at` (HIPAA review would want who-changed-what); no edit
+UI for an existing record; the page uses the Firebase path that is being
+retired (§ architecture note above), so it moves with B6.
+
+Local evidence, 2026-09-26 (Windows 11, Node 24, Python 3.12 venv):
+`npm --prefix dashboard test` 68/69 — the one failure is `api.test.js`, which
+spawns `python3` and fails identically on untouched `791f510`; ruff format and
+lint pass; white-label and secret-literal gates pass; catalog current. The
+emulator suite needs a JDK, which this machine does not have — it is proven in
+CI. mypy/pytest/artifact failures locally are Windows-only (`fcntl`, symlinks,
+CRLF checkout) and none touch changed files.
 
 ## Gate results
 

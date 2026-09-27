@@ -47,6 +47,60 @@ service cloud.firestore {
       return callerRoles().hasAny(['owner', 'compliance_manager']);
     }
 
+    // The register is the one browser-writable surface, so its shape is fixed
+    // here rather than trusted to the page: a closed field list, closed
+    // vocabularies for every governance field, ISO dates, bounded text. An
+    // open map would let any contributor park arbitrary data - PHI included -
+    // in fields nobody reviews.
+    function oversightFields() {
+      return ['tenant_id', 'name', 'business_owner', 'technical_owner', 'status',
+        'risk', 'data_access', 'phi_scope', 'data_flow_direction',
+        'agreement_status', 'baa_status', 'baa_execution_date', 'baa_document_ref',
+        'review_due', 'integration_method', 'port_protocol', 'network_exposure',
+        'assurance', 'cert_expiration_date', 'notes',
+        'created_at', 'created_by', 'updated_at', 'updated_by'];
+    }
+
+    function optionalText(d, key, max) {
+      return !(key in d) || (d[key] is string && d[key].size() <= max);
+    }
+
+    function optionalOneOf(d, key, values) {
+      return !(key in d) || d[key] in values;
+    }
+
+    function optionalDate(d, key) {
+      return !(key in d)
+        || (d[key] is string && (d[key] == '' || d[key].matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')));
+    }
+
+    function validOversightShape() {
+      let d = request.resource.data;
+      let agreement = ['Pending review', 'Under review', 'Required - pending', 'Executed', 'Not required'];
+      return d.keys().hasOnly(oversightFields())
+        && d.keys().hasAll(['tenant_id', 'name', 'status', 'risk', 'agreement_status', 'baa_status',
+          'created_at', 'created_by', 'updated_at', 'updated_by'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.status in ['Pending information', 'Onboarding', 'Active', 'Under review', 'Offboarding', 'Retired']
+        && d.risk in ['Unrated', 'Low', 'Medium', 'High', 'Critical']
+        && d.agreement_status in agreement
+        && d.baa_status in agreement
+        && optionalOneOf(d, 'data_access', ['PHI', 'PII', 'Operational only', 'No production data', 'Unknown'])
+        && optionalOneOf(d, 'data_flow_direction', ['', 'Bidirectional', 'Outbound / push', 'Inbound / pull', 'Unidirectional'])
+        && optionalDate(d, 'baa_execution_date')
+        && optionalDate(d, 'review_due')
+        && optionalDate(d, 'cert_expiration_date')
+        && optionalText(d, 'business_owner', 120)
+        && optionalText(d, 'technical_owner', 120)
+        && optionalText(d, 'phi_scope', 300)
+        && optionalText(d, 'baa_document_ref', 300)
+        && optionalText(d, 'integration_method', 120)
+        && optionalText(d, 'port_protocol', 120)
+        && optionalText(d, 'network_exposure', 120)
+        && optionalText(d, 'assurance', 300)
+        && optionalText(d, 'notes', 2000);
+    }
+
     function validOversightCreate(clientId) {
       return request.resource.data.tenant_id == clientId
         && request.resource.data.created_by == request.auth.uid
@@ -70,6 +124,31 @@ service cloud.firestore {
         || (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
           ['risk', 'agreement_status', 'baa_status', 'status']
         ));
+    }
+
+    // A contributor may propose a record; only an approver may rate it.
+    function contributorCreatesUnrated() {
+      return canApproveOversight()
+        || (request.resource.data.risk == 'Unrated'
+          && request.resource.data.agreement_status == 'Pending review'
+          && request.resource.data.baa_status == 'Pending review'
+          && request.resource.data.status == 'Pending information');
+    }
+
+    function canCreateOversight(clientId) {
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && validOversightCreate(clientId)
+        && validOversightShape()
+        && contributorCreatesUnrated();
+    }
+
+    function canUpdateOversight(clientId) {
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && validOversightUpdate(clientId)
+        && validOversightShape()
+        && contributorKeepsGovernanceState();
     }
 
     match /clients/{clientId} {
@@ -97,36 +176,16 @@ service cloud.firestore {
       // tenant owns the path and only programme contributors may change it.
       match /partners/{partnerId} {
         allow read: if ownsTenant(clientId);
-        allow create: if ownsTenant(clientId)
-          && canMaintainOversight()
-          && validOversightCreate(clientId)
-          && (canApproveOversight()
-            || (request.resource.data.risk == 'Unrated'
-              && request.resource.data.agreement_status == 'Pending review'
-              && request.resource.data.baa_status == 'Pending review'
-              && request.resource.data.status == 'Pending information'));
-        allow update: if ownsTenant(clientId)
-          && canMaintainOversight()
-          && validOversightUpdate(clientId)
-          && contributorKeepsGovernanceState();
+        allow create: if canCreateOversight(clientId);
+        allow update: if canUpdateOversight(clientId);
         // Retain history. Offboard/retire records by status rather than deleting them.
         allow delete: if false;
       }
 
       match /integrations/{integrationId} {
         allow read: if ownsTenant(clientId);
-        allow create: if ownsTenant(clientId)
-          && canMaintainOversight()
-          && validOversightCreate(clientId)
-          && (canApproveOversight()
-            || (request.resource.data.risk == 'Unrated'
-              && request.resource.data.agreement_status == 'Pending review'
-              && request.resource.data.baa_status == 'Pending review'
-              && request.resource.data.status == 'Pending information'));
-        allow update: if ownsTenant(clientId)
-          && canMaintainOversight()
-          && validOversightUpdate(clientId)
-          && contributorKeepsGovernanceState();
+        allow create: if canCreateOversight(clientId);
+        allow update: if canUpdateOversight(clientId);
         // Retain history. Offboard/retire records by status rather than deleting them.
         allow delete: if false;
       }

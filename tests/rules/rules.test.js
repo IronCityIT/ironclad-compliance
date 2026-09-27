@@ -343,6 +343,71 @@ test("partner and integration oversight is tenant-scoped and role-gated", async 
     await assertSucceeds(setDoc(ref, forUser(db, "contributor")));
     await assertFails(setDoc(ref, { ...forUser(db, "contributor"), risk: "Low", created_at: (await getDoc(ref)).data().created_at }, { merge: true }));
   });
+
+  await t.test("a contributor can still correct the descriptive fields", async () => {
+    const db = as(ACME, ["contributor"]);
+    const ref = ownPartner(db, "contributor-notes");
+    await assertSucceeds(setDoc(ref, forUser(db, "contributor")));
+    await assertSucceeds(setDoc(ref, { notes: "Feed confirmed on the clinical VLAN.", updated_at: serverTimestamp() }, { merge: true }));
+  });
+
+  await t.test("an approver can rate a record a contributor proposed", async () => {
+    const ref = ownIntegration(as(ACME, ["contributor"]), "rated-later");
+    await assertSucceeds(setDoc(ref, forUser(ref.firestore, "contributor")));
+    const db = as(ACME, ["compliance_manager"]);
+    await assertSucceeds(setDoc(ownIntegration(db, "rated-later"), {
+      risk: "High", baa_status: "Executed", baa_execution_date: "2026-09-01",
+      updated_by: `auth0|${ACME}-compliance_manager`, updated_at: serverTimestamp(),
+    }, { merge: true }));
+  });
+
+  await t.test("a complete, valid record is accepted", async () => {
+    const db = as(ACME, ["owner"]);
+    await assertSucceeds(setDoc(ownIntegration(db, "complete"), {
+      ...forUser(db, "owner"),
+      status: "Active", risk: "High", data_access: "PHI", agreement_status: "Under review",
+      baa_status: "Required - pending", data_flow_direction: "Outbound / push",
+      business_owner: "Practice administrator", technical_owner: "Integration lead",
+      phi_scope: "Demographics, imaging metadata", baa_execution_date: "", baa_document_ref: "",
+      review_due: "2026-12-31", integration_method: "API", port_protocol: "HTTPS/443",
+      network_exposure: "Private network", assurance: "Pending", cert_expiration_date: "",
+      notes: "Feed into the imaging broker.",
+    }));
+  });
+
+  // The register is the only browser-writable path, so its shape is closed.
+  const rejected = {
+    "an unknown field": { free_text_dump: "anything at all" },
+    "a risk outside the scale": { risk: "Approved" },
+    "a status outside the lifecycle": { status: "Done" },
+    "an agreement state outside the vocabulary": { agreement_status: "Signed probably" },
+    "a data classification outside the vocabulary": { data_access: "Some" },
+    "a date that is not ISO": { review_due: "12/31/2026" },
+    "an empty name": { name: "" },
+    "an oversized name": { name: "x".repeat(121) },
+    "a non-string owner": { business_owner: 42 },
+    "oversized notes": { notes: "x".repeat(2001) },
+  };
+  for (const [what, patch] of Object.entries(rejected)) {
+    await t.test(`${what} is refused`, async () => {
+      const db = as(ACME, ["owner"]);
+      await assertFails(setDoc(ownPartner(db, "shape"), { ...forUser(db, "owner"), ...patch }));
+    });
+  }
+
+  await t.test("a required field cannot be omitted", async () => {
+    const db = as(ACME, ["owner"]);
+    const { risk, ...withoutRisk } = forUser(db, "owner");
+    assert.equal(risk, "Unrated");
+    await assertFails(setDoc(ownPartner(db, "no-risk"), withoutRisk));
+  });
+
+  await t.test("an update cannot smuggle in an unknown field", async () => {
+    const db = as(ACME, ["owner"]);
+    const ref = ownPartner(db, "smuggle");
+    await assertSucceeds(setDoc(ref, forUser(db, "owner")));
+    await assertFails(setDoc(ref, { ssn: "000-00-0000", updated_at: serverTimestamp() }, { merge: true }));
+  });
 });
 
 test("anything outside the modelled tree is closed", async (t) => {
