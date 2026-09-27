@@ -2292,6 +2292,36 @@ at `Unknown` data access instead of what the contributor enters. That is
 the decision this change left open. It trades a contributor's knowledge
 of the feed for a `data-access-unknown` notice on every proposal.
 
+**PHI with no technical owner recorded is a notice, 2026-09-27.** The
+register carried `technical_owner` and nothing asked for it. A record
+could handle PHI with nobody named who can cut the feed or revoke its
+credential in an incident. Response and access termination are
+assessed on that. None of the six Sage seed records names one.
+
+`attention_findings()` and `attentionFindings()` now raise
+`technical-owner-unassigned` (notice) for PHI with a blank or absent
+technical owner, after `phi-flow-unrecorded`. It is not an access code.
+No route, stored field, rule, vocabulary, token-file field or ledger
+line changed. Docs: `docs/http-api.md`, `HANDOFF.md`.
+
+Tests: the shared table grows 79 -> 84 cases (absent, cleared, blank,
+no PHI, and order behind `phi-flow-unrecorded`). One new page test and one
+seed test name all six records. The HTTP governed record and the
+`clean` base gained a technical owner. The access-review findings index
+now lists the notice on the seed's DrChrono to PRIMO integration.
+
+Two mutations each fail named tests. With the server check disabled,
+6 fail: the four new table cases, the seed test and the access-review
+index. With the page check disabled, 2 fail: the new page test and
+the shared table.
+
+Local gates on Windows, 2026-09-27: pytest 1412 collected, 57 skipped,
+10 failed. The same 10 fail on untouched `3d696ba` in a worktree (1406
+collected; Windows-only). Page tests (`oversight.test.js`,
+`render.test.js`) 102/102. `mypy --platform linux`, `ruff check` and
+`ruff format --check` are clean. `scripts/check_white_label.sh` passes and
+`git diff --check` is clean.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

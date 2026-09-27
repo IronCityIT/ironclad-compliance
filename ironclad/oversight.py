@@ -461,7 +461,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     BAA turns on PHI, so the BAA check could not fire), a lapsed review or assurance, a review set
     more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
-    (whether PHI leaves the practice, arrives, or both), a PHI scope on a record
+    (whether PHI leaves the practice, arrives, or both) or no technical owner
+    (who cuts the feed or revokes its credential in an incident), a PHI scope on a record
     whose data access is set to something other than PHI (the BAA check reads
     only data access, so the record contradicts the one field that would raise
     it), no business owner, a High or
@@ -531,6 +532,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
         add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
     if record.get("data_access") == "PHI" and not _text(record.get("data_flow_direction")):
         add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.")
+    if record.get("data_access") == "PHI" and not _text(record.get("technical_owner")):
+        add("notice", "technical-owner-unassigned", "Handles PHI with no technical owner recorded.")
     if not access_unknown and record.get("data_access") != "PHI" and _text(record.get("phi_scope")):
         add(
             "notice",

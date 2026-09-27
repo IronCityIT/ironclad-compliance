@@ -640,6 +640,7 @@ class TestTheFindingsIndex:
         ]
         assert queued["messages"] == [
             "Handles PHI without an executed BAA (BAA: Pending review).",
+            "Handles PHI with no technical owner recorded.",
             "No review date set.",
             "Rated High with no certificate / assurance expiry recorded.",
             "No business owner recorded.",

@@ -381,6 +381,19 @@ class TestTheReviewQueue:
         # Each integration records its direction; no partner does yet.
         assert unrecorded == sorted(e["name"] for e in SEED["oversight"]["partners"])
 
+    def test_the_sage_seed_names_every_phi_record_with_no_technical_owner(self) -> None:
+        unowned = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "technical-owner-unassigned"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        )
+        # Every seed record handles PHI and none names who runs it technically.
+        assert unowned == sorted(
+            e["name"] for kind in oversight.KINDS for e in SEED["oversight"][kind]
+        )
+
     def test_every_high_rated_sage_seed_record_asks_for_a_dated_assurance(self) -> None:
         undated = sorted(
             entry["name"]

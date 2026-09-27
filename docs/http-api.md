@@ -346,7 +346,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   overdue or assurance expired (high); PHI with no PHI scope recorded (what
   the BAA's minimum necessary is measured against), PHI with no data flow
   direction recorded (`phi-flow-unrecorded`: whether PHI leaves the practice,
-  arrives, or both is what transmission security is assessed on), a PHI scope
+  arrives, or both is what transmission security is assessed on), PHI with
+  no technical owner recorded (`technical-owner-unassigned`: nobody named to
+  cut the feed or revoke its credential in an incident), a PHI scope
   recorded on a record whose data access is `PII`, `Operational only` or `No
   production data` (`phi-scope-contradicted`: the BAA check reads data access
   alone, so the record denies the PHI its own scope describes), a review or expiry within

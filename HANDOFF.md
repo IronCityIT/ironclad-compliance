@@ -776,7 +776,10 @@ seed record carries it (DrChrono handles PHI). PHI
 with no data flow direction recorded is a notice (`phi-flow-unrecorded`):
 whether PHI leaves the practice, arrives, or both is what transmission
 security is assessed on. The Sage seed's three partners carry it until
-each direction is recorded; its integrations already record theirs. A PHI
+each direction is recorded; its integrations already record theirs. PHI
+with no technical owner recorded is a notice (`technical-owner-unassigned`):
+an incident needs someone named who can cut the feed or revoke its
+credential. All six Sage seed records carry it until one is named. A PHI
 scope recorded on a record whose data access is set to anything but `PHI`
 or `Unknown` is a notice (`phi-scope-contradicted`): `phi-without-baa`
 reads data access alone, so moving a PHI partner to `PII` drops its missing

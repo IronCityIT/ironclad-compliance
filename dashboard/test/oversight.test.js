@@ -217,7 +217,7 @@ test("every Sage Spine seed record renders with its actions",()=>{
 // The review queue. Fixed date so the cases do not drift with the calendar.
 const TODAY="2026-09-26";
 const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
-const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",data_flow_direction:"Bidirectional",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30",assurance:"SOC 2 Type II report, 2026"};
+const clean={name:"Clean",business_owner:"Practice manager",technical_owner:"Practice IT",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",data_flow_direction:"Bidirectional",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30",assurance:"SOC 2 Type II report, 2026"};
 
 test("a fully governed PHI record needs no attention",()=>{
   assert.deepEqual(attentionFindings(clean,TODAY),[]);
@@ -257,6 +257,13 @@ test("PHI with no data flow direction recorded is a notice",()=>{
   for(const data_flow_direction of ["Bidirectional","Outbound / push","Inbound / pull","Unidirectional"]){
     assert.deepEqual(codes({...clean,data_flow_direction}),[],data_flow_direction);
   }
+});
+
+test("PHI with no technical owner recorded is a notice",()=>{
+  assert.deepEqual(codes({...clean,technical_owner:""}),["technical-owner-unassigned"]);
+  assert.deepEqual(codes({...clean,technical_owner:undefined}),["technical-owner-unassigned"]);
+  assert.deepEqual(codes({...clean,technical_owner:" "}),["technical-owner-unassigned"]);
+  assert.deepEqual(codes({...clean,data_access:"PII",phi_scope:"",technical_owner:""}),[],"no PHI, no technical owner owed");
 });
 
 test("a High or Critical rating with no assurance expiry is a notice",()=>{
