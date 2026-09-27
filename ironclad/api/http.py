@@ -50,7 +50,13 @@ from ironclad.api.access_log import AccessLog, AccessLogError
 from ironclad.api.policy_store import PolicyStore
 from ironclad.api.schemas import ExceptionRequest, ServiceResponse
 from ironclad.api.service import ComplianceService
-from ironclad.api.tokens import InvalidExpiryError, is_expired, parse_expiry, utc_now
+from ironclad.api.tokens import (
+    InvalidExpiryError,
+    is_expired,
+    parse_expiry,
+    parse_on_behalf_of,
+    utc_now,
+)
 from ironclad.errors import AuthorizationError, IroncladError
 from ironclad.frameworks.loader import available_frameworks
 from ironclad.ids import slugify
@@ -108,9 +114,26 @@ STATUS_FOR_KIND = {
 
 
 class Authenticator(Protocol):
-    """Turns a bearer token into a principal, or nothing."""
+    """Turns a bearer token into a principal, or nothing.
+
+    May raise `AccessWithdrawnError` for a token it recognises and will not
+    honour, so the refusal can name who it refused.
+    """
 
     def principal_for(self, token: str) -> Principal | None: ...
+
+
+class AccessWithdrawnError(AuthorizationError):
+    """A recognised token whose grant the register has withdrawn.
+
+    Carries the principal, so the access log names the caller refused rather
+    than recording an anonymous 401: the tenant's review should see that a
+    retired partner's token was still being presented, and by whom.
+    """
+
+    def __init__(self, principal: Principal, reason: str) -> None:
+        super().__init__(reason)
+        self.principal = principal
 
 
 class TokenFileAuthenticator:
@@ -135,15 +158,31 @@ class TokenFileAuthenticator:
     the policy store follows — so a revoked token stops working on the next
     request rather than at the next restart.
 
+    An entry with `on_behalf_of` acts for a partner or integration in the
+    tenant's register, and is honoured only while the register holds that
+    record and it is not `Retired`: retiring the relationship ends the access
+    on the next request, not at the next access review. Anything else that
+    review finds (a missing BAA, a lapsed review) is left to the people who
+    run it; those are findings to act on, not facts that end a grant. The
+    check needs `register` (the store); without one a linked entry cannot be
+    checked and the authenticator says so rather than honouring it. A link
+    that is not `partners/<id>` or `integrations/<id>` authenticates nobody.
+
     This is the authenticator for a LAN deployment behind a reverse proxy. An
     Auth0-issued JWT needs RSA signature verification the standard library does
     not provide; that is a separate authenticator behind a dependency decision,
     and it plugs in through the same protocol.
     """
 
-    def __init__(self, path: Path | str, clock: Callable[[], datetime] = utc_now) -> None:
+    def __init__(
+        self,
+        path: Path | str,
+        clock: Callable[[], datetime] = utc_now,
+        register: Any = None,
+    ) -> None:
         self.path = Path(path)
         self.clock = clock
+        self.register = register
 
     def _entries(self) -> list[dict[str, Any]]:
         document = json.loads(self.path.read_text(encoding="utf-8"))
@@ -178,7 +217,7 @@ class TokenFileAuthenticator:
             # A token bound to no tenant, or to a name that is not a
             # tenant id, is a misconfiguration; it authenticates nobody.
             return None
-        return Principal.from_claims(
+        principal = Principal.from_claims(
             {
                 "sub": str(entry.get("user_id", "")),
                 "client_id": tenant,
@@ -186,6 +225,23 @@ class TokenFileAuthenticator:
                 "email": str(entry.get("email", "")),
             }
         )
+        link = str(entry.get("on_behalf_of") or "").strip()
+        if not link:
+            return principal
+        try:
+            kind, record_id = parse_on_behalf_of(link) or ("", "")
+        except ValueError:
+            return None
+        if self.register is None:
+            raise IroncladError(f"a token acts for {link} and there is no register to check it")
+        # The token's own tenant: a link to another tenant's record is a
+        # record this register does not hold.
+        record = self.register.get_oversight(tenant, kind, record_id)
+        if record is None:
+            raise AccessWithdrawnError(principal, f"the register does not hold {link}")
+        if str(record.get("status", "")) == "Retired":
+            raise AccessWithdrawnError(principal, f"{link} is retired in the register")
+        return principal
 
 
 def hash_token(token: str) -> str:
@@ -368,6 +424,10 @@ class App:
             raise HttpError(HTTPStatus.UNAUTHORIZED, "a bearer token is required")
         try:
             principal = self.authenticator.principal_for(token.strip())
+        except AccessWithdrawnError as exc:
+            # Recognised, and refused: 403 with the caller named in the log.
+            request.principal = exc.principal
+            raise HttpError(HTTPStatus.FORBIDDEN, str(exc)) from exc
         except (OSError, ValueError, IroncladError) as exc:
             # The token file is unreadable or malformed. Nobody is
             # authenticated, and the reason is the operator's, not the caller's.

@@ -925,6 +925,16 @@ tokens have no link and are listed under `unlinked`. Run it with the BAA sweep
 ledger, so an entry re-pointed or unlinked by hand is high in `tokens review
 --ledger`.
 
+Two of those findings the server acts on itself. `ironclad serve` checks a
+linked token's record in its own store on every request: when the record is
+set to `Retired`, or the tenant's register does not hold it, the token is
+refused with `403` from the next request (the holder named in the access log,
+and under `member` in `access-log refusals`). So offboarding a partner is: set
+the record to `Offboarding` while access winds down, then `Retired`, which
+ends the access; then `tokens revoke` the entry so the file and ledger say so
+too. The other findings (BAA, lapsed review or assurance) are left to the
+review: the server does not end a grant on them.
+
 ### File the quarterly access review
 
 The commands above are the parts. At each access review, file them together

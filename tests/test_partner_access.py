@@ -9,8 +9,10 @@ or dropping it by hand is caught by `tokens review --ledger`.
 
 from __future__ import annotations
 
+import http.client
 import json
-from datetime import date
+import threading
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,8 +20,8 @@ import pytest
 
 from ironclad import oversight
 from ironclad.api import grant_ledger
-from ironclad.api.tokens import TokenFileError, issue_token, review_tokens
-from ironclad.errors import AuthorizationError
+from ironclad.api.tokens import TokenFileError, issue_token, review_tokens, write_token_file
+from ironclad.errors import AuthorizationError, IroncladError
 from ironclad.model.tenant import Principal, Role
 from ironclad.oversight import OversightError
 from ironclad.store import FileResultStore
@@ -315,3 +317,172 @@ class TestTheCommand:
         missing = str(tmp_path / "absent.json")
         code, out, err = run(*self.AUDIT, "--tokens", missing)
         assert (code, out) == (2, None) and "token file unreadable" in err
+
+
+# ------------------------------------------------- the grant ends with the record
+
+#: Fixed, so a grant ending 2026-12-31 does not lapse under the test later.
+NOW = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
+DANA = "dana@drchrono.example"
+STAFF = "staff@sage.example"
+
+
+class TestRetiringEndsAccess:
+    """`ironclad serve` honours a partner's token only while its record is live.
+
+    `oversight access` reports a token for a retired or missing record at the
+    next review; the server refuses it on the next request, as 403 with the
+    holder named, so the tenant's refusals show who still presented it.
+    """
+
+    @pytest.fixture
+    def secrets_(self, tmp_path: Path) -> dict[str, str]:
+        document: dict[str, Any] = {"tokens": []}
+        issued: dict[str, str] = {}
+        for user, link in ((DANA, "partners/drchrono"), (STAFF, "")):
+            token, _ = issue_token(
+                document, user_id=user, tenant_id="sage-spine", roles=["contributor"],
+                expires_at=date(2026, 12, 31), issued_by="bill", as_of=AS_OF, on_behalf_of=link,
+            )  # fmt: skip
+            issued[user] = token
+        write_token_file(tmp_path / "tokens.json", document)
+        return issued
+
+    @staticmethod
+    def auth(tmp_path: Path, register: Any) -> Any:
+        from ironclad.api.http import TokenFileAuthenticator  # noqa: PLC0415
+
+        return TokenFileAuthenticator(tmp_path / "tokens.json", lambda: NOW, register=register)
+
+    @staticmethod
+    def set_status(store: Any, status: str) -> None:
+        oversight.save(
+            store, tenant_id="sage-spine", kind="partners", record_id="drchrono",
+            changes={"status": status}, principal=OWNER, at=AT,
+        )  # fmt: skip
+
+    def test_retiring_the_record_refuses_its_token_by_name(
+        self, store: Any, tmp_path: Path, secrets_: dict[str, str]
+    ) -> None:
+        from ironclad.api.http import AccessWithdrawnError  # noqa: PLC0415
+
+        auth = self.auth(tmp_path, store)
+        assert auth.principal_for(secrets_[DANA]).user_id == DANA
+        self.set_status(store, "Retired")
+        with pytest.raises(AccessWithdrawnError, match="partners/drchrono is retired") as refused:
+            auth.principal_for(secrets_[DANA])
+        principal = refused.value.principal
+        assert (principal.user_id, principal.tenant_id) == (DANA, "sage-spine")
+        assert auth.principal_for(secrets_[STAFF]).user_id == STAFF  # staff hold no link
+
+    def test_offboarding_and_a_missing_baa_are_findings_not_refusals(
+        self, store: Any, tmp_path: Path, secrets_: dict[str, str]
+    ) -> None:
+        # The seeded DrChrono handles PHI without an executed BAA: high in the
+        # review, and still the reviewers' call rather than the server's.
+        self.set_status(store, "Offboarding")
+        assert self.auth(tmp_path, store).principal_for(secrets_[DANA]).user_id == DANA
+
+    def test_a_record_the_tenant_does_not_hold_refuses_the_token(
+        self, store: Any, tmp_path: Path
+    ) -> None:
+        from ironclad.api.http import AccessWithdrawnError  # noqa: PLC0415
+
+        elsewhere = oversight.save(
+            store, tenant_id="other-clinic", kind="partners", changes={"name": "Elsewhere"},
+            principal=STRANGER, at=AT,
+        )["id"]  # fmt: skip
+        document: dict[str, Any] = {"tokens": []}
+        tokens: dict[str, str] = {}
+        for link in ("partners/gone", f"partners/{elsewhere}", "integrations/drchrono"):
+            tokens[link], _ = issue_token(
+                document, user_id=f"{len(tokens)}@p.example", tenant_id="sage-spine",
+                roles=["viewer"], expires_at=date(2026, 12, 31), issued_by="bill", as_of=AS_OF,
+                on_behalf_of=link,
+            )  # fmt: skip
+        write_token_file(tmp_path / "tokens.json", document)
+        auth = self.auth(tmp_path, store)
+        for link, token in tokens.items():
+            with pytest.raises(AccessWithdrawnError, match=f"does not hold {link}$"):
+                auth.principal_for(token)
+
+    def test_a_link_that_cannot_be_checked_is_not_honoured(
+        self, store: Any, tmp_path: Path, secrets_: dict[str, str]
+    ) -> None:
+        from ironclad.api.http import AccessWithdrawnError  # noqa: PLC0415
+
+        with pytest.raises(IroncladError, match="no register") as unchecked:
+            self.auth(tmp_path, None).principal_for(secrets_[DANA])
+        assert not isinstance(unchecked.value, AccessWithdrawnError)  # the operator's fault
+        assert self.auth(tmp_path, None).principal_for(secrets_[STAFF]) is not None
+        path = tmp_path / "tokens.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["tokens"][0]["on_behalf_of"] = "drchrono"  # edited by hand
+        write_token_file(path, document)
+        assert self.auth(tmp_path, store).principal_for(secrets_[DANA]) is None
+
+    def test_over_http_the_refusal_is_a_403_the_tenant_sees(
+        self, store: Any, tmp_path: Path, secrets_: dict[str, str]
+    ) -> None:
+        from ironclad.api import access_log  # noqa: PLC0415
+        from ironclad.api.http import App, serve  # noqa: PLC0415
+
+        log = access_log.AccessLog(tmp_path / "access.log")
+        app = App(
+            results=store, policy_root=tmp_path, authenticator=self.auth(tmp_path, store),
+            quiet=True, access_log=log,
+        )  # fmt: skip
+        httpd = serve(app, port=0)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        path = "/api/v1/tenants/sage-spine/oversight/partners"
+
+        def get(token: str) -> tuple[int, dict[str, Any]]:
+            conn = http.client.HTTPConnection("127.0.0.1", int(httpd.server_address[1]), timeout=5)
+            conn.request("GET", path, headers={"Authorization": f"Bearer {token}"})
+            response = conn.getresponse()
+            answer = (response.status, json.loads(response.read()))
+            conn.close()
+            return answer
+
+        try:
+            assert get(secrets_[DANA])[0] == 200
+            self.set_status(store, "Retired")
+            status, body = get(secrets_[DANA])
+            assert status == 403
+            assert body["errors"] == ["partners/drchrono is retired in the register"]
+            assert get(secrets_[STAFF])[0] == 200
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            log.close()
+        lines = log.path.read_text(encoding="utf-8").splitlines()
+        seen = [(e["user"], e["status"]) for e in map(json.loads, lines)]
+        assert seen == [(DANA, 200), (DANA, 403), (STAFF, 200)]
+        report = access_log.refusals(
+            [json.loads(line) for line in lines], "sage-spine", datetime.now(timezone.utc).date()
+        )
+        (caller,) = report["callers"]
+        assert (caller["caller"], caller["user"], caller["statuses"]) == ("member", DANA, [403])
+
+    def test_serve_holds_tokens_to_its_own_store(
+        self, tmp_path: Path, secrets_: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ironclad.cli import main  # noqa: PLC0415
+
+        started: list[Any] = []
+
+        def no_serving(app: Any, **_: Any) -> None:
+            started.append(app)
+            raise KeyboardInterrupt  # stop before serving forever
+
+        monkeypatch.setattr("ironclad.api.http.serve", no_serving)
+        (tmp_path / "policies").mkdir()
+        results = tmp_path / "results"
+        args = ["serve", "--to", str(results), "--policy-root", str(tmp_path / "policies"),
+                "--tokens", str(tmp_path / "tokens.json"), "--port", "0"]  # fmt: skip
+        try:
+            main(args)
+        except KeyboardInterrupt:
+            pass
+        (app,) = started
+        assert app.authenticator.register is app.results

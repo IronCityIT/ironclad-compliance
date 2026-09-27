@@ -98,6 +98,17 @@ IRONCLAD_STORE=/srv/ironclad/results \
   (staff) are listed under `unlinked` and not judged. `--fail-on high|any`
   exits 4. It reads digests only, and there is no HTTP route for it: who
   holds a token is the operator's to see, not every tenant member's.
+  The server holds the link on every request, against the store it serves:
+  while the tenant's register holds the record and it is not `Retired`, the
+  token works; once the record is retired, or is not in the token's own
+  tenant, every request is `403` naming the link (`partners/drchrono is
+  retired in the register`), and the access log names the holder, so
+  `access-log refusals` lists them as a member still presenting it. Retiring
+  the relationship ends the access without a restart; `tokens revoke` still
+  removes the entry. The review's other findings (no BAA, a lapsed review,
+  offboarding) do not refuse a request: they are for the reviewers. A link
+  that is not `partners/<id>` or `integrations/<id>` authenticates nobody
+  (`401`), and the store failing to answer is `503`.
   Ledgers written before `on_behalf_of` was a ledger field are refused as
   "not a grant-ledger entry"; none exist outside tests, since nothing is
   deployed.

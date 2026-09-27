@@ -37,7 +37,8 @@ for, `on_behalf_of: "partners/<id>"` or `"integrations/<id>"`. The token file
 cannot see the register, so it only checks the form; `ironclad oversight
 access` holds each linked entry to its record: access for a partner the
 register does not hold, has retired, or lets handle PHI without an executed BAA
-is access a business-associate review would remove.
+is access a business-associate review would remove. The server refuses the
+first two itself (`ironclad.api.http.TokenFileAuthenticator`).
 """
 
 from __future__ import annotations

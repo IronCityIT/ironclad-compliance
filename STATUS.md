@@ -1109,6 +1109,62 @@ white-label, secret-literal and `git diff --check` gates pass. No dashboard
 file or rule changed. In CI at `7b806b6` (run 36301537432) all six jobs
 passed: pytest 1199 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**Retiring a partner ends its access, 2026-09-27.** `oversight access` found
+a partner token whose register record was retired or missing, and only at the
+next review: until someone ran `tokens revoke`, `ironclad serve` kept
+answering it. Retiring a business associate in the register did not end the
+associate's access, which is the termination step a HIPAA review looks for
+(164.308(a)(3)(ii)(C), and the BAA's own termination terms). Now:
+
+- `TokenFileAuthenticator` takes the store as `register`. A token entry with
+  `on_behalf_of` is honoured only while the token's own tenant holds that
+  record and it is not `Retired`. Otherwise every request is 403 naming the
+  link (`partners/drchrono is retired in the register`), on the next request,
+  with no restart. The refusal carries the principal, so the access log names
+  the holder and `access-log refusals` lists them as a `member` still
+  presenting it, instead of an anonymous 401.
+- A link to another tenant's record is a record this tenant does not hold:
+  refused. A link that is not `partners/<id>` or `integrations/<id>`
+  authenticates nobody (401). A linked token with no register to check it
+  against, or a store that cannot answer, is 503 and never honoured.
+- `ironclad serve` passes its own store as the register. Staff tokens (no
+  link) are unaffected.
+- Deliberately not enforced: a missing BAA, a lapsed review or assurance, and
+  `Offboarding`. They stay findings for the reviewers. Refusing on the BAA
+  would cut off every seeded Sage partner, and that is Sage's call to make.
+
+No route, stored field, token-file field, ledger line or access-log line
+changed. Runbook: `HANDOFF.md` §17, "Grant, renew and review a service token"
+(offboarding is `Offboarding`, then `Retired`, then `tokens revoke`).
+Reference: `docs/http-api.md`, authentication.
+
+Tests: 6 new cases in `tests/test_partner_access.py::TestRetiringEndsAccess`:
+
+- retiring refuses the token by name, and a staff token still works;
+- `Offboarding` and a missing BAA still serve;
+- a missing record, another tenant's record and the wrong kind are each refused;
+- no register fails closed as the operator's fault, and a hand-broken link authenticates nobody;
+- on a real socket with the access log: 200, then retire, then 403 with the holder named and classed `member`;
+- `serve` wires its own store as the register.
+
+Seven mutations each fail a test by name:
+
+- the retired check dropped;
+- the missing-record check dropped;
+- a linked token honoured with no register;
+- a malformed link honoured;
+- the principal not handed to the log;
+- 401 instead of 403;
+- `serve` not passing the store.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1262
+tests, 1195 passed, 57 skipped, 10 failed. Untouched HEAD `c34967d` in a
+worktree, run after it: 1256 tests, 1189 passed, the same 10 failed, compared
+set for set. ruff format and lint pass. `mypy` (the CI invocation) reports
+only the known Windows `fcntl` errors in `policy_store.py`. The white-label,
+secret-literal and `git diff --check` gates pass. No dashboard file or rule
+changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

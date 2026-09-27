@@ -1558,13 +1558,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"policy root is not a directory: {policy_root}", file=sys.stderr)
         return EXIT_BAD_INPUT
 
-    authenticator = None
+    tokens = None
     if args.tokens:
         tokens = Path(args.tokens)
         if not tokens.is_file():
             print(f"token file not found: {tokens}", file=sys.stderr)
             return EXIT_BAD_INPUT
-        authenticator = TokenFileAuthenticator(tokens)
     else:
         print(
             "no --tokens given: the server will answer every request with 503 "
@@ -1582,6 +1581,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if not health.get("writable"):
         print(f"store is not writable: {health.get('detail', '')}", file=sys.stderr)
         return EXIT_BAD_INPUT
+    # The store is also the register a partner's token is held to.
+    authenticator = TokenFileAuthenticator(tokens, register=store) if tokens else None
 
     access_log = None
     if args.access_log:
