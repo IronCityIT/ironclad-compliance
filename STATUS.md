@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `24c303e` (run 36281781578, `pull_request`; the duplicate `push` run 36281779066 was cancelled), all six jobs, Firestore rules 78/78 against the emulator; green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `9af14a9` (run 36282209801, `pull_request`; the duplicate `push` run 36282207717 was cancelled), all six jobs, Firestore rules 88/88 against the emulator (78 before the change-history pass); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -114,7 +114,8 @@ immutable per-record change log.
 Local evidence for the change-history pass, 2026-09-26: `npm --prefix dashboard
 test` 70/71 (same environmental `api.test.js` failure as below); `node --check`
 on the rules suite; white-label and secret-literal gates pass. The rules change
-itself is proven only by the emulator job in CI — no JDK here.
+itself is proven only by the emulator job in CI — no JDK here — and it passed
+there: 88/88 in run 36282209801, the ten history cases among them.
 
 Local evidence, 2026-09-26 (Windows 11, Node 24, Python 3.12 venv):
 `npm --prefix dashboard test` 68/69 — the one failure is `api.test.js`, which
@@ -136,7 +137,7 @@ Run on this branch, this machine, 2026-09-06.
 | Test | `pytest` | **PASS** — 844 passed, 30 skipped locally (2026-09-17; the extraction extras and MariaDB account for the skips, and both have now run locally too); 93% coverage at the last CI measurement |
 | Cloud Functions | `npm --prefix functions test` | **PASS** — 44 passed |
 | Dashboard | `npm --prefix dashboard test` | **PASS** — 60 passed (on the committed tree, 2026-09-23) |
-| Firestore rules | `npm --prefix tests/rules test` | **PASS** — 78 passed against the emulator (CI, 2026-09-26) |
+| Firestore rules | `npm --prefix tests/rules test` | **PASS** — 88 passed against the emulator (CI run 36282209801, 2026-09-26) |
 | Persistence | `pytest tests/test_store.py` | **PASS** — 70 passed in CI against MariaDB 10.5.29 |
 | End-to-end | `scripts/end_to_end.py` | **PASS** in CI against MariaDB **and** a volume |
 | Artifacts | `python scripts/validate_artifacts.py` | **PASS** — 13/13 |
