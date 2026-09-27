@@ -771,7 +771,12 @@ a review date set years ahead would keep the record out of
 An assurance expiry recorded with nothing in `assurance` is a notice
 (`assurance-unnamed`): the date cannot be checked against a SOC 2 report,
 HITRUST letter or certificate nobody named. No Sage seed record carries it
-(each names its pending assurance and dates none). `export` writes the whole register,
+(each names its pending assurance and dates none). A BAA execution date
+recorded while the BAA status is anything but `Executed` is a notice
+(`baa-date-unexecuted`): a reviewer or auditor reading the register takes a
+date as a signature, and the status says there is none. Whichever field is
+wrong, the record contradicts itself. A document reference alone is not held
+to it (a draft under review has one). No Sage seed record carries it. `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,

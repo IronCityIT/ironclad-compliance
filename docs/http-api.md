@@ -343,7 +343,9 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   owner, a High or Critical rating with no assurance expiry recorded
   (`assurance-undated`: without one the expiry checks can never fire), an
   assurance expiry recorded with no assurance named (`assurance-unnamed`: the
-  date cannot be checked against a report or certificate) (notice). Retired records are left out.
+  date cannot be checked against a report or certificate), a BAA execution
+  date recorded on a BAA not marked `Executed` (`baa-date-unexecuted`: the
+  date reads as a signature the status denies) (notice). Retired records are left out.
   Each item carries `kind`, `id`, `name`, `revision`, its highest `level` and
   its `findings` (`level`, `code`, `message`); high items come first, then by
   name, with `records` and `high` counts. The rules are

@@ -437,7 +437,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     """What a reviewer should look at on one record, most serious first.
 
     PHI moving without an executed BAA, a BAA claimed without its evidence or
-    dated after today, an Active relationship whose agreement is neither
+    dated after today, a BAA execution date on a BAA not marked executed (the
+    date reads as a signature the status denies), an Active relationship whose agreement is neither
     executed nor ruled not required, a lapsed review or assurance, a review set
     more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
@@ -484,6 +485,13 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
                 "baa-not-yet-effective",
                 f"BAA marked executed with an execution date of {executed}, after today.",
             )
+    elif _ISO_DATE.match(_text(record.get("baa_execution_date"))):
+        add(
+            "notice",
+            "baa-date-unexecuted",
+            f"BAA execution date {_text(record.get('baa_execution_date'))} recorded "
+            f"but BAA status is {baa}.",
+        )
     if record.get("status") == "Active" and record.get("agreement_status") not in AGREEMENT_SETTLED:
         agreement = _text(record.get("agreement_status")) or "not recorded"
         add(

@@ -335,6 +335,26 @@ class TestTheReviewQueue:
             f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
         ]
 
+    def test_no_sage_seed_record_dates_a_baa_it_does_not_mark_executed(self) -> None:
+        # No seed BAA is executed, and none carries an execution date.
+        contradicted = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "baa-date-unexecuted"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert contradicted == []
+        dated = {**SEED["oversight"]["partners"][0], "baa_execution_date": "2026-01-15"}
+        assert dated["baa_status"] != "Executed"
+        assert "baa-date-unexecuted" in [
+            f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
+        ]
+        dated["baa_status"] = "Executed"
+        assert "baa-date-unexecuted" not in [
+            f["code"] for f in oversight.attention_findings(dated, "2026-09-26")
+        ]
+
     @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
     def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:
         with pytest.raises(OversightError, match="YYYY-MM-DD"):

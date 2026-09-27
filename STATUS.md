@@ -1916,6 +1916,60 @@ at `12ab5b5` (run 36326403959) all six jobs passed: pytest 1309 passed, 57
 skipped on 3.10 and 3.12, persistence 280, dashboard 109/109, Firestore rules
 91/91.
 
+**A BAA execution date on a BAA not marked executed is a notice, 2026-09-27.**
+`baa_execution_date` was only read when `baa_status` was `Executed` (for
+`baa-evidence-missing` and `baa-not-yet-effective`). On any other status it
+was ignored. A record could say its BAA was `Under review`, `Not required`
+or blank and still carry an execution date, and it reviewed with no word
+about the date. A reviewer or auditor reading the register or its export
+takes a date as a signature. The status says there is none. One of the two
+is wrong, and nothing pointed at either. For an operational-only record with
+`Not required`, the record reviewed clean.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`baa-date-unexecuted` (**notice**) when `baa_execution_date` is an ISO date
+and `baa_status` is anything but `Executed`: "BAA execution date 2025-01-15
+recorded but BAA status is Under review." On a PHI record it follows
+`phi-without-baa` (high). A document reference alone is not held to it: a
+draft under review has one. An unreadable date is not a recorded one. It is
+not an `ACCESS_CODE`, so `oversight access` and `--fail-on high` are
+unchanged. The export's attention column and the packet's findings index
+carry it through the same function. No Sage seed record carries it: no seed
+BAA is executed, and none is dated.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue) and
+`HANDOFF.md` §17.
+
+Tests (6 new pytest, 1 new page test):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 5 new cases
+  (60, up from 55). Under review, not required and no status recorded each
+  raise it. A document reference alone and an unreadable date do not. The
+  existing "future date on a BAA not marked executed" case now expects the
+  notice after `phi-without-baa` (it had asserted the date was ignored).
+  Seven cases that flip the base record's executed BAA to another status
+  now also clear its execution date, so each stays about what its name
+  says.
+- `tests/test_oversight.py`: no Sage seed record carries it. Dating a seed
+  partner's unexecuted BAA raises it; marking that BAA executed clears it.
+- `dashboard/test/oversight.test.js`: the rule and its edges on the page,
+  for every non-executed status. Three existing page tests that model an
+  unexecuted BAA from `clean` now clear its date.
+
+Two mutations each fail named tests. With the check disabled on the server,
+5 fail: the four positive table cases and the seed test. With it disabled on
+the page, 2 page tests fail: the new rule test and the review-queue table.
+
+Local gates on Windows, 2026-09-27: pytest 1372 collected, 57 skipped, 10
+failed. The 10 are the known Windows-only set (fcntl, symlinks, CRLF, the
+20-writer lock test), and all 10 fail the same way on untouched `c23f329`.
+None is in `tests/test_oversight.py`. Page tests (`oversight.test.js`,
+`render.test.js`) 97/97. `mypy --platform linux` clean, `ruff check` and
+`ruff format --check` clean, `scripts/check_white_label.sh` passes. Both
+mutations were re-run this session and fail exactly the tests named above.
+CI is the authoritative gate.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -189,7 +189,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * What a reviewer should look at on one record, most serious first: PHI moving
  * without an executed BAA, a BAA claimed without its evidence or dated after
- * today, an Active relationship with no executed agreement, a lapsed review or
+ * today, a BAA execution date on a BAA not marked executed, an Active
+ * relationship with no executed agreement, a lapsed review or
  * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
  * unassessable: PHI with no scope or no recorded direction of flow, no
  * business owner, a High or Critical
@@ -214,6 +215,8 @@ export function attentionFindings(record, today) {
     if (missing.length) add("high", "baa-evidence-missing", `BAA marked executed with no ${missing.join(" or ")} recorded.`);
     const executed = text(record.baa_execution_date);
     if (ISO_DATE.test(executed) && executed > today) add("high", "baa-not-yet-effective", `BAA marked executed with an execution date of ${executed}, after today.`);
+  } else if (ISO_DATE.test(text(record.baa_execution_date))) {
+    add("notice", "baa-date-unexecuted", `BAA execution date ${text(record.baa_execution_date)} recorded but BAA status is ${baa}.`);
   }
   if (record.status === "Active" && !AGREEMENT_SETTLED.includes(record.agreement_status)) {
     add("high", "agreement-not-executed", `Active without an executed agreement (Agreement: ${text(record.agreement_status) || "not recorded"}).`);

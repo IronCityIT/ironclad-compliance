@@ -234,7 +234,7 @@ test("PHI with no scope, and a record with no business owner, are notices",()=>{
 test("PHI with no data flow direction recorded is a notice",()=>{
   assert.deepEqual(codes({...clean,data_flow_direction:""}),["phi-flow-unrecorded"]);
   assert.deepEqual(codes({...clean,data_flow_direction:undefined}),["phi-flow-unrecorded"]);
-  assert.deepEqual(codes({...clean,data_access:"Operational only",baa_status:"Not required",data_flow_direction:""}),[],"no PHI, no direction owed");
+  assert.deepEqual(codes({...clean,data_access:"Operational only",baa_status:"Not required",baa_execution_date:"",data_flow_direction:""}),[],"no PHI, no direction owed");
   for(const data_flow_direction of ["Bidirectional","Outbound / push","Inbound / pull","Unidirectional"]){
     assert.deepEqual(codes({...clean,data_flow_direction}),[],data_flow_direction);
   }
@@ -255,6 +255,17 @@ test("an assurance expiry with no assurance named is a notice",()=>{
   assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:""}),[],"no expiry, no name owed");
   assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:"soon"}),[],"an unreadable expiry is not a recorded one");
   assert.deepEqual(codes({...clean,assurance:"",cert_expiration_date:"2026-01-01"}),["assurance-expired","assurance-unnamed"]);
+});
+
+test("a BAA execution date on a BAA not marked executed is a notice",()=>{
+  const ops={...clean,data_access:"Operational only"};
+  for(const baa_status of ["Pending review","Under review","Required - pending","Not required","",undefined]){
+    assert.deepEqual(codes({...ops,baa_status}),["baa-date-unexecuted"],String(baa_status));
+  }
+  assert.deepEqual(codes(ops),[],"an executed BAA may carry its date");
+  assert.deepEqual(codes({...ops,baa_status:"Under review",baa_execution_date:""}),[],"a document reference alone is a draft");
+  assert.deepEqual(codes({...ops,baa_status:"Not required",baa_execution_date:"Jan 2025"}),[],"an unreadable date is not a recorded one");
+  assert.deepEqual(codes({...ops,baa_status:"Not required",status:"Retired"}),[],"retired records need no attention");
 });
 
 test("an Active relationship with no executed agreement is high",()=>{
@@ -295,7 +306,7 @@ test("a review scheduled beyond the horizon is a notice",()=>{
 });
 
 test("high findings sort ahead of notices; retired records are excluded",()=>{
-  const f=attentionFindings({...clean,risk:"Unrated",baa_status:"Pending review",review_due:"2020-01-01"},TODAY);
+  const f=attentionFindings({...clean,risk:"Unrated",baa_status:"Pending review",baa_execution_date:"",review_due:"2020-01-01"},TODAY);
   assert.deepEqual(f.map(x=>x.level),["high","high","notice"]);
   assert.deepEqual(attentionFindings({...clean,status:"Retired",baa_status:"",review_due:"2020-01-01"},TODAY),[]);
   assert.equal(isoToday(new Date("2026-09-26T23:59:00Z")),"2026-09-26");
@@ -352,7 +363,7 @@ function parseCsv(src){
 
 test("the register exports every field the rules allow, plus its findings",()=>{
   assert.deepEqual(EXPORT_COLUMNS,["record_type","id",...RECORD_FIELDS,"attention_level","attention"]);
-  const [head,...rows]=parseCsv(registerCsv({partners:[{id:"p1",...clean}],integrations:[{id:"i1",...clean,name:"Feed",baa_status:"Pending review",review_due:""}]},TODAY));
+  const [head,...rows]=parseCsv(registerCsv({partners:[{id:"p1",...clean}],integrations:[{id:"i1",...clean,name:"Feed",baa_status:"Pending review",baa_execution_date:"",review_due:""}]},TODAY));
   assert.deepEqual(head,EXPORT_COLUMNS);
   assert.equal(rows.length,2);
   const at=(row,col)=>row[EXPORT_COLUMNS.indexOf(col)];
