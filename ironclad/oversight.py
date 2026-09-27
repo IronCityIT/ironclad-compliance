@@ -562,7 +562,10 @@ def partner_access(
     at, so access runs ahead of any review of the relationship), or has a
     review-queue finding in `ACCESS_CODES`: a partner handling PHI
     without an executed BAA, or whose review or assurance has lapsed, still
-    holding a working token. A linked token with no `expires_at` is high too:
+    holding a working token. A linked token holding an approver role
+    (`APPROVE_ROLES`) is high: the partner could set the status, risk or BAA
+    status of the record its access is held to. `tokens issue` refuses one;
+    this finds one written by hand. A linked token with no `expires_at` is high too:
     `tokens issue` never writes one, so it was written by hand, and it runs
     past every date the register holds the partner to. Offboarding, and a
     token running past the record's next review or its assurance expiry, are
@@ -592,9 +595,10 @@ def partner_access(
             continue
         if last_day is not None and as_of > last_day:
             continue
+        roles = sorted(str(r) for r in entry.get("roles") or [] if isinstance(r, str))
         holder = {
             "user_id": _text(entry.get("user_id")),
-            "roles": sorted(str(r) for r in entry.get("roles") or [] if isinstance(r, str)),
+            "roles": roles,
             "expires_at": last_day.isoformat() if last_day else None,
             "digest_prefix": _text(entry.get("sha256")).lower()[:12],
         }
@@ -651,6 +655,18 @@ def partner_access(
                             "message": "Relationship is offboarding; end this token with it.",
                         }
                     )
+        approver = [r for r in roles if r in {str(a) for a in APPROVE_ROLES}]
+        if approver:
+            findings.append(
+                {
+                    "level": "high",
+                    "code": "approver-role",
+                    "message": (
+                        f"Holds {', '.join(approver)}, which approves this register record; "
+                        "a partner could rate its own relationship. Reissue it without them."
+                    ),
+                }
+            )
         if last_day is None:
             findings.append(
                 {

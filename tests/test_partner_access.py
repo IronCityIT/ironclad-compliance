@@ -21,6 +21,7 @@ import pytest
 from ironclad import oversight
 from ironclad.api import grant_ledger
 from ironclad.api.tokens import (
+    PARTNER_WITHHELD_ROLES,
     TokenFileError,
     issue_token,
     review_tokens,
@@ -63,8 +64,9 @@ GOVERNED = {
 def grant(document: dict[str, Any], user: str, link: str = "", **kw: Any) -> dict[str, Any]:
     kw.setdefault("expires_at", date(2026, 12, 31))
     kw.setdefault("tenant_id", "sage-spine")
+    kw.setdefault("roles", ["contributor"])
     _, entry = issue_token(
-        document, user_id=user, roles=["contributor"], issued_by="bill",
+        document, user_id=user, issued_by="bill",
         as_of=AS_OF, on_behalf_of=link, **kw,
     )  # fmt: skip
     return entry
@@ -116,6 +118,37 @@ class TestTheLink:
         with pytest.raises(TokenFileError, match="on_behalf_of"):
             grant(document, "dana@drchrono.example", link)
         assert document == {"tokens": []}
+
+    @pytest.mark.parametrize(
+        "roles", [["owner"], ["compliance_manager"], ["contributor", "compliance_manager"]]
+    )
+    def test_issue_refuses_an_approver_role_on_a_linked_token(self, roles: list[str]) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        with pytest.raises(TokenFileError, match="approve the register record"):
+            grant(document, "dana@drchrono.example", "partners/drchrono", roles=roles)
+        assert document == {"tokens": []}
+
+    def test_staff_may_still_hold_an_approver_role(self) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        assert grant(document, "staff@sage.example", roles=["owner"])["roles"] == ["owner"]
+
+    @pytest.mark.parametrize("role", ["auditor", "viewer", "contributor"])
+    def test_a_linked_token_may_hold_a_non_approver_role(self, role: str) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        assert grant(document, "dana@drchrono.example", "partners/drchrono", roles=[role])
+
+    def test_the_withheld_roles_are_the_registers_approvers(self) -> None:
+        assert PARTNER_WITHHELD_ROLES == {str(r) for r in oversight.APPROVE_ROLES}
+
+    def test_a_hand_written_approver_role_is_high_in_the_review(self) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "dana@drchrono.example", "partners/drchrono")
+        grant(document, "staff@sage.example", roles=["owner"])
+        document["tokens"][0]["roles"] = ["contributor", "owner"]
+        dana, staff = review_tokens(document, AS_OF)["items"]
+        assert [f["level"] for f in dana["findings"]] == ["high"]
+        assert "could approve its own register record" in dana["findings"][0]["message"]
+        assert staff["findings"] == []
 
     def test_a_hand_written_bad_link_is_high_in_the_review(self) -> None:
         document: dict[str, Any] = {"tokens": []}
@@ -278,6 +311,20 @@ class TestPartnerAccess:
         # A staff token without one is the token review's notice, not this one's.
         assert [h["user_id"] for h in result["unlinked"]] == ["staff@sage.example"]
 
+    @pytest.mark.parametrize("role", ["owner", "compliance_manager"])
+    def test_a_hand_written_approver_role_is_high(self, store: Any, role: str) -> None:
+        record_id = add(store, "partners", GOVERNED)
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        grant(document, "staff@sage.example", roles=[role])
+        document["tokens"][0]["roles"] = ["contributor", role]  # tokens issue refuses this
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (codes(item), item["level"], result["high"]) == (["approver-role"], "high", 1)
+        assert role in item["findings"][0]["message"]
+        # Staff holding an approver role is the job, not a finding.
+        assert [h["user_id"] for h in result["unlinked"]] == ["staff@sage.example"]
+
     def test_no_expiry_is_reported_alongside_the_register_findings(self, store: Any) -> None:
         document: dict[str, Any] = {"tokens": []}
         grant(document, "dana@drchrono.example", "partners/drchrono")
@@ -384,6 +431,16 @@ class TestTheLinkOnTheLedger:
         code, out, err = cli("tokens", "issue", str(tokens), "--user", "d@x.example",
                              "--on-behalf-of", "drchrono", *self.ISSUE)  # fmt: skip
         assert (code, out) == (2, None) and "on_behalf_of" in err
+        assert not tokens.exists() and not grant_ledger.default_path(tokens).exists()
+
+    def test_issue_refuses_an_approver_role_and_writes_nothing(
+        self, tmp_path: Path, cli: Any
+    ) -> None:
+        tokens = tmp_path / "tokens.json"
+        issue = [a if a != "contributor" else "owner" for a in self.ISSUE]
+        code, out, err = cli("tokens", "issue", str(tokens), "--user", "d@x.example",
+                             "--on-behalf-of", "partners/drchrono", *issue)  # fmt: skip
+        assert (code, out) == (2, None) and "cannot hold owner" in err
         assert not tokens.exists() and not grant_ledger.default_path(tokens).exists()
 
 

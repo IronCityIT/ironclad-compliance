@@ -98,13 +98,17 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `Retired`, or the grant is refused and neither the token file nor the
   ledger is written. No register to check against, a store without one, or
   one that cannot answer is refused too, rather than trusted. A malformed
-  link is refused by its form.
+  link is refused by its form, and so is a linked token asking for `owner`
+  or `compliance_manager`: those roles approve the record the token is held
+  to. `tokens review` calls a hand-written one high.
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
   retired, or still at `Pending information` (`record-pending`: access ahead
   of any review of the relationship), or it handles PHI without an executed BAA, claims a BAA without
   its evidence or dated after today, or has a lapsed review or assurance,
-  or the token has no
+  or the token holds `owner` or `compliance_manager` (`approver-role`: the
+  register's approver roles, so a partner could approve its own record), or
+  the token has no
   `expires_at`. Notice: offboarding, or a token that runs past the record's
   next review or its assurance expiry. Entries without a link
   (staff) are listed under `unlinked` and not judged. `--fail-on high|any`

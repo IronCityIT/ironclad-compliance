@@ -1610,6 +1610,58 @@ lint pass. `mypy --platform linux` passes. The white-label and
 `git diff --check` gates pass. In CI at `e60046b` (run 36320657897) all six jobs
 passed: pytest 1263 passed, 57 skipped on 3.10 and 3.12, persistence 253.
 
+**A partner's token may not hold an approver role, 2026-09-27.** A token
+linked to a register record (`on_behalf_of`) could be issued with `owner`
+or `compliance_manager`. Those are the register's approvers
+(`oversight.APPROVE_ROLES`): they set a record's status, risk and BAA
+status. A partner holding one could mark its own BAA `Executed` or rate
+its own relationship `Low`, and every check `oversight access` makes would
+then read the record the partner wrote. Nothing refused it or reported it.
+
+Now:
+
+- `issue_token()` refuses a linked entry with a role in
+  `PARTNER_WITHHELD_ROLES` (`owner`, `compliance_manager`). Nothing is
+  written to the token file or the grant ledger. Staff entries (no link)
+  may still hold either. `auditor`, `viewer` and `contributor` stay
+  allowed.
+- `tokens review` calls a hand-written linked entry with one **high**. It
+  needs no register.
+- `oversight access` raises `approver-role` (**high**) for it. The review
+  packet and its `--fail-on high` gate carry it through the same function.
+- `PARTNER_WITHHELD_ROLES` is tested to equal `APPROVE_ROLES`, so the two
+  lists cannot drift apart.
+
+The server does not refuse such a token on request. It still refuses
+missing and retired records only. Adding this to its refusals would be a
+change to live authentication, which is left for review. No route, stored
+field, rule, vocabulary, page or ledger line format changed. Docs:
+`docs/http-api.md` (`tokens issue`, `oversight access`) and `HANDOFF.md`
+§17.
+
+Tests (`tests/test_partner_access.py`, 12 new):
+
+- Issue is refused for `owner`, for `compliance_manager`, and for either
+  alongside `contributor`. Staff may still hold `owner`. A linked token
+  may hold `auditor`, `viewer` or `contributor`. The parity test.
+- The token review calls a hand-edited entry high and leaves staff clean.
+- `oversight access` returns `approver-role` for each role, and leaves an
+  unlinked staff owner under `unlinked`.
+- The CLI `tokens issue --role owner --on-behalf-of` exits 2 and writes
+  neither file.
+
+Four mutations each fail a named test: the issue refusal disabled (the 3
+issue cases and the CLI case), the review finding disabled (the review
+case), the `oversight access` finding disabled (its 2 cases), and
+`contributor` added to the withheld list (the parity test and 7 others).
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1332
+tests, 1265 passed, 57 skipped, 10 failed. Untouched HEAD `25bd7e1` in a
+worktree: 1320 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). ruff format and
+lint pass. `mypy --platform linux` passes. The white-label and
+`git diff --check` gates pass. No dashboard file changed.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

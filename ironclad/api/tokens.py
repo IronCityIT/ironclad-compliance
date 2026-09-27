@@ -68,6 +68,12 @@ DORMANT_DAYS = 90
 #: every grant inside one annual access review.
 MAX_TERM_DAYS = 365
 
+#: Roles an entry with `on_behalf_of` may not hold. They are the register's
+#: approvers (`ironclad.oversight.APPROVE_ROLES`): they set a record's status,
+#: risk and BAA status, so a partner holding one could approve the very
+#: relationship its access is held to.
+PARTNER_WITHHELD_ROLES = frozenset({Role.OWNER.value, Role.COMPLIANCE_MANAGER.value})
+
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _ROLES = frozenset(member.value for member in Role)
@@ -346,6 +352,12 @@ def _review_entry(
         parse_on_behalf_of(link)
     except ValueError as exc:
         high.append(f"{exc}; `oversight access` cannot hold it to a register record")
+    withheld = sorted(PARTNER_WITHHELD_ROLES.intersection(roles)) if link else []
+    if withheld:
+        high.append(
+            f"acts for {link} and holds {', '.join(withheld)}; a partner could approve "
+            "its own register record: reissue it without them"
+        )
 
     last_day: date | None = None
     try:
@@ -429,7 +441,8 @@ def issue_token(
     two entries for one pair could not be told apart in a review.
 
     `on_behalf_of` links the grant to a register record in the same tenant
-    (`partners/<id>` or `integrations/<id>`); only its form is checked here.
+    (`partners/<id>` or `integrations/<id>`); only its form is checked here,
+    and a linked entry may not hold a role in `PARTNER_WITHHELD_ROLES`.
     `tokens issue` also holds it to the register first (`link_withdrawn`).
     """
     entries = _entries_of(document)
@@ -451,6 +464,12 @@ def issue_token(
         parse_on_behalf_of(link)
     except ValueError as exc:
         problems.append(str(exc))
+    withheld = sorted(PARTNER_WITHHELD_ROLES.intersection(roles)) if link else []
+    if withheld:
+        problems.append(
+            f"a token acting for {link} cannot hold {', '.join(withheld)}: "
+            "those roles approve the register record it is held to"
+        )
     if expires_at < as_of:
         problems.append(f"expires {expires_at.isoformat()}, before {as_of.isoformat()}")
     elif (expires_at - as_of).days > MAX_TERM_DAYS:

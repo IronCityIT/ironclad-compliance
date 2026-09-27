@@ -932,7 +932,11 @@ missing or retired, it is still at `Pending information` (`record-pending`:
 the status a contributor's proposal starts at, so the token runs ahead of any
 review of the relationship), it handles PHI without an executed BAA, it claims a BAA
 without an execution date or document reference, its review or assurance
-has lapsed, or the token has no `expires_at` (`issue` never writes one, so the
+has lapsed, the token holds `owner` or `compliance_manager` (`approver-role`:
+those roles set the record's status, risk and BAA status, so the partner
+could approve its own relationship; `issue` refuses a linked token with
+either, and `tokens review` calls a hand-written one high without the
+register), or the token has no `expires_at` (`issue` never writes one, so the
 entry was written by hand and outlasts every date the register holds the
 partner to; reissue it with an end date). Against the Sage Spine seed as committed, every partner token is
 high for the missing BAA, which is correct: execute the BAA and record it, or
