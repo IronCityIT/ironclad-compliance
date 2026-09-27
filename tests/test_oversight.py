@@ -238,6 +238,24 @@ class TestTheReviewQueue:
         listed = re.search(r"ELEVATED_RISK = \[([^\]]*)\];", core)
         assert listed and re.findall(r'"([^"]+)"', listed.group(1)) == list(oversight.ELEVATED_RISK)
 
+    def test_the_settled_agreements_are_the_dashboards_and_in_the_vocabulary(self) -> None:
+        assert set(oversight.AGREEMENT_SETTLED) <= set(oversight.AGREEMENT)
+        core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")
+        listed = re.search(r"AGREEMENT_SETTLED = \[([^\]]*)\];", core)
+        assert listed and re.findall(r'"([^"]+)"', listed.group(1)) == list(
+            oversight.AGREEMENT_SETTLED
+        )
+
+    def test_the_sage_seed_names_every_active_record_without_an_agreement(self) -> None:
+        unsigned = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "agreement-not-executed"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        )
+        assert unsigned == ["DrChrono"]
+
     def test_every_sage_seed_record_surfaces_its_missing_baa(self) -> None:
         for kind in oversight.KINDS:
             for entry in SEED["oversight"][kind]:

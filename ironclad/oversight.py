@@ -403,6 +403,10 @@ ATTENTION_WINDOW_DAYS = 30
 #: Ratings at which a relationship must carry a dated assurance.
 ELEVATED_RISK = ("High", "Critical")
 
+#: Agreement states that let a relationship be Active: signed, or ruled unneeded
+#: by an approver. Anything else is a live relationship with no contract behind it.
+AGREEMENT_SETTLED = ("Executed", "Not required")
+
 
 def today_utc() -> str:
     """Today's date in UTC as YYYY-MM-DD, the form register dates are stored in."""
@@ -428,7 +432,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     """What a reviewer should look at on one record, most serious first.
 
     PHI moving without an executed BAA, a BAA claimed without its evidence or
-    dated after today, a lapsed review or assurance, and gaps that leave the
+    dated after today, an Active relationship whose agreement is neither
+    executed nor ruled not required, a lapsed review or assurance, and gaps that leave the
     record unassessable: PHI with no scope, no business owner, a High or
     Critical rating with no assurance expiry (so a lapse could never show).
     Derived only from stored fields, so it says nothing a reviewer cannot check
@@ -470,6 +475,13 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
                 "baa-not-yet-effective",
                 f"BAA marked executed with an execution date of {executed}, after today.",
             )
+    if record.get("status") == "Active" and record.get("agreement_status") not in AGREEMENT_SETTLED:
+        agreement = _text(record.get("agreement_status")) or "not recorded"
+        add(
+            "high",
+            "agreement-not-executed",
+            f"Active without an executed agreement (Agreement: {agreement}).",
+        )
     if record.get("data_access") == "PHI" and not _text(record.get("phi_scope")):
         add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
     review = _text(record.get("review_due"))
@@ -544,6 +556,7 @@ ACCESS_CODES = frozenset(
         "phi-without-baa",
         "baa-evidence-missing",
         "baa-not-yet-effective",
+        "agreement-not-executed",
         "review-overdue",
         "assurance-expired",
     }
@@ -561,7 +574,7 @@ def partner_access(
     still at `Pending information` (the status a contributor's proposal starts
     at, so access runs ahead of any review of the relationship), or has a
     review-queue finding in `ACCESS_CODES`: a partner handling PHI
-    without an executed BAA, or whose review or assurance has lapsed, still
+    without an executed BAA, Active with no executed agreement, or whose review or assurance has lapsed, still
     holding a working token. A linked token holding an approver role
     (`APPROVE_ROLES`) is high: the partner could set the status, risk or BAA
     status of the record its access is held to. `tokens issue` refuses one;

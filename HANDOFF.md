@@ -755,7 +755,11 @@ each. A High or Critical rating with no certificate / assurance expiry is a
 notice (`assurance-undated`): with no date, `assurance-expired` and a
 token's `outlasts-assurance` can never fire, so the relationships that most
 need a dated assurance were the ones whose lapse could not show. All six
-Sage seed records carry it until their assurance is dated. `export` writes the whole register,
+Sage seed records carry it until their assurance is dated. An `Active`
+record whose agreement status is neither `Executed` nor `Not required` is
+high (`agreement-not-executed`): the relationship is live with no contract
+behind it. Onboarding and under-review records are not held to it. The
+Sage seed's DrChrono carries it (Active, agreement under review). `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,
@@ -930,7 +934,8 @@ ironclad oversight access --tenant sage-spine --actor auditor-1 --role auditor \
 High, and the partner's access should end until it is fixed: the record is
 missing or retired, it is still at `Pending information` (`record-pending`:
 the status a contributor's proposal starts at, so the token runs ahead of any
-review of the relationship), it handles PHI without an executed BAA, it claims a BAA
+review of the relationship), it handles PHI without an executed BAA, it is
+`Active` with no executed agreement (`agreement-not-executed`), it claims a BAA
 without an execution date or document reference, its review or assurance
 has lapsed, the token holds `owner` or `compliance_manager` (`approver-role`:
 those roles set the record's status, risk and BAA status, so the partner

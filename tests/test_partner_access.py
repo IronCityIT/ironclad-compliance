@@ -176,6 +176,31 @@ class TestPartnerAccess:
         (item,) = access(store, document)["items"]
         assert (item["level"], item["findings"]) == ("ok", [])
 
+    def test_the_seeded_drchrono_is_live_with_no_executed_agreement(self, store: Any) -> None:
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "dana@drchrono.example", "partners/drchrono")
+        (item,) = access(store, document)["items"]
+        assert codes(item) == ["phi-without-baa", "agreement-not-executed"]
+
+    @pytest.mark.parametrize("agreement", ["Pending review", "Under review", "Required - pending"])
+    def test_an_active_partner_with_no_executed_agreement_is_high(
+        self, store: Any, agreement: str
+    ) -> None:
+        record_id = add(store, "partners", {**GOVERNED, "agreement_status": agreement})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        result = access(store, document)
+        (item,) = result["items"]
+        assert (codes(item), result["high"]) == (["agreement-not-executed"], 1)
+        assert agreement in item["findings"][0]["message"]
+
+    def test_an_agreement_ruled_not_required_is_clean(self, store: Any) -> None:
+        record_id = add(store, "partners", {**GOVERNED, "agreement_status": "Not required"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert (item["level"], item["findings"]) == ("ok", [])
+
     def test_a_record_the_register_does_not_hold_is_high(self, store: Any) -> None:
         document: dict[str, Any] = {"tokens": []}
         grant(document, "ghost@nowhere.example", "integrations/not-in-register")

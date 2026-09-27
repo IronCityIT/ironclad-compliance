@@ -1664,6 +1664,60 @@ lint pass. `mypy --platform linux` passes. The white-label and
 (run 36321594631) all six jobs passed: pytest 1275 passed, 57 skipped on
 3.10 and 3.12, persistence 253.
 
+**An Active relationship with no executed agreement is high, 2026-09-27.**
+`agreement_status` was validated against its vocabulary and shown as a chip,
+and checked by nothing else. A relationship could be `Active` with its
+agreement `Pending review`, `Under review` or `Required - pending`, live and
+with no contract behind it, and the review queue, the export's attention
+column, the packet's findings index and `oversight access` all said nothing.
+The Sage seed has exactly this: DrChrono is `Active` with its agreement
+`Under review`. Its missing BAA was already high, but executing the BAA alone
+would have made it look clean.
+
+Now `attention_findings()` (server) and `attentionFindings()` (page) raise
+`agreement-not-executed` (**high**) when `status` is `Active` and
+`agreement_status` is not in `AGREEMENT_SETTLED` (`Executed`, `Not
+required`): "Active without an executed agreement (Agreement: Under
+review)." `Not required` is an approver's ruling and settles it.
+`Onboarding` and `Under review` records are not held to it: signing is what
+onboarding is for, and a relationship under review is already being looked
+at. It is an `ACCESS_CODE`, so a partner token for such a record is high in
+`oversight access`, and the review packet and `--fail-on high` carry it
+through the same function. Neither the server's request-time refusal
+(missing or retired only) nor `tokens issue` changed.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review queue,
+`oversight access`) and `HANDOFF.md` §17.
+
+Tests (14 new):
+
+- `tests/fixtures/oversight-attention.json`, the shared table: 7 new cases
+  (41, up from 34). The base record gained `agreement_status: Executed`, so
+  it stays the clean control. Under review, required and pending, and not
+  recorded are high. Not required is clean. Onboarding and under review are
+  not this finding. With the BAA also missing, the BAA is listed first.
+- `tests/test_oversight.py`: `AGREEMENT_SETTLED` is inside the agreement
+  vocabulary and is the page's list, parsed from `oversight-core.js`. Of
+  the Sage seed, DrChrono alone carries the finding.
+- `tests/test_partner_access.py`: a token for the seeded DrChrono reads
+  `phi-without-baa`, then `agreement-not-executed`. An Active partner with
+  each unsigned state is high. `Not required` is clean.
+- `dashboard/test/oversight.test.js`: the rule and its edges on the page.
+  Its `clean` record gained `agreement_status: Executed`.
+
+Two mutations each fail named tests. With the check disabled on the server,
+9 fail: the four positive table cases, the seed test, and the four
+`oversight access` cases. With it disabled on the page, 2 page tests fail:
+the new rule test and the shared table.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1346
+tests, 1279 passed, 57 skipped, 10 failed. Untouched HEAD `2d8899e` in a
+worktree: 1332 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). Dashboard
+`oversight.test.js` and `render.test.js`: 93/93. ruff format and lint
+pass. `mypy --platform linux` passes.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

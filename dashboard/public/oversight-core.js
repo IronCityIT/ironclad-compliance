@@ -165,6 +165,10 @@ export const ATTENTION_WINDOW_DAYS = 30;
 // Ratings at which a relationship must carry a dated assurance.
 export const ELEVATED_RISK = ["High", "Critical"];
 
+// Agreement states that let a relationship be Active: signed, or ruled unneeded
+// by an approver. Anything else is a live relationship with no contract behind it.
+export const AGREEMENT_SETTLED = ["Executed", "Not required"];
+
 // Today's date in UTC as YYYY-MM-DD, the form register dates are stored in.
 export function isoToday(now = new Date()) {
   return now.toISOString().slice(0, 10);
@@ -181,7 +185,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * What a reviewer should look at on one record, most serious first: PHI moving
  * without an executed BAA, a BAA claimed without its evidence or dated after
- * today, a lapsed review or assurance, and gaps that leave the record
+ * today, an Active relationship with no executed agreement, a lapsed review or
+ * assurance, and gaps that leave the record
  * unassessable: PHI with no scope, no business owner, a High or Critical
  * rating with no assurance expiry (so a lapse could never show). Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
@@ -202,6 +207,9 @@ export function attentionFindings(record, today) {
     if (missing.length) add("high", "baa-evidence-missing", `BAA marked executed with no ${missing.join(" or ")} recorded.`);
     const executed = text(record.baa_execution_date);
     if (ISO_DATE.test(executed) && executed > today) add("high", "baa-not-yet-effective", `BAA marked executed with an execution date of ${executed}, after today.`);
+  }
+  if (record.status === "Active" && !AGREEMENT_SETTLED.includes(record.agreement_status)) {
+    add("high", "agreement-not-executed", `Active without an executed agreement (Agreement: ${text(record.agreement_status) || "not recorded"}).`);
   }
   if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
   const review = text(record.review_due);

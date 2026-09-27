@@ -104,7 +104,8 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
   retired, or still at `Pending information` (`record-pending`: access ahead
-  of any review of the relationship), or it handles PHI without an executed BAA, claims a BAA without
+  of any review of the relationship), or it handles PHI without an executed BAA, is
+  `Active` with no executed agreement (`agreement-not-executed`), claims a BAA without
   its evidence or dated after today, or has a lapsed review or assurance,
   or the token holds `owner` or `compliance_manager` (`approver-role`: the
   register's approver roles, so a partner could approve its own record), or
@@ -328,8 +329,10 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
 - **The review queue.** `/oversight/attention` is the page's *Needs attention*
   list, computed on the server from stored fields only: PHI without an executed
   BAA, a BAA marked executed without its date or document, a BAA marked
-  executed with an execution date after `as_of` (not yet in effect), a review
-  overdue or assurance expired (high); PHI with no PHI scope recorded (what
+  executed with an execution date after `as_of` (not yet in effect), an
+  `Active` relationship whose agreement is neither `Executed` nor `Not
+  required` (`agreement-not-executed`), a review overdue or assurance expired
+  (high); PHI with no PHI scope recorded (what
   the BAA's minimum necessary is measured against), a review or expiry within
   30 days, no review date, risk unrated, data access unknown, no business
   owner, a High or Critical rating with no assurance expiry recorded

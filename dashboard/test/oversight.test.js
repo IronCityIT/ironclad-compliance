@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, ELEVATED_RISK, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
+import { RECORD_FIELDS, FORM_FIELDS, GOVERNANCE_FIELDS, FIELD_LABELS, DEFAULTS, buildRecord, diffRevisions, renderHistory, renderRecords, saveFailureMessage, attentionFindings, renderAttention, isoToday, ATTENTION_WINDOW_DAYS, ELEVATED_RISK, AGREEMENT_SETTLED, registerCsv, exportFileName, EXPORT_COLUMNS } from "../public/oversight-core.js";
 const here=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(here,"..","..");
 const html=fs.readFileSync(path.join(root,"dashboard","public","oversight.html"),"utf8");
@@ -198,7 +198,7 @@ test("every Sage Spine seed record renders with its actions",()=>{
 // The review queue. Fixed date so the cases do not drift with the calendar.
 const TODAY="2026-09-26";
 const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
-const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
+const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",agreement_status:"Executed",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
 
 test("a fully governed PHI record needs no attention",()=>{
   assert.deepEqual(attentionFindings(clean,TODAY),[]);
@@ -237,6 +237,16 @@ test("a High or Critical rating with no assurance expiry is a notice",()=>{
   assert.deepEqual(codes({...clean,risk:"Critical",cert_expiration_date:"soon"}),["assurance-undated"]);
   assert.deepEqual(codes({...clean,risk:"Medium",cert_expiration_date:""}),[],"only elevated ratings owe a dated assurance");
   assert.deepEqual(codes({...clean,risk:"High"}),[],"a dated assurance satisfies it");
+});
+
+test("an Active relationship with no executed agreement is high",()=>{
+  assert.deepEqual(AGREEMENT_SETTLED,["Executed","Not required"]);
+  for(const agreement_status of ["Pending review","Under review","Required - pending",""]){
+    const f=attentionFindings({...clean,agreement_status},TODAY);
+    assert.deepEqual(f.map(x=>[x.level,x.code]),[["high","agreement-not-executed"]],agreement_status);
+  }
+  assert.deepEqual(codes({...clean,agreement_status:"Not required"}),[],"an approver ruled it unneeded");
+  assert.deepEqual(codes({...clean,status:"Onboarding",agreement_status:"Required - pending"}),[],"not live yet");
 });
 
 test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{

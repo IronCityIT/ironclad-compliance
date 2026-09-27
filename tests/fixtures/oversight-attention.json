@@ -8,6 +8,7 @@
     "status": "Active",
     "risk": "Low",
     "data_access": "PHI",
+    "agreement_status": "Executed",
     "baa_status": "Executed",
     "baa_execution_date": "2025-01-15",
     "baa_document_ref": "Contract 42",
@@ -33,6 +34,18 @@
     {"name": "an executed BAA dated today is in effect", "patch": {"baa_execution_date": "2026-09-26"}, "expected": []},
     {"name": "a future date on a BAA not marked executed is only the missing BAA", "patch": {"baa_status": "Pending review", "baa_execution_date": "2027-01-01"}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."}]},
+    {"name": "an active relationship with its agreement under review", "patch": {"agreement_status": "Under review"}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."}]},
+    {"name": "an active relationship with its agreement required and pending", "patch": {"agreement_status": "Required - pending"}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Required - pending)."}]},
+    {"name": "an active relationship with no agreement status recorded", "patch": {"agreement_status": null}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: not recorded)."}]},
+    {"name": "an agreement ruled not required settles it", "patch": {"agreement_status": "Not required"}, "expected": []},
+    {"name": "an unsigned agreement while onboarding is not yet a finding", "patch": {"status": "Onboarding", "agreement_status": "Required - pending"}, "expected": []},
+    {"name": "an unsigned agreement under review of the relationship is not this finding", "patch": {"status": "Under review", "agreement_status": "Pending review"}, "expected": []},
+    {"name": "active with neither agreement nor BAA: the BAA first", "patch": {"agreement_status": "Pending review", "baa_status": "Pending review"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Pending review)."}]},
     {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
     {"name": "a blank PHI scope counts as none", "patch": {"phi_scope": "   "}, "expected": [
