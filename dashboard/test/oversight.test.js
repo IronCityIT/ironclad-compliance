@@ -198,7 +198,7 @@ test("every Sage Spine seed record renders with its actions",()=>{
 // The review queue. Fixed date so the cases do not drift with the calendar.
 const TODAY="2026-09-26";
 const codes=(r)=>attentionFindings(r,TODAY).map(f=>f.code);
-const clean={name:"Clean",status:"Active",risk:"Low",data_access:"PHI",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
+const clean={name:"Clean",business_owner:"Practice manager",status:"Active",risk:"Low",data_access:"PHI",phi_scope:"Demographics and imaging",baa_status:"Executed",baa_execution_date:"2025-01-15",baa_document_ref:"Contract 42",review_due:"2027-03-01",cert_expiration_date:"2027-06-30"};
 
 test("a fully governed PHI record needs no attention",()=>{
   assert.deepEqual(attentionFindings(clean,TODAY),[]);
@@ -216,6 +216,19 @@ test("PHI without an executed BAA is a high finding, whatever the BAA status say
 test("an executed BAA without its evidence is called out",()=>{
   assert.match(attentionFindings({...clean,baa_execution_date:""},TODAY)[0].message,/no execution date recorded/);
   assert.match(attentionFindings({...clean,baa_document_ref:"",baa_execution_date:""},TODAY)[0].message,/execution date or document reference/);
+});
+
+test("a BAA dated after today is not yet in effect",()=>{
+  const f=attentionFindings({...clean,baa_execution_date:"2026-09-27"},TODAY);
+  assert.deepEqual(f.map(x=>[x.level,x.code]),[["high","baa-not-yet-effective"]]);
+  assert.match(f[0].message,/2026-09-27, after today/);
+  assert.deepEqual(codes({...clean,baa_execution_date:TODAY}),[],"executed today is in effect");
+});
+
+test("PHI with no scope, and a record with no business owner, are notices",()=>{
+  assert.deepEqual(codes({...clean,phi_scope:""}),["phi-scope-missing"]);
+  assert.deepEqual(codes({...clean,data_access:"PII",phi_scope:""}),[],"no PHI, no scope owed");
+  assert.deepEqual(codes({...clean,business_owner:" "}),["owner-unassigned"]);
 });
 
 test("review and assurance dates: overdue, within the window, beyond it, absent",()=>{

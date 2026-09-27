@@ -641,6 +641,7 @@ class TestTheFindingsIndex:
         assert queued["messages"] == [
             "Handles PHI without an executed BAA (BAA: Pending review).",
             "No review date set.",
+            "No business owner recorded.",
         ]
         # Staff made no request since the log began: dormant, a notice.
         (staff,) = summary["findings"]["notices"]

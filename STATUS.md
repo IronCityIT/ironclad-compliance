@@ -1422,6 +1422,86 @@ secret-literal and `git diff --check` gates pass. No dashboard file or rule
 changed. In CI at `b90f698` (run 36317342452) all six jobs passed: pytest
 1240 passed, 57 skipped on 3.10 and 3.12, persistence 236.
 
+**The review queue catches three more gaps, 2026-09-27.** Three kinds of
+record got no finding in the queue (server and page alike):
+
+- **A BAA marked `Executed` with a date after today.** It was typed ahead of
+  signature, or it is a typo. It passed every check, so a partner whose BAA
+  was not yet in effect read as governed. It also held a token that
+  `oversight access` called clean.
+- **PHI with no `phi_scope`.** Minimum necessary (164.502(b)) and the BAA's
+  permitted uses (164.504(e)(2)) are judged against that scope. Nothing asked
+  for it.
+- **A record with no business owner.** Nobody at the client answers for the
+  relationship.
+
+Now:
+
+- `baa-not-yet-effective` is **high**. It fires only when the status is
+  `Executed` and the date is later than `as_of`. A BAA executed on the
+  day itself is in effect. It is one of the `ACCESS_CODES`, so a partner
+  token acting for such a record is high in `oversight access` and in the
+  review packet.
+- `phi-scope-missing` and `owner-unassigned` are **notices**. A blank value
+  counts as none. No scope is only a notice when the record handles PHI.
+
+Both implementations change together: `ironclad/oversight.py::attention_findings`
+and `dashboard/public/oversight-core.js::attentionFindings`. They are held to
+the shared table `tests/fixtures/oversight-attention.json`, which is 29 cases,
+up from 20. Its base record now carries an owner and a scope. The export
+golden `tests/fixtures/oversight-export.json` gains the owner notice on its
+ownerless record.
+
+What this says about Sage today: every seeded record has a PHI scope. The
+three seeded integrations (DrChrono to PRIMO, PRIMO to Fuji MWL, OEC Storage
+SCP) have no business owner. The queue now says so, and the packet's findings
+index lists it. These are notices on records already high for the missing
+BAA, so no packet count changes.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Packets already filed verify as before. Docs:
+`docs/http-api.md` (the review queue, `oversight access`), the `oversight
+access` CLI help, and the runbook in `HANDOFF.md` §17 ("Check the
+partner/integration register without a browser").
+
+New and changed tests:
+
+- 9 new shared-table cases, run by both suites:
+  - a BAA dated tomorrow, and one dated today;
+  - a future date on a BAA that is not executed;
+  - no scope, a blank scope, and no scope without PHI;
+  - no owner, and a blank owner;
+  - all three together.
+- Two page cases.
+- `test_partner_access.py::TestPartnerAccess::test_a_baa_dated_after_today_is_high`.
+- `test_oversight.py::TestTheReviewQueue::test_the_sage_seed_names_its_integrations_as_ownerless_and_scopes_all_phi`.
+- Two expectations updated for the owner notice:
+  - the packet index's messages for DrChrono to PRIMO;
+  - the HTTP queue's governed record, which now records an owner and scope.
+
+Six mutations each fail a test by name:
+
+- the code dropped from `ACCESS_CODES`;
+- `>` weakened to `>=`;
+- the scope not stripped;
+- the owner check dropped;
+- the page's future-date check dropped;
+- the page's scope check applied without PHI.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1308
+tests, 1240 passed, 57 skipped, 11 failed. Untouched HEAD `e31e680` in a
+worktree, run after it: 1297 tests, 1230 passed, 10 failed. Compared set for
+set, the one extra is
+`test_http.py::TestTransport::test_an_oversize_body_is_413_and_ends_the_connection`,
+a socket test this change does not touch; it passed three runs out of three
+alone. ruff format and lint pass. `mypy` reports only the known Windows
+`fcntl` errors in `policy_store.py`, the same four as HEAD. Dashboard
+`node --test`: 96 tests, 95 passed. The one failure is the case that starts
+a real `ironclad serve`, which fails on HEAD too (94 tests, 93 passed). The
+white-label, secret-literal and `git diff --check` gates pass. The six
+mutations above were each applied and reverted this run, and each failed
+the named test.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

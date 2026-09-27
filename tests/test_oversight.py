@@ -238,6 +238,16 @@ class TestTheReviewQueue:
                 codes = [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
                 assert "phi-without-baa" in codes, entry["name"]
 
+    def test_the_sage_seed_names_its_integrations_as_ownerless_and_scopes_all_phi(self) -> None:
+        found = {
+            entry["name"]: [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+        }
+        ownerless = sorted(name for name, codes in found.items() if "owner-unassigned" in codes)
+        assert ownerless == sorted(e["name"] for e in SEED["oversight"]["integrations"])
+        assert not [name for name, codes in found.items() if "phi-scope-missing" in codes]
+
     @pytest.mark.parametrize("bad", ["", "2026-9-26", "2026-02-30", "26/09/2026", "today"])
     def test_a_date_that_is_not_a_calendar_day_is_refused(self, bad: str) -> None:
         with pytest.raises(OversightError, match="YYYY-MM-DD"):

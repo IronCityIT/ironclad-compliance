@@ -102,7 +102,8 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `ironclad oversight access --tenant T --tokens FILE` holds every live entry
   in the tenant that has one to its record. High: the record is missing or
   retired, or it handles PHI without an executed BAA, claims a BAA without
-  its evidence, or has a lapsed review or assurance, or the token has no
+  its evidence or dated after today, or has a lapsed review or assurance,
+  or the token has no
   `expires_at`. Notice: offboarding, or a token that runs past the record's
   next review or its assurance expiry. Entries without a link
   (staff) are listed under `unlinked` and not judged. `--fail-on high|any`
@@ -321,9 +322,12 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   `verified: false`.
 - **The review queue.** `/oversight/attention` is the page's *Needs attention*
   list, computed on the server from stored fields only: PHI without an executed
-  BAA, a BAA marked executed without its date or document, a review overdue or
-  assurance expired (high); a review or expiry within 30 days, no review date,
-  risk unrated, data access unknown (notice). Retired records are left out.
+  BAA, a BAA marked executed without its date or document, a BAA marked
+  executed with an execution date after `as_of` (not yet in effect), a review
+  overdue or assurance expired (high); PHI with no PHI scope recorded (what
+  the BAA's minimum necessary is measured against), a review or expiry within
+  30 days, no review date, risk unrated, data access unknown, no business
+  owner (notice). Retired records are left out.
   Each item carries `kind`, `id`, `name`, `revision`, its highest `level` and
   its `findings` (`level`, `code`, `message`); high items come first, then by
   name, with `records` and `high` counts. The rules are

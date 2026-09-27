@@ -1353,7 +1353,14 @@ class TestOversightRegister:
         assert _create(manager, {"name": "Lab portal", "data_access": "PHI"})[0] == 200
         assert (
             _create(
-                manager, {**self.RATED, "baa_document_ref": "BAA-7", "review_due": "2027-01-01"}
+                manager,
+                {
+                    **self.RATED,
+                    "business_owner": "Revenue cycle",
+                    "phi_scope": "Claims",
+                    "baa_document_ref": "BAA-7",
+                    "review_due": "2027-01-01",
+                },
             )[0]
             == 200
         )

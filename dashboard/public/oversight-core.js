@@ -177,8 +177,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * What a reviewer should look at on one record, most serious first: PHI moving
- * without an executed BAA, a BAA claimed without its evidence, a lapsed review
- * or assurance, and gaps that leave the record unassessable. Derived only from
+ * without an executed BAA, a BAA claimed without its evidence or dated after
+ * today, a lapsed review or assurance, and gaps that leave the record
+ * unassessable: PHI with no scope, no business owner. Derived only from
  * what is stored, so it says nothing a reviewer cannot check on the card.
  * Retired records need no attention. `today` is YYYY-MM-DD; ISO dates compare
  * correctly as strings.
@@ -195,7 +196,10 @@ export function attentionFindings(record, today) {
   if (record.baa_status === "Executed") {
     const missing = [!text(record.baa_execution_date) && "execution date", !text(record.baa_document_ref) && "document reference"].filter(Boolean);
     if (missing.length) add("high", "baa-evidence-missing", `BAA marked executed with no ${missing.join(" or ")} recorded.`);
+    const executed = text(record.baa_execution_date);
+    if (ISO_DATE.test(executed) && executed > today) add("high", "baa-not-yet-effective", `BAA marked executed with an execution date of ${executed}, after today.`);
   }
+  if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
   const review = text(record.review_due);
   if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");
   else if (review < today) add("high", "review-overdue", `Review overdue since ${review}.`);
@@ -207,6 +211,7 @@ export function attentionFindings(record, today) {
   }
   if (!record.risk || record.risk === "Unrated") add("notice", "risk-unrated", "Risk not yet rated.");
   if (!record.data_access || record.data_access === "Unknown") add("notice", "data-access-unknown", "Data access not established.");
+  if (!text(record.business_owner)) add("notice", "owner-unassigned", "No business owner recorded.");
   return findings.sort((a, b) => (a.level === b.level ? 0 : a.level === "high" ? -1 : 1));
 }
 

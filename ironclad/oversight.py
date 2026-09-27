@@ -424,8 +424,9 @@ def _text(value: Any) -> str:
 def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str]]:
     """What a reviewer should look at on one record, most serious first.
 
-    PHI moving without an executed BAA, a BAA claimed without its evidence, a
-    lapsed review or assurance, and gaps that leave the record unassessable.
+    PHI moving without an executed BAA, a BAA claimed without its evidence or
+    dated after today, a lapsed review or assurance, and gaps that leave the
+    record unassessable: PHI with no scope, no business owner.
     Derived only from stored fields, so it says nothing a reviewer cannot check
     on the record. Retired records need no attention. ISO dates compare
     correctly as strings.
@@ -458,6 +459,15 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
                 "baa-evidence-missing",
                 f"BAA marked executed with no {' or '.join(missing)} recorded.",
             )
+        executed = _text(record.get("baa_execution_date"))
+        if _ISO_DATE.match(executed) and executed > today:
+            add(
+                "high",
+                "baa-not-yet-effective",
+                f"BAA marked executed with an execution date of {executed}, after today.",
+            )
+    if record.get("data_access") == "PHI" and not _text(record.get("phi_scope")):
+        add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.")
     review = _text(record.get("review_due"))
     if not _ISO_DATE.match(review):
         add("notice", "review-unscheduled", "No review date set.")
@@ -475,6 +485,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
         add("notice", "risk-unrated", "Risk not yet rated.")
     if not record.get("data_access") or record.get("data_access") == "Unknown":
         add("notice", "data-access-unknown", "Data access not established.")
+    if not _text(record.get("business_owner")):
+        add("notice", "owner-unassigned", "No business owner recorded.")
     # Stable, so findings of one level keep the order they were found in.
     return sorted(findings, key=lambda f: f["level"] != "high")
 
@@ -518,7 +530,13 @@ def attention_queue(
 #: The review-queue findings that make a partner's live access itself a finding:
 #: a grant should not outlast the agreement, review or assurance it rests on.
 ACCESS_CODES = frozenset(
-    {"phi-without-baa", "baa-evidence-missing", "review-overdue", "assurance-expired"}
+    {
+        "phi-without-baa",
+        "baa-evidence-missing",
+        "baa-not-yet-effective",
+        "review-overdue",
+        "assurance-expired",
+    }
 )
 
 

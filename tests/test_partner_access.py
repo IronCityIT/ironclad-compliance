@@ -164,7 +164,16 @@ class TestPartnerAccess:
         found = {item["user_id"]: codes(item) for item in access(store, document)["items"]}
         assert found == {"a@a.example": ["review-overdue"], "b@b.example": ["assurance-expired"]}
 
+    def test_a_baa_dated_after_today_is_high(self, store: Any) -> None:
+        # Marked executed, but not in effect until tomorrow: PHI access has no BAA today.
+        record_id = add(store, "partners", {**GOVERNED, "baa_execution_date": "2026-09-28"})
+        document: dict[str, Any] = {"tokens": []}
+        grant(document, "ops@governed.example", f"partners/{record_id}")
+        (item,) = access(store, document)["items"]
+        assert (item["level"], codes(item)) == ("high", ["baa-not-yet-effective"])
+
     def test_queue_notices_that_are_not_about_access_are_left_out(self, store: Any) -> None:
+        # GOVERNED has no business owner or PHI scope either: notices, not access findings.
         record_id = add(
             store, "partners", {**GOVERNED, "risk": "Unrated", "cert_expiration_date": "2026-10-10"}
         )

@@ -4,12 +4,14 @@
   "window_days": 30,
   "base": {
     "name": "Clean",
+    "business_owner": "Practice manager",
     "status": "Active",
     "risk": "Low",
     "data_access": "PHI",
     "baa_status": "Executed",
     "baa_execution_date": "2025-01-15",
     "baa_document_ref": "Contract 42",
+    "phi_scope": "Demographics and imaging",
     "review_due": "2027-03-01",
     "cert_expiration_date": "2027-06-30"
   },
@@ -26,6 +28,20 @@
       {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date recorded."}]},
     {"name": "an executed BAA with no date and no document", "patch": {"baa_execution_date": "", "baa_document_ref": null}, "expected": [
       {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date or document reference recorded."}]},
+    {"name": "an executed BAA dated tomorrow is not yet in effect", "patch": {"baa_execution_date": "2026-09-27"}, "expected": [
+      {"level": "high", "code": "baa-not-yet-effective", "message": "BAA marked executed with an execution date of 2026-09-27, after today."}]},
+    {"name": "an executed BAA dated today is in effect", "patch": {"baa_execution_date": "2026-09-26"}, "expected": []},
+    {"name": "a future date on a BAA not marked executed is only the missing BAA", "patch": {"baa_status": "Pending review", "baa_execution_date": "2027-01-01"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."}]},
+    {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
+    {"name": "a blank PHI scope counts as none", "patch": {"phi_scope": "   "}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
+    {"name": "no PHI scope is not a finding when no PHI is handled", "patch": {"data_access": "Operational only", "baa_status": "Not required", "phi_scope": ""}, "expected": []},
+    {"name": "no business owner", "patch": {"business_owner": null}, "expected": [
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "a blank business owner counts as none", "patch": {"business_owner": "  "}, "expected": [
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
     {"name": "a review due yesterday is overdue", "patch": {"review_due": "2026-09-25"}, "expected": [
       {"level": "high", "code": "review-overdue", "message": "Review overdue since 2026-09-25."}]},
     {"name": "a review due today is due soon, not overdue", "patch": {"review_due": "2026-09-26"}, "expected": [
@@ -45,6 +61,10 @@
     {"name": "risk unset and data access unknown", "patch": {"risk": null, "data_access": "Unknown"}, "expected": [
       {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."},
       {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a not-yet-effective BAA, no scope and no owner: the high first", "patch": {"phi_scope": "", "business_owner": "", "baa_execution_date": "2026-12-01"}, "expected": [
+      {"level": "high", "code": "baa-not-yet-effective", "message": "BAA marked executed with an execution date of 2026-12-01, after today."},
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
     {"name": "high findings in the order found, then notices", "patch": {"risk": "Unrated", "baa_status": "Pending review", "review_due": "2020-01-01"}, "expected": [
       {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
       {"level": "high", "code": "review-overdue", "message": "Review overdue since 2020-01-01."},

@@ -746,7 +746,12 @@ already present. `verify` re-checks every record's change history, including a
 record row deleted from under its history on MariaDB, and exits 4 naming each
 broken record. `attention` prints the review queue; with `--fail-on high` (or
 `any`) it exits 4 when the queue holds such a finding, which is what a
-scheduled BAA sweep should key on. `export` writes the whole register,
+scheduled BAA sweep should key on. A BAA marked executed with a date after
+today is high (`baa-not-yet-effective`: typed ahead of signature, or a
+typo); PHI with no scope and a record with no business owner are notices
+(`phi-scope-missing`, `owner-unassigned`). The Sage seed's three
+integrations carry `owner-unassigned` until someone at Sage is named for
+each. `export` writes the whole register,
 retired records included, as the CSV the dashboard's download writes, named
 for the tenant and date, and prints its `sha256`; record the hash with the
 file so the inventory handed to an auditor can be named later. Exit 2 is always the job's fault (no store,
