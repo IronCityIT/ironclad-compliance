@@ -8,7 +8,7 @@
 > reference and stages the migration; nothing is migrated or deleted yet.
 
 **Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `a11a6ed` (run 36285596781, `pull_request`; the duplicate `push` run 36285594494 was cancelled), and at `b159632` before it (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `298b2e0` (run 36286525753, `pull_request`; the duplicate `push` run 36286522031 was cancelled): all six jobs, pytest 943 passed / 47 skipped on 3.10 and 3.12, the MariaDB persistence suite 161 passed. Green before that at `a11a6ed` (run 36285596781) and `b159632` (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -269,6 +269,9 @@ untouched tree under the same stub (the 20-writer lock test needs a real lock,
 and the `serve` subprocess test gets no stub). The unstubbed run is CI's.
 ruff format and lint pass; mypy reports only the known Windows `fcntl`
 errors; `git diff --check` is clean.
+In CI (run 36286525753), unstubbed: 943 passed on 3.10 and 3.12, and the
+MariaDB persistence job 161 passed, which includes the new store-contract case
+on MariaDB.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
