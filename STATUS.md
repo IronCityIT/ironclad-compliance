@@ -1030,6 +1030,15 @@ tree. `mypy` (the CI invocation) reports only the known Windows `fcntl` errors
 in `policy_store.py`. The white-label, secret-literal and `git diff --check`
 gates pass. No dashboard file changed.
 
+The first push, `02be93e`, was red in CI (run 36300536001; the duplicate
+`push` run 36300533780 was cancelled). Every job passed except pytest on 3.10
+and 3.12, where 1 failed and 1191 passed: the "server still writing" case on
+its Linux branch. The behaviour was right. The late line landed in the
+archive, and the join broke with `access.log line 1: sequence 3 where 4 was
+expected`. But the test expected "does not chain", and that branch cannot run
+on this machine. The test now asserts that exact reason and that the late line
+is the archive's last.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

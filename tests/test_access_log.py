@@ -436,9 +436,11 @@ class TestRotation:
         running.record(user="late@sage.example", user_tenant="sage-spine", method="GET",
                        path="/api/v1/me", status=200, at=AT)  # fmt: skip
         running.close()
+        # The late line is in the archive, and the join names where it went wrong.
+        assert json.loads(_lines(archive)[-1])["user"] == "late@sage.example"
         verdict, entries = read_files([archive, log])
         assert verdict["verified"] is False and entries == []
-        assert str(log) in verdict["reason"] and "does not chain" in verdict["reason"]
+        assert verdict["reason"] == f"{log} line 1: sequence 3 where 4 was expected"
 
     def test_what_is_refused(self, tmp_path: Path, capsys) -> None:
         log, archive = tmp_path / "access.log", tmp_path / "access.log.1"
