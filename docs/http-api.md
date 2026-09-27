@@ -67,6 +67,19 @@ IRONCLAD_STORE=/srv/ironclad/results \
   or `--expired`, and refuses to remove nothing. Both hold
   `<file>.lock` for the edit and replace the file whole, so the server reads
   the old file or the new one; exit 2 and nothing written on any refusal.
+- Every `issue` and `revoke` is appended to the grant ledger,
+  `<file>.ledger` unless `--ledger` names another, before the token file is
+  replaced: one chained JSON line per entry with the time, action, actor,
+  user, tenant, roles, expiry and the entry's `sha256` (never the token). A
+  ledger that is not a whole chain refuses further edits (exit 2). Both print
+  `ledger_head`, the digest to copy somewhere else.
+  `ironclad tokens review FILE --ledger LEDGER` holds the file to it: an entry
+  with no grant on record (hand-written, or older than the ledger), one that
+  differs from its grant in user, tenant, roles or expiry, or one revoked and
+  back in the file is high; a grant with neither an entry nor a revocation
+  (the token-file write did not land, or the entry was removed by hand) is a
+  notice under `ledger.unrecorded`. A broken ledger gets no review (exit 4).
+  The server does not read the ledger.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
 - A connection that sends nothing for 30 seconds — the rest of a request, the

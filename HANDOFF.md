@@ -800,8 +800,15 @@ could not be told apart in a review. The entry records `issued_by` and
 `issued_at`, and the review prints both. The token goes to stdout once and is
 stored nowhere; hand it over a channel you would trust with the access. A
 renewal is `revoke` then `issue`, so the credential changes with the term.
-`revoke` prints what it removed by digest prefix with `revoked_by`; keep that
-output with the review record. Removing nothing is exit 2, so a mistyped name
+`revoke` prints what it removed by digest prefix with `revoked_by`.
+Both append to the grant ledger, `tokens.json.ledger` beside the file (or
+`--ledger PATH`), before the file is replaced: who granted or revoked what,
+when, chained so an edited or removed line shows. It keeps the grant after the
+entry is gone. Copy the `ledger_head` they print somewhere the NAS operator
+cannot write. A ledger that is not a whole chain refuses further edits; keep
+it as the evidence, start a new one, and expect the next review with the new
+ledger to call every existing entry "no grant on record" until each is
+reissued. Removing nothing is exit 2, so a mistyped name
 is not mistaken for a revocation. A `.lock` left by an interrupted edit
 refuses further edits until someone who knows no edit is running removes it.
 
@@ -831,6 +838,22 @@ past itself, or a partner's token pointed at another tenant. The log is
 verified before it is read; exit 4 and no review if it is not a whole chain
 (handle that as in the access-log runbook above). The review only sees what
 the current log holds, so review before rotating it.
+
+Give it the ledger and it also says whether the file is what was granted:
+
+```sh
+ironclad tokens review /srv/ironclad/tokens.json     --ledger /srv/ironclad/tokens.json.ledger --fail-on high
+```
+
+High: an entry with no grant on record (someone wrote it by hand), one whose
+user, tenant, roles or expiry differ from its grant (someone widened it), or
+one revoked and back in the file (someone restored it). Each is access nobody
+approved: revoke it, reissue what was meant, and find out who edited the
+file. A notice under `ledger.unrecorded`: a grant whose entry is gone with no
+revocation on record, meaning an edit whose write failed, or an entry removed by hand.
+Access went away, but the removal went unrecorded; note it in the review
+record. Entries carry `granted_by` and `granted_at` from the ledger. A broken
+ledger is exit 4 and no review.
 
 ### Verify an auditor package
 

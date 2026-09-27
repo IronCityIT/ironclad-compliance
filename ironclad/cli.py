@@ -494,9 +494,10 @@ def build_parser() -> argparse.ArgumentParser:
             "expiry, or expiring within 30 days. Reads digests only; never needs a token. "
             "With --access-log, each entry also gets its request count, 403 count and "
             "last use, and notices for an active entry unused in --dormant-days and for "
-            "any 403. "
-            f"Exit {EXIT_FINDINGS} under --fail-on when tripped or if the access log is "
-            f"not a whole chain, {EXIT_BAD_INPUT} if a file cannot be read."
+            "any 403. With --ledger, an entry with no grant on record, one that differs "
+            "from its grant, or one revoked and back in the file is high. "
+            f"Exit {EXIT_FINDINGS} under --fail-on when tripped or if the access log or "
+            f"ledger is not a whole chain, {EXIT_BAD_INPUT} if a file cannot be read."
         ),
     )
     tokens_review.add_argument("file", help="the token file")
@@ -504,6 +505,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--access-log",
         default="",
         help="the `serve --access-log` file; verified before any of it is used",
+    )
+    tokens_review.add_argument(
+        "--ledger",
+        default="",
+        help=(
+            "the grant ledger `issue` and `revoke` write; verified, then every entry "
+            "is held to its grant"
+        ),
     )
     tokens_review.add_argument(
         "--dormant-days",
@@ -526,8 +535,10 @@ def build_parser() -> argparse.ArgumentParser:
             "expiry, issuer and date, and print the token once on stdout (it is not "
             "stored). Every grant ends: --expires is required and at most 365 days out. "
             "One entry per user per tenant; a renewal is `revoke` then `issue`, so the "
-            f"credential changes with the term. Exit {EXIT_BAD_INPUT}, writing nothing, "
-            "if any of that does not hold."
+            "credential changes with the term. The grant is appended to the ledger "
+            "before the token file is replaced. "
+            f"Exit {EXIT_BAD_INPUT}, writing nothing, if any of that does not hold "
+            "or the ledger is not a whole chain."
         ),
     )
     tokens_issue.add_argument("file", help="the token file; created if missing")
@@ -543,6 +554,11 @@ def build_parser() -> argparse.ArgumentParser:
     tokens_issue.add_argument("--expires", required=True, help="YYYY-MM-DD, the last day in UTC")
     tokens_issue.add_argument("--actor", required=True, help="who is granting it")
     tokens_issue.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    tokens_issue.add_argument(
+        "--ledger",
+        default="",
+        help="the grant ledger to append to; defaults to FILE.ledger beside the token file",
+    )
     tokens_revoke = tokens_sub.add_parser(
         "revoke",
         help="remove entries: one user's in a tenant, one digest, or every expired one",
@@ -550,7 +566,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Remove token-file entries and print what was removed (digest prefixes, "
             "never digests). Give --user with --tenant, or --digest-prefix as the review "
             "prints it, or --expired. The next request with a removed token is 401. "
-            f"Exit {EXIT_BAD_INPUT}, writing nothing, if nothing matches."
+            "Each removal is appended to the ledger before the token file is replaced. "
+            f"Exit {EXIT_BAD_INPUT}, writing nothing, if nothing matches or the ledger "
+            "is not a whole chain."
         ),
     )
     tokens_revoke.add_argument("file", help="the token file")
@@ -562,6 +580,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     tokens_revoke.add_argument("--actor", required=True, help="who is revoking")
     tokens_revoke.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
+    tokens_revoke.add_argument(
+        "--ledger",
+        default="",
+        help="the grant ledger to append to; defaults to FILE.ledger beside the token file",
+    )
 
     hash_cmd = sub.add_parser(
         "hash-token",
@@ -1304,11 +1327,35 @@ def cmd_tokens(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return EXIT_FINDINGS
+    ledger = None
+    ledger_head = ""
+    if args.ledger:
+        from ironclad.api import grant_ledger  # noqa: PLC0415
+
+        ledger_path = Path(args.ledger)
+        if not ledger_path.is_file():
+            print(f"grant ledger not found: {ledger_path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        try:
+            ledger_verdict, ledger = grant_ledger.read_file(ledger_path)
+        except grant_ledger.GrantLedgerError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_BAD_INPUT
+        if not ledger_verdict["verified"]:
+            print(
+                f"{ledger_path} is not a whole chain at line {ledger_verdict['broken_at']} "
+                f"({ledger_verdict['reason']}); no review is built on it",
+                file=sys.stderr,
+            )
+            return EXIT_FINDINGS
+        ledger_head = ledger_verdict["head"]
     try:
-        review = review_tokens(document, as_of, access_log, args.dormant_days)
+        review = review_tokens(document, as_of, access_log, args.dormant_days, ledger)
     except ValueError as exc:
         print(f"{path}: {exc}", file=sys.stderr)
         return EXIT_BAD_INPUT
+    if ledger is not None:
+        review["ledger"]["head"] = ledger_head
     _emit(review)
     tripped = (args.fail_on == "high" and review["high"]) or (
         args.fail_on == "any" and (review["high"] or review["notices"])
@@ -1318,14 +1365,19 @@ def cmd_tokens(args: argparse.Namespace) -> int:
 
 def _edit_tokens(args: argparse.Namespace) -> int:
     """`tokens issue` and `tokens revoke`: one locked read-modify-write of the file."""
-    from ironclad.api import tokens  # noqa: PLC0415
+    from ironclad.api import grant_ledger, tokens  # noqa: PLC0415
 
     path = Path(args.file)
     as_of = date.fromisoformat(oversight.check_as_of(args.as_of)) if args.as_of else None
     as_of = as_of or tokens.utc_now().date()
+    ledger_path = Path(args.ledger) if args.ledger else grant_ledger.default_path(path)
     try:
         with tokens.TokenFileLock(path):
             document = tokens.read_token_file(path)
+            try:
+                ledger = grant_ledger.GrantLedger(ledger_path)
+            except grant_ledger.GrantLedgerError as exc:
+                raise tokens.TokenFileError(str(exc)) from None
             if args.tokens_command == "issue":
                 try:
                     expires = tokens.parse_expiry(args.expires)
@@ -1342,13 +1394,14 @@ def _edit_tokens(args: argparse.Namespace) -> int:
                     issued_by=args.actor,
                     as_of=as_of,
                 )
+                _record_grant(ledger, "issue", [entry], args.actor, as_of)
                 tokens.write_token_file(path, document)
                 print(
                     "the token below is shown once and is not stored; hand it to "
                     f"{entry['user_id']} over a channel you would trust with the access",
                     file=sys.stderr,
                 )
-                _emit({"token": token, "entry": tokens.summary(entry)})
+                _emit({"token": token, "entry": tokens.summary(entry), "ledger_head": ledger.head})
                 return EXIT_OK
             removed = tokens.revoke_tokens(
                 document,
@@ -1357,6 +1410,7 @@ def _edit_tokens(args: argparse.Namespace) -> int:
                 digest_prefix=args.digest_prefix,
                 expired_as_of=as_of if args.expired else None,
             )
+            _record_grant(ledger, "revoke", removed, args.actor, as_of)
             tokens.write_token_file(path, document)
     except tokens.TokenFileError as exc:
         print(f"{path}: {exc}; nothing was written", file=sys.stderr)
@@ -1366,9 +1420,24 @@ def _edit_tokens(args: argparse.Namespace) -> int:
             "revoked_by": args.actor,
             "as_of": as_of.isoformat(),
             "removed": [tokens.summary(e) for e in removed],
+            "ledger_head": ledger.head,
         }
     )
     return EXIT_OK
+
+
+def _record_grant(
+    ledger: Any, action: str, entries: list[dict[str, Any]], actor: str, as_of: date
+) -> None:
+    """Put an edit on the ledger before the token file changes, or refuse it."""
+    from ironclad.api import grant_ledger, tokens  # noqa: PLC0415
+
+    if not actor.strip():
+        raise tokens.TokenFileError("no --actor; the ledger must name who made the change")
+    try:
+        ledger.record(action, entries, actor=actor.strip(), as_of=as_of)
+    except grant_ledger.GrantLedgerError as exc:
+        raise tokens.TokenFileError(str(exc)) from None
 
 
 def cmd_hash_token() -> int:

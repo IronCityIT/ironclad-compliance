@@ -40,8 +40,8 @@ class AccessLogError(Exception):
     """The log cannot be read, is not a chain, or cannot be written."""
 
 
-def _digest(entry: dict[str, Any]) -> str:
-    payload = {key: entry[key] for key in FIELDS}
+def line_digest(entry: dict[str, Any], fields: tuple[str, ...] = FIELDS) -> str:
+    payload = {key: entry[key] for key in fields}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -56,27 +56,32 @@ def _broken(line: int, reason: str, head: str) -> dict[str, Any]:
     }
 
 
-def verify_lines(lines: list[str]) -> dict[str, Any]:
-    """Re-check a chain. `broken_at` is the 1-based line of the first fault."""
+def verify_lines(
+    lines: list[str], fields: tuple[str, ...] = FIELDS, kind: str = "an access-log entry"
+) -> dict[str, Any]:
+    """Re-check a chain. `broken_at` is the 1-based line of the first fault.
+
+    `fields` and `kind` let another chained log (the grant ledger) share the check.
+    """
     prev = GENESIS_HASH
     for number, line in enumerate(lines, start=1):
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
             return _broken(number, "not a JSON object", prev)
-        if not isinstance(entry, dict) or set(entry) != {*FIELDS, "hash"}:
-            return _broken(number, "not an access-log entry", prev)
+        if not isinstance(entry, dict) or set(entry) != {*fields, "hash"}:
+            return _broken(number, f"not {kind}", prev)
         if entry["seq"] != number:
             return _broken(number, f"sequence {entry['seq']!r} where {number} was expected", prev)
         if entry["prev_hash"] != prev:
             return _broken(number, "does not chain from the line before", prev)
-        if entry["hash"] != _digest(entry):
+        if entry["hash"] != line_digest(entry, fields):
             return _broken(number, "edited since it was written", prev)
         prev = entry["hash"]
     return {"entries": len(lines), "verified": True, "broken_at": None, "reason": "", "head": prev}
 
 
-def _read_lines(path: Path) -> list[str]:
+def read_lines(path: Path) -> list[str]:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -90,7 +95,7 @@ def _read_lines(path: Path) -> list[str]:
 
 def verify_file(path: Path | str) -> dict[str, Any]:
     """The verdict on one log file. A missing file is an empty, whole chain."""
-    return verify_lines(_read_lines(Path(path)))
+    return verify_lines(read_lines(Path(path)))
 
 
 def read_file(path: Path | str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -100,7 +105,7 @@ def read_file(path: Path | str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     that is not a whole chain yields no entries: anything built on it would
     rest on lines someone may have edited.
     """
-    lines = _read_lines(Path(path))
+    lines = read_lines(Path(path))
     verdict = verify_lines(lines)
     if not verdict["verified"]:
         return verdict, []
@@ -163,7 +168,7 @@ class AccessLog:
                 "status": int(status),
                 "prev_hash": self._head,
             }
-            entry["hash"] = _digest(entry)
+            entry["hash"] = line_digest(entry)
             line = json.dumps(entry, sort_keys=True, separators=(",", ":"))
             try:
                 self._file.write(line + "\n")

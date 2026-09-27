@@ -108,9 +108,9 @@ def test_a_line_removed_and_renumbered_is_still_caught_by_the_chain(tmp_path: Pa
     lines = _lines(path)
     moved = json.loads(lines[2])
     moved["seq"] = 2
-    from ironclad.api.access_log import _digest
+    from ironclad.api.access_log import line_digest
 
-    moved["hash"] = _digest(moved)
+    moved["hash"] = line_digest(moved)
     _rewrite(path, [lines[0], json.dumps(moved, sort_keys=True, separators=(",", ":"))])
     verdict = verify_file(path)
     assert (verdict["verified"], verdict["broken_at"]) == (False, 2)

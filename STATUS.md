@@ -615,6 +615,65 @@ white-label, secret-literal, catalog and `git diff --check` gates pass.
 In CI (run 36294215258), unstubbed: 1080 passed, 55 skipped on 3.10 and 3.12,
 bandit included in the security gate; persistence 224 passed.
 
+**A ledger of every grant and revocation, 2026-09-27 (fifteenth pass).**
+`issue` and `revoke` stopped hand edits going wrong, and nothing caught a hand
+edit made anyway: an entry pasted into the file, or an issued one with its
+expiry pushed out or `owner` added, looked exactly like an issued entry to the
+server and to the review. And once `revoke` removed an entry, nothing on the
+server said the grant had existed or who ended it; the runbook asked the
+operator to keep stdout. HIPAA's access-authorization and termination
+procedures (164.308(a)(4)(ii)(B)-(C), (a)(3)(ii)(C)) want both on record, in
+a form that cannot quietly be rewritten (164.312(b)).
+`ironclad/api/grant_ledger.py` now:
+
+- **records** each issue and each removed entry as one chained JSON line in
+  `tokens.json.ledger` (or `--ledger`): time, `as_of`, action, actor, user,
+  tenant, roles, expiry and the entry's `sha256`, never the token. It is
+  written under the token file's lock and fsynced **before** the token file is
+  replaced, so no edit lands unrecorded; if the ledger cannot be written, the
+  edit is refused and the file is byte-for-byte unchanged. A ledger that is not
+  a whole chain refuses further edits. `issue` and `revoke` print `ledger_head`;
+  `revoke` now refuses a blank `--actor`.
+- **reconciles**: `ironclad tokens review FILE --ledger LEDGER` verifies the
+  ledger (exit 4 and no review if broken), then flags as high an entry with no
+  grant on record, one differing from its grant in user, tenant, roles or
+  expiry, and one revoked and back in the file. A grant with neither an entry
+  nor a revocation is a notice under `ledger.unrecorded`. Matching entries
+  carry `granted_by`/`granted_at`. Without `--ledger` the review is unchanged.
+
+The access-log chain check now takes its field set as a parameter, so both
+logs share one verifier (`access_log.verify_lines`, `line_digest`,
+`read_lines`); the access log's lines and digests are unchanged. No route,
+authenticator rule or token-file field the server reads changed; the server
+never reads the ledger. Runbook: `HANDOFF.md` §17, "Grant, renew and review a
+service token"; reference: `docs/http-api.md`.
+
+Tests: 17 new cases in `tests/test_grant_ledger.py`. Issue then revoke is
+two chained lines naming both actors, with the digest and not the token;
+`--expired` writes one line per entry; an explicit `--ledger` path works; a
+ledger write that fails leaves the token file and ledger unchanged and no lock;
+an edited ledger refuses the next issue; a blank revoking actor is refused.
+For the review: issued entries carry their grant; a pasted `owner` entry is
+high; expiry, roles and tenant each edited after the grant are high; a revoked
+entry restored is high and names who revoked it; an entry removed by hand is a
+notice (trips `any`, not `high`); a properly revoked entry is not unrecorded;
+a ledger with its first line cut is exit 4; a missing one exit 2; no ledger, no
+change. `tests/test_tokens.py` now expects the ledger beside the file. Seven
+mutations each fail a test by name: the ledger written after the token file,
+revocations ignored, expiry not compared, revoked grants counted as
+unrecorded, a broken ledger appended to, a broken ledger reviewed, unrecorded
+grants not counted as notices.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1152 tests,
+1086 passed, 55 skipped, 11 failed; untouched HEAD `6094798` in a worktree:
+1135 tests, 1070 passed, 10 failed. The extra one,
+`test_store.py::TestTheVolume::test_two_tenants_may_use_the_same_assessment_id`,
+was a Windows `os.replace` "Access is denied" while both suites ran at once.
+It passes re-run alone on both trees, and otherwise the failed sets match. ruff format
+and lint pass; mypy reports only the known Windows `fcntl` errors;
+white-label, secret-literal, catalog and `git diff --check` gates pass. bandit
+is not installed here; CI runs it.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

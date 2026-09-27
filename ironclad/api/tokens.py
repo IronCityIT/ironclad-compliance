@@ -28,7 +28,9 @@ issued after the old entry is revoked, so a credential never outlives its
 term. `write_token_file()` replaces the file whole, under an exclusive lock
 file, so the server (which re-reads it per request) sees the old file or the
 new one and never half of one, and two operators cannot each lose the other's
-edit.
+edit. Each edit goes on the grant ledger first (`ironclad.api.grant_ledger`),
+so the grant outlives the entry, and a review given the ledger finds entries
+nobody granted.
 """
 
 from __future__ import annotations
@@ -96,6 +98,7 @@ def review_tokens(
     as_of: date,
     access_log: list[dict[str, Any]] | None = None,
     dormant_days: int = DORMANT_DAYS,
+    ledger: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Every entry in a token file, what it grants and what is wrong with it.
 
@@ -111,6 +114,12 @@ def review_tokens(
     on the user and tenant the log names (the log holds no digest), counting
     only lines on or before `as_of`. Notices: an active entry with no request
     in `dormant_days`, and an entry that was refused with 403.
+
+    `ledger` is the entries of a verified grant ledger (`grant_ledger.read_file`).
+    With it, an entry with no grant on record, one that differs from its grant,
+    or one revoked and back in the file is high; a matching entry gains
+    `granted_by` and `granted_at`; and a grant whose entry is gone with no
+    revocation on record is listed under `ledger.unrecorded` as a notice.
     """
     entries = document.get("tokens") if isinstance(document, dict) else None
     if not isinstance(entries, list):
@@ -142,13 +151,25 @@ def review_tokens(
             if "tenant_id" in item:
                 _apply_usage(item, usage, log_summary["from"], as_of, dormant_days)
 
+    unrecorded: list[dict[str, Any]] | None = None
+    if ledger is not None:
+        from ironclad.api.grant_ledger import reconcile  # noqa: PLC0415
+
+        held = reconcile(document, ledger)
+        unrecorded = held["unrecorded"]
+        for item, messages, grant in zip(items, held["findings"], held["granted"], strict=True):
+            item["findings"][:0] = [{"level": "high", "message": m} for m in messages]
+            if grant:
+                item.update(grant)
+
     counts = Counter(item["state"] for item in items)
     review: dict[str, Any] = {
         "as_of": as_of.isoformat(),
         "entries": len(items),
         "active": counts["active"] + counts["expiring"],
         "high": sum(1 for i in items if any(f["level"] == "high" for f in i["findings"])),
-        "notices": sum(1 for i in items if any(f["level"] == "notice" for f in i["findings"])),
+        "notices": sum(1 for i in items if any(f["level"] == "notice" for f in i["findings"]))
+        + len(unrecorded or []),
         "tenants": sorted(
             {
                 str(i.get("tenant_id", ""))
@@ -161,6 +182,8 @@ def review_tokens(
     if log_summary is not None:
         review["access_log"] = log_summary
         review["dormant"] = sum(1 for i in items if i.get("dormant"))
+    if ledger is not None:
+        review["ledger"] = {"entries": len(ledger), "unrecorded": unrecorded}
     return review
 
 

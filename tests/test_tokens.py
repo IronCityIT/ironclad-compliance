@@ -594,7 +594,8 @@ class TestEditCommands:
         assert "sha256" not in printed["entry"]
         assert printed["entry"]["roles"] == ["auditor", "viewer"]
         assert TokenFileAuthenticator(path).principal_for(token) is not None
-        assert sorted(p.name for p in tmp_path.iterdir()) == ["tokens.json"]  # no temp, no lock
+        # no temp, no lock; the grant is on the ledger
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["tokens.json", "tokens.json.ledger"]
 
         args = ["--user", "dana@partner.example", "--tenant", "sage-spine", "--actor", "bill"]
         assert main(["tokens", "revoke", str(path), *args]) == 0
