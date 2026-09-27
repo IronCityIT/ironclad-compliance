@@ -7,6 +7,7 @@
     "name": "Clean",
     "business_owner": "Practice manager",
     "technical_owner": "Practice IT",
+    "network_exposure": "Clinical VLAN / private network",
     "status": "Active",
     "risk": "Low",
     "data_access": "PHI",
@@ -101,6 +102,18 @@
     {"name": "PHI with neither direction nor technical owner: direction first", "patch": {"data_flow_direction": "", "technical_owner": ""}, "expected": [
       {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."},
       {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."}]},
+    {"name": "PHI with no network exposure recorded", "patch": {"network_exposure": ""}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "PHI with the network exposure cleared", "patch": {"network_exposure": null}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "PHI with the form's default Unknown exposure", "patch": {"network_exposure": "Unknown"}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "a blank network exposure counts as none", "patch": {"network_exposure": "  "}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "no PHI, no network exposure owed", "patch": {"phi_scope": "", "data_access": "PII", "network_exposure": "Unknown"}, "expected": []},
+    {"name": "PHI with neither technical owner nor exposure: owner first", "patch": {"technical_owner": "", "network_exposure": ""}, "expected": [
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."},
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
     {"name": "no PHI, no direction of flow owed", "patch": {"phi_scope": "", "data_access": "PII", "data_flow_direction": ""}, "expected": []},
     {"name": "PHI with neither scope nor direction: scope first", "patch": {"phi_scope": "", "data_flow_direction": ""}, "expected": [
       {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},

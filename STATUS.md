@@ -2327,6 +2327,39 @@ the duplicate `push` run 36344763342 was cancelled): all six jobs, pytest
 1355 passed, 57 skipped on 3.10 and 3.12, persistence 322, dashboard
 115/115, Firestore rules 96/96.
 
+**PHI with no network exposure recorded is a notice, 2026-09-27.** The
+register carried `network_exposure`, and the form defaults it to
+`Unknown`, but nothing asked for it. A record could handle PHI with no
+account of whether that PHI crosses the internet, a VPN or a private
+network. Transmission security (§164.312(e)) is assessed on that. The Sage
+seed's three partners record none. Its three integrations record theirs.
+
+`attention_findings()` and `attentionFindings()` now raise
+`phi-exposure-unrecorded` (notice) for PHI whose network exposure is
+blank, absent or the form's default `Unknown`. It comes after
+`technical-owner-unassigned` and is not an access code. No route, stored
+field, rule, vocabulary, token-file field or ledger line changed. Docs:
+`docs/http-api.md`, `HANDOFF.md`.
+
+Tests: the shared table grows 84 -> 90 cases (empty, absent, `Unknown`,
+blank, no PHI, and order behind `technical-owner-unassigned`). One new
+page test and one seed test name the three partners. The table's `clean`
+base, the page's `clean` record and the HTTP governed record gained a
+network exposure. The access-review index is unchanged: its DrChrono to
+PRIMO integration records its exposure.
+
+Two mutations each fail named tests. With the server check disabled, 6
+fail: the five new table cases that expect the notice and the seed test.
+With the page check disabled, 2 fail: the new page test and the shared
+table.
+
+Local gates on Windows, 2026-09-27: pytest 1419 collected, 57 skipped,
+10 failed. The same 10 fail on untouched `f558238` in a worktree (1412
+collected; Windows-only). Page tests (`oversight.test.js`,
+`render.test.js`) 103/103. `mypy --platform linux`, `ruff check` and
+`ruff format --check` are clean. `scripts/check_white_label.sh` passes and
+`git diff --check` is clean.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

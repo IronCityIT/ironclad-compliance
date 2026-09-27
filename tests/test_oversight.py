@@ -394,6 +394,17 @@ class TestTheReviewQueue:
             e["name"] for kind in oversight.KINDS for e in SEED["oversight"][kind]
         )
 
+    def test_the_sage_seed_names_every_phi_partner_with_no_network_exposure(self) -> None:
+        unexposed = sorted(
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "phi-exposure-unrecorded"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        )
+        # Each integration records its network; no partner does yet.
+        assert unexposed == sorted(e["name"] for e in SEED["oversight"]["partners"])
+
     def test_every_high_rated_sage_seed_record_asks_for_a_dated_assurance(self) -> None:
         undated = sorted(
             entry["name"]

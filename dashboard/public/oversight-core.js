@@ -199,8 +199,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * relationship with no executed agreement, no risk rating or no established
  * data access, a lapsed review or
  * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
- * unassessable: PHI with no scope, no recorded direction of flow or no
- * technical owner (who cuts the feed in an incident), a PHI
+ * unassessable: PHI with no scope, no recorded direction of flow, no
+ * technical owner (who cuts the feed in an incident) or no network exposure
+ * (blank or the form's default "Unknown"), a PHI
  * scope on a record whose data access is not PHI, no business owner, a High or Critical
  * rating with no assurance expiry (so a lapse could never show), an assurance
  * expiry with no assurance named (so the date cannot be checked). Derived only from
@@ -236,6 +237,8 @@ export function attentionFindings(record, today) {
   if (record.data_access === "PHI" && !text(record.phi_scope)) add("notice", "phi-scope-missing", "Handles PHI with no PHI scope recorded.");
   if (record.data_access === "PHI" && !text(record.data_flow_direction)) add("notice", "phi-flow-unrecorded", "Handles PHI with no data flow direction recorded.");
   if (record.data_access === "PHI" && !text(record.technical_owner)) add("notice", "technical-owner-unassigned", "Handles PHI with no technical owner recorded.");
+  const exposure = text(record.network_exposure);
+  if (record.data_access === "PHI" && (!exposure || exposure === "Unknown")) add("notice", "phi-exposure-unrecorded", "Handles PHI with no network exposure recorded.");
   if (!accessUnknown && record.data_access !== "PHI" && text(record.phi_scope)) add("notice", "phi-scope-contradicted", `PHI scope recorded but data access is ${record.data_access}.`);
   const review = text(record.review_due);
   if (!ISO_DATE.test(review)) add("notice", "review-unscheduled", "No review date set.");

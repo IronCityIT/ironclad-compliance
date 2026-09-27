@@ -779,7 +779,11 @@ security is assessed on. The Sage seed's three partners carry it until
 each direction is recorded; its integrations already record theirs. PHI
 with no technical owner recorded is a notice (`technical-owner-unassigned`):
 an incident needs someone named who can cut the feed or revoke its
-credential. All six Sage seed records carry it until one is named. A PHI
+credential. All six Sage seed records carry it until one is named. PHI
+with no network exposure recorded, blank or the form's default `Unknown`,
+is a notice (`phi-exposure-unrecorded`): whether PHI crosses the internet,
+a VPN or a private network is what transmission security is assessed on.
+The Sage seed's three partners carry it; its integrations record theirs. A PHI
 scope recorded on a record whose data access is set to anything but `PHI`
 or `Unknown` is a notice (`phi-scope-contradicted`): `phi-without-baa`
 reads data access alone, so moving a PHI partner to `PII` drops its missing

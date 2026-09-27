@@ -1375,6 +1375,7 @@ class TestOversightRegister:
                     **self.RATED,
                     "business_owner": "Revenue cycle",
                     "technical_owner": "Clearinghouse IT",
+                    "network_exposure": "Site-to-site VPN",
                     "phi_scope": "Claims",
                     "data_flow_direction": "Outbound / push",
                     "baa_document_ref": "BAA-7",
