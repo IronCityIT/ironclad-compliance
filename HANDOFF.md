@@ -634,7 +634,7 @@ Ordered by value, non-blocked first.
 | B4 | **`GITHUB_DISPATCH_TOKEN` is not provisioned** and is not on the approved ICIT secret list. | `CLAUDE.md` secret list; `functions/trigger.js` references it by name | Dashboard-initiated assessments cannot work, wherever the trigger is hosted. |
 | B5 | **REVIEW ONLY posture.** | `CLAUDE.md` tiering; `STATUS.md` | No merge, no deploy, from this session. |
 | B6 | **No way to verify an Auth0 token without a decision.** The dashboard signs in with Auth0 (RS256). `ironclad serve` authenticates with hashed service tokens, which suit a LAN operator and not a browser. RS256 verification needs RSA, which the standard library does not have: either a runtime dependency (`PyJWT[crypto]` / `cryptography`), or a hand-written verifier, or Auth0 reconfigured to HS256 — which needs a shared secret that is not on the approved list. | `ironclad/api/http.py::Authenticator`; `CLAUDE.md` secret list | Migration stage 5 — the dashboard reading from `ironclad serve` — cannot complete: the backend exists, the browser cannot sign in to it. None of the three is chosen here. |
-| B6 | **`ICIT-Infrastructure/ARCHITECTURE.md` still documents Firebase as the ICIT standard**, contradicting the direction for this product. That repo is HANDS OFF. | Read 2026-09-07 | A reader of the estate architecture will build the retired pattern. |
+| B7 | **`ICIT-Infrastructure/ARCHITECTURE.md` still documents Firebase as the ICIT standard**, contradicting the direction for this product. That repo is HANDS OFF. | Read 2026-09-07 | A reader of the estate architecture will build the retired pattern. |
 
 ### Defects found and fixed on this branch
 
@@ -794,6 +794,21 @@ The review reads digests only, never a token, and prints the first 12 hex
 characters of each so an entry can be found. Entries without an expiry and
 those expiring within 30 days are notices (`--fail-on any`). Run it at each
 access review and keep the output with the access-log `head` for the same day.
+
+Give it the access log and it also says who is using what they hold:
+
+```sh
+ironclad tokens review /srv/ironclad/tokens.json     --access-log /srv/ironclad/logs/access.log --dormant-days 90
+```
+
+Each entry gains `requests`, `refused` (403s) and `last_used`; an active
+entry unused for 90 days is `dormant` and a notice, as is any 403. Dormant
+access is removed or its holder confirms they still need it, and the answer
+goes in the review record. A 403 is a question to its holder: a role reaching
+past itself, or a partner's token pointed at another tenant. The log is
+verified before it is read; exit 4 and no review if it is not a whole chain
+(handle that as in the access-log runbook above). The review only sees what
+the current log holds, so review before rotating it.
 
 ### Verify an auditor package
 

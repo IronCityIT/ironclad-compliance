@@ -53,6 +53,15 @@ IRONCLAD_STORE=/srv/ironclad/results \
   `expired`, `refused`) and exits 4 under `--fail-on high|any`; it reads
   digests only and prints a 12-character prefix of each. An expired token is
   logged like any unrecognised one: `user` is `null`.
+- `ironclad tokens review FILE --access-log LOG` adds each entry's use: its
+  request count, its 403 count and its last request, matched on the user and
+  tenant the log names (the log holds no digest, so two entries for one user
+  share their use). The log is verified first, and a log that is not a whole
+  chain gets no review (exit 4). Lines after `--as-of` are not counted. Two
+  notices follow: an active entry with no request in `--dormant-days` (90 by
+  default, our number; "since the log begins" when it has none, so a rotated
+  log narrows what the review can see), and any 403, with the latest path.
+  An expired entry's use is shown and not called dormant; it is already high.
 - Binds `127.0.0.1:8787` unless told otherwise. It speaks plain HTTP; a reverse
   proxy terminates TLS in front of it.
 - A connection that sends nothing for 30 seconds — the rest of a request, the

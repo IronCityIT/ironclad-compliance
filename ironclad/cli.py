@@ -492,11 +492,25 @@ def build_parser() -> argparse.ArgumentParser:
             "refused). High: an expired entry still in the file, an expiry that is not "
             "a date, a digest listed twice, no tenant, no recognised role. Notice: no "
             "expiry, or expiring within 30 days. Reads digests only; never needs a token. "
-            f"Exit {EXIT_FINDINGS} under --fail-on when tripped, {EXIT_BAD_INPUT} if the "
-            "file cannot be read."
+            "With --access-log, each entry also gets its request count, 403 count and "
+            "last use, and notices for an active entry unused in --dormant-days and for "
+            "any 403. "
+            f"Exit {EXIT_FINDINGS} under --fail-on when tripped or if the access log is "
+            f"not a whole chain, {EXIT_BAD_INPUT} if a file cannot be read."
         ),
     )
     tokens_review.add_argument("file", help="the token file")
+    tokens_review.add_argument(
+        "--access-log",
+        default="",
+        help="the `serve --access-log` file; verified before any of it is used",
+    )
+    tokens_review.add_argument(
+        "--dormant-days",
+        type=int,
+        default=90,
+        help="an active entry with no request in this many days is a notice (default 90)",
+    )
     tokens_review.add_argument("--as-of", default="", help="YYYY-MM-DD; defaults to today in UTC")
     tokens_review.add_argument(
         "--fail-on",
@@ -1212,7 +1226,7 @@ def cmd_access_log(args: argparse.Namespace) -> int:
 
 
 def cmd_tokens(args: argparse.Namespace) -> int:
-    """Review a token file. The only subcommand, for now."""
+    """Review a token file, and its use if given the access log. The only subcommand."""
     from ironclad.api.tokens import review_tokens, utc_now  # noqa: PLC0415
 
     path = Path(args.file)
@@ -1224,8 +1238,28 @@ def cmd_tokens(args: argparse.Namespace) -> int:
     as_of = utc_now().date()
     if args.as_of:
         as_of = date.fromisoformat(oversight.check_as_of(args.as_of))
+    access_log = None
+    if args.access_log:
+        from ironclad.api.access_log import AccessLogError, read_file  # noqa: PLC0415
+
+        log_path = Path(args.access_log)
+        if not log_path.is_file():
+            print(f"access log not found: {log_path}", file=sys.stderr)
+            return EXIT_BAD_INPUT
+        try:
+            verdict, access_log = read_file(log_path)
+        except AccessLogError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_BAD_INPUT
+        if not verdict["verified"]:
+            print(
+                f"{log_path} is not a whole chain at line {verdict['broken_at']} "
+                f"({verdict['reason']}); no review is built on it",
+                file=sys.stderr,
+            )
+            return EXIT_FINDINGS
     try:
-        review = review_tokens(document, as_of)
+        review = review_tokens(document, as_of, access_log, args.dormant_days)
     except ValueError as exc:
         print(f"{path}: {exc}", file=sys.stderr)
         return EXIT_BAD_INPUT

@@ -15,7 +15,11 @@ not a calendar date authenticates nobody: a typo in an expiry must not become
 access that never ends.
 
 `review_tokens()` is the access review. It reads a token file's digests and
-never needs a token, so an operator can run it anywhere the file is.
+never needs a token, so an operator can run it anywhere the file is. Given the
+server's access log as well, it says when each entry was last used and which
+were refused: a token nobody has used in `DORMANT_DAYS` is access to remove,
+not to keep in case (164.308(a)(4)(ii)(C), access modification), and a run of
+403s is a caller reaching for what their role or tenant does not allow.
 """
 
 from __future__ import annotations
@@ -31,6 +35,10 @@ from ironclad.model.tenant import Role
 #: A token expiring within this many days is reported as a notice, so its
 #: renewal or removal is decided before it lapses, not after.
 EXPIRY_WARNING_DAYS = 30
+
+#: An active entry with no recorded request in this many days is reported as
+#: dormant. The window is ours, not HIPAA's; `--dormant-days` changes it.
+DORMANT_DAYS = 90
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -65,7 +73,12 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def review_tokens(document: object, as_of: date) -> dict[str, Any]:
+def review_tokens(
+    document: object,
+    as_of: date,
+    access_log: list[dict[str, Any]] | None = None,
+    dormant_days: int = DORMANT_DAYS,
+) -> dict[str, Any]:
     """Every entry in a token file, what it grants and what is wrong with it.
 
     One item per entry, in file order: the user, tenant, recognised roles,
@@ -74,6 +87,12 @@ def review_tokens(document: object, as_of: date) -> dict[str, Any]:
     should not, or is broken so that it grants none and someone thinks it does.
     Only the first 12 hex characters of a digest are shown, enough to find the
     entry and not the whole stored value.
+
+    `access_log` is the entries of a verified log (`access_log.read_file`).
+    With it, each entry gains `requests`, `refused` and `last_used`, matched
+    on the user and tenant the log names (the log holds no digest), counting
+    only lines on or before `as_of`. Notices: an active entry with no request
+    in `dormant_days`, and an entry that was refused with 403.
     """
     entries = document.get("tokens") if isinstance(document, dict) else None
     if not isinstance(entries, list):
@@ -95,8 +114,18 @@ def review_tokens(document: object, as_of: date) -> dict[str, Any]:
             continue
         items.append(_review_entry(position, entry, digests, as_of))
 
+    log_summary: dict[str, Any] | None = None
+    if access_log is not None:
+        if dormant_days < 1:
+            raise ValueError("dormant_days must be at least 1")
+        usage, log_summary = _usage(access_log, as_of)
+        log_summary["dormant_days"] = dormant_days
+        for item in items:
+            if "tenant_id" in item:
+                _apply_usage(item, usage, log_summary["from"], as_of, dormant_days)
+
     counts = Counter(item["state"] for item in items)
-    return {
+    review: dict[str, Any] = {
         "as_of": as_of.isoformat(),
         "entries": len(items),
         "active": counts["active"] + counts["expiring"],
@@ -111,6 +140,85 @@ def review_tokens(document: object, as_of: date) -> dict[str, Any]:
         ),
         "items": items,
     }
+    if log_summary is not None:
+        review["access_log"] = log_summary
+        review["dormant"] = sum(1 for i in items if i.get("dormant"))
+    return review
+
+
+def _at(entry: dict[str, Any]) -> datetime:
+    return datetime.fromisoformat(str(entry["at"]).replace("Z", "+00:00"))
+
+
+def _usage(
+    access_log: list[dict[str, Any]], as_of: date
+) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[str, Any]]:
+    """Requests per (user, tenant) up to the end of `as_of`, and the log's span."""
+    usage: dict[tuple[str, str], dict[str, Any]] = {}
+    first: str | None = None
+    last: str | None = None
+    counted = 0
+    for entry in access_log:
+        moment = _at(entry)
+        if moment.astimezone(timezone.utc).date() > as_of:
+            continue
+        counted += 1
+        first = first or entry["at"]
+        last = entry["at"]
+        if not entry.get("user"):
+            continue  # no recognised token: nobody to attribute it to
+        key = (str(entry["user"]), str(entry.get("user_tenant") or ""))
+        seen = usage.setdefault(
+            key, {"requests": 0, "refused": 0, "last_used": None, "last_refused": None}
+        )
+        seen["requests"] += 1
+        seen["last_used"] = entry["at"]
+        if entry.get("status") == 403:
+            seen["refused"] += 1
+            seen["last_refused"] = {"at": entry["at"], "path": entry["path"]}
+    return usage, {"entries": counted, "from": first, "to": last}
+
+
+def _apply_usage(
+    item: dict[str, Any],
+    usage: dict[tuple[str, str], dict[str, Any]],
+    log_from: str | None,
+    as_of: date,
+    dormant_days: int,
+) -> None:
+    seen = usage.get((item["user_id"], item["tenant_id"]))
+    item["requests"] = seen["requests"] if seen else 0
+    item["refused"] = seen["refused"] if seen else 0
+    item["last_used"] = seen["last_used"] if seen else None
+    item["dormant"] = False
+    notices: list[str] = []
+    if item["state"] in ("active", "expiring"):
+        if seen is None:
+            item["dormant"] = True
+            since = f"since it begins at {log_from}" if log_from else "at all"
+            notices.append(
+                f"no request in the access log {since}; confirm the access is "
+                "still needed or remove the entry"
+            )
+        else:
+            idle = (as_of - _last_day(seen)).days
+            if idle > dormant_days:
+                item["dormant"] = True
+                notices.append(
+                    f"last request {seen['last_used']}, {idle} days before {as_of.isoformat()}; "
+                    "confirm the access is still needed or remove the entry"
+                )
+    if seen and seen["refused"]:
+        latest = seen["last_refused"]
+        notices.append(
+            f"refused {seen['refused']} time(s) with 403, the latest {latest['path']} "
+            f"at {latest['at']}"
+        )
+    item["findings"].extend({"level": "notice", "message": m} for m in notices)
+
+
+def _last_day(seen: dict[str, Any]) -> date:
+    return _at({"at": seen["last_used"]}).astimezone(timezone.utc).date()
 
 
 def _review_entry(

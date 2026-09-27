@@ -7,8 +7,8 @@
 > *current implementation*, not the target. `HANDOFF.md` classifies every
 > reference and stages the migration; nothing is migrated or deleted yet.
 
-**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-26
-**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `47f9041` (run 36291511505, `pull_request`; the duplicate `push` run 36291509763 was cancelled): all six jobs, pytest 1023 passed / 55 skipped on 3.10 and 3.12 (the 19 access-log cases among them), the MariaDB persistence suite 224 passed with none skipped. Green before that at `12cfef7` (run 36290114408): 1004 passed, persistence 224 (the register seal and the history row rewritten in place among them), dashboard 101/101, Firestore rules 91/91. Green before that at `58321de` (run 36288773882), 986 passed, persistence 205. Green before that at `0de87dd` (run 36287629428), 974 passed, persistence 192. Green before that at `298b2e0` (run 36286525753), 943 passed, persistence 161. Green before that at `a11a6ed` (run 36285596781) and `b159632` (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
+**Branch:** `productize/ironclad-compliance` · **Updated:** 2026-09-27
+**PR [#4](https://github.com/IronCityIT/ironclad-compliance/pull/4) is open. CI green at `2e0c73b` (run 36292544236, `pull_request`; the duplicate `push` run 36292542393 was cancelled): all six jobs, pytest 1048 passed / 55 skipped on 3.10 and 3.12 (the 25 service-token cases among them), the MariaDB persistence suite 224 passed. Green before that at `47f9041` (run 36291511505): pytest 1023 passed / 55 skipped (the 19 access-log cases among them), the MariaDB persistence suite 224 passed with none skipped. Green before that at `12cfef7` (run 36290114408): 1004 passed, persistence 224 (the register seal and the history row rewritten in place among them), dashboard 101/101, Firestore rules 91/91. Green before that at `58321de` (run 36288773882), 986 passed, persistence 205. Green before that at `0de87dd` (run 36287629428), 974 passed, persistence 192. Green before that at `298b2e0` (run 36286525753), 943 passed, persistence 161. Green before that at `a11a6ed` (run 36285596781) and `b159632` (run 36284444931), all six jobs, dashboard 100/100 and Firestore rules 91/91 against the emulator (unchanged by the review-queue and export passes; 88 before the edit/history pass, 78 before change history); green on every commit of 2026-09-16, 2026-09-17 and 2026-09-23. The product workflow has run four times as a dry run — see "Dry runs".**
 **Scope posture: REVIEW ONLY. Nothing merged. Nothing deployed.**
 
 > **The working tree is clean as of 2026-09-26** (checked with `git status`).
@@ -527,6 +527,39 @@ suite ran 1103 tests: 1038 passed, 55 skipped, 10 failed. The same 10 fail on
 the untouched tree, compared set for set. ruff format and lint pass; mypy
 reports only the known Windows `fcntl` errors in `policy_store.py`;
 white-label, secret-literal and `git diff --check` gates pass.
+
+**Who is using the access they hold, 2026-09-27 (thirteenth pass).** The token
+review said who *holds* access; the access log said who *used* it; nothing put
+the two together, so dormant partner access, the first thing an access review
+removes (164.308(a)(4)(ii)(C)), could only be found by hand.
+`ironclad tokens review FILE --access-log LOG [--dormant-days 90]` now verifies
+the log (exit 4 and no review if it is not a whole chain), then gives each entry
+`requests`, `refused` (403s) and `last_used`, matched on the user and tenant the
+log names, counting only lines on or before `--as-of`. Notices: an active entry
+with no request in the window (`dormant`; "since the log begins" when never
+seen), and any 403 with its latest path — a role reaching past itself or a
+partner's token pointed at another tenant. An expired entry's use is shown and
+not called dormant (it is already high). `access_log.read_file` verifies and
+parses in one read, so the review rests on exactly the lines verified. Without
+`--access-log` the output is unchanged. No route, stored field, rule or token
+file format changed. Also: `HANDOFF.md` §16 listed two blockers as B6; the
+ICIT-Infrastructure one is now B7 (every other reference means the sign-in).
+
+Tests: 7 new cases in `tests/test_tokens.py::TestReviewWithUsage`, on real
+chained logs written by `AccessLog`: per-entry use and the log span; the
+window edges both ways and `--dormant-days 0` refused; a never-used entry
+tripping `--fail-on any` and not `high`; an edited log line refused with exit 4
+and nothing on stdout; a missing log exit 2; no usage keys without a log; no
+digest in the output. Four mutations each fail a test: the `--as-of` cut-off
+removed, the window widened, the 403 notice dropped, an expired entry called
+dormant (the last needed the lapsed entry's use moved outside the window — the
+first version of the test let it survive).
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1110 tests,
+1045 passed, 55 skipped, 10 failed; untouched HEAD `2e0c73b` in a worktree:
+1038 passed, the same 10 failed, compared set for set. ruff format and lint
+pass; mypy reports only the known Windows `fcntl` errors; white-label,
+secret-literal and catalog gates pass. bandit is not installed here; CI runs it.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of

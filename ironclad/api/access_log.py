@@ -93,6 +93,20 @@ def verify_file(path: Path | str) -> dict[str, Any]:
     return verify_lines(_read_lines(Path(path)))
 
 
+def read_file(path: Path | str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The verdict on one log file and, only if it is a whole chain, its entries.
+
+    Read once, so the entries are the lines the verdict was reached on. A log
+    that is not a whole chain yields no entries: anything built on it would
+    rest on lines someone may have edited.
+    """
+    lines = _read_lines(Path(path))
+    verdict = verify_lines(lines)
+    if not verdict["verified"]:
+        return verdict, []
+    return verdict, [json.loads(line) for line in lines]
+
+
 class AccessLog:
     """Appends one chained line per API request. Safe across handler threads.
 

@@ -247,3 +247,168 @@ class TestReviewCommand:
         assert main(["tokens", "review", str(tmp_path / "shape.json")]) == 2
         assert main(["tokens", "review", str(token_file), "--as-of", "2026-02-30"]) == 2
         capsys.readouterr()
+
+
+# ------------------------------------------------------- review with usage
+
+
+def _log(tmp_path: Path, lines: list[tuple[str, str | None, str | None, str, int]]) -> Path:
+    """A real, chained access log: (UTC timestamp, user, tenant, path, status)."""
+    from ironclad.api.access_log import AccessLog
+
+    path = tmp_path / "access.log"
+    log = AccessLog(path)
+    for at, user, tenant, route, status in lines:
+        log.record(
+            user=user,
+            user_tenant=tenant,
+            method="GET",
+            path=route,
+            status=status,
+            at=datetime.fromisoformat(at).replace(tzinfo=timezone.utc),
+        )
+    log.close()
+    return path
+
+
+REGISTER = "/api/v1/tenants/sage-spine/oversight/partners"
+OTHER = "/api/v1/tenants/other-clinic/oversight/partners"
+
+
+class TestReviewWithUsage:
+    @pytest.fixture
+    def files(self, tmp_path: Path) -> tuple[Path, Path]:
+        tokens = tmp_path / "tokens.json"
+        tokens.write_text(
+            json.dumps(
+                {
+                    "tokens": [
+                        _entry("daily", expires_at="2027-06-30"),
+                        _entry("idle"),
+                        _entry("never", expires_at="2027-06-30"),
+                        _entry("prober"),
+                        _entry("lapsed", expires_at="2026-09-01"),
+                    ]
+                }
+            )
+        )
+        log = _log(
+            tmp_path,
+            [
+                ("2026-05-01T09:00:00", "idle@sage.example", "sage-spine", REGISTER, 200),
+                ("2026-05-02T10:00:00", "lapsed@sage.example", "sage-spine", REGISTER, 200),
+                ("2026-09-20T11:00:00", "prober@sage.example", "sage-spine", REGISTER, 200),
+                ("2026-09-21T11:00:00", "prober@sage.example", "sage-spine", OTHER, 403),
+                ("2026-09-22T12:00:00", None, None, REGISTER, 401),
+                ("2026-09-25T08:00:00", "daily@sage.example", "sage-spine", REGISTER, 200),
+                # After the review date: not counted in a review as of the 26th.
+                ("2026-09-28T08:00:00", "never@sage.example", "sage-spine", REGISTER, 200),
+            ],
+        )
+        return tokens, log
+
+    def test_each_entry_carries_its_use(self, files: tuple[Path, Path], capsys) -> None:
+        tokens, log = files
+        assert (
+            main(
+                ["tokens", "review", str(tokens), "--as-of", "2026-09-26", "--access-log", str(log)]
+            )
+            == 0
+        )
+        review = json.loads(capsys.readouterr().out)
+        assert review["access_log"] == {
+            "entries": 6,
+            "from": "2026-05-01T09:00:00.000Z",
+            "to": "2026-09-25T08:00:00.000Z",
+            "dormant_days": 90,
+        }
+        daily = _item(review, "daily@sage.example")
+        assert (daily["requests"], daily["refused"], daily["dormant"]) == (1, 0, False)
+        assert daily["last_used"] == "2026-09-25T08:00:00.000Z"
+        assert daily["findings"] == []
+
+        idle = _item(review, "idle@sage.example")
+        assert idle["dormant"] is True
+        assert any("148 days before 2026-09-26" in m for m in _messages(idle, "notice"))
+
+        never = _item(review, "never@sage.example")
+        assert (never["requests"], never["last_used"], never["dormant"]) == (0, None, True)
+        assert _messages(never, "notice") == [
+            "no request in the access log since it begins at 2026-05-01T09:00:00.000Z; "
+            "confirm the access is still needed or remove the entry"
+        ]
+
+        prober = _item(review, "prober@sage.example")
+        assert (prober["requests"], prober["refused"], prober["dormant"]) == (2, 1, False)
+        assert any(
+            m.startswith("refused 1 time(s) with 403, the latest " + OTHER)
+            for m in _messages(prober, "notice")
+        )
+
+        # An expired entry is already high; its use is shown, not called dormant.
+        lapsed = _item(review, "lapsed@sage.example")
+        assert (lapsed["state"], lapsed["requests"], lapsed["dormant"]) == ("expired", 1, False)
+
+        assert review["dormant"] == 2
+        # The unauthenticated 401 is counted in the span and attributed to nobody.
+        assert sum(i["requests"] for i in review["items"]) == 5
+
+    def test_the_dormant_window_is_configurable(self, files: tuple[Path, Path], capsys) -> None:
+        tokens, log = files
+        args = ["tokens", "review", str(tokens), "--as-of", "2026-09-26", "--access-log", str(log)]
+        assert main([*args, "--dormant-days", "200"]) == 0
+        review = json.loads(capsys.readouterr().out)
+        assert not _item(review, "idle@sage.example")["dormant"]
+        assert main([*args, "--dormant-days", "3"]) == 0
+        review = json.loads(capsys.readouterr().out)
+        assert _item(review, "prober@sage.example")["dormant"]
+        assert not _item(review, "daily@sage.example")["dormant"]
+        assert main([*args, "--dormant-days", "0"]) == 2
+        capsys.readouterr()
+
+    def test_dormant_access_trips_fail_on_any_but_not_high(self, tmp_path: Path, capsys) -> None:
+        tokens = tmp_path / "tokens.json"
+        tokens.write_text(json.dumps({"tokens": [_entry("never", expires_at="2027-06-30")]}))
+        log = _log(tmp_path, [])
+        args = ["tokens", "review", str(tokens), "--as-of", "2026-09-26", "--access-log", str(log)]
+        assert main([*args, "--fail-on", "any"]) == 4
+        review = json.loads(capsys.readouterr().out)
+        assert main([*args, "--fail-on", "high"]) == 0
+        capsys.readouterr()
+        assert _messages(review["items"][0], "notice") == [
+            "no request in the access log at all; confirm the access is still needed "
+            "or remove the entry"
+        ]
+
+    def test_a_broken_log_is_not_reviewed(self, files: tuple[Path, Path], capsys) -> None:
+        tokens, log = files
+        lines = log.read_text().splitlines()
+        lines[2] = lines[2].replace('"status":200', '"status":201')
+        log.write_text("\n".join(lines) + "\n")
+        code = main(
+            ["tokens", "review", str(tokens), "--as-of", "2026-09-26", "--access-log", str(log)]
+        )
+        captured = capsys.readouterr()
+        assert code == 4
+        assert captured.out == ""
+        assert "not a whole chain at line 3" in captured.err
+
+    def test_a_missing_log_is_bad_input(self, files: tuple[Path, Path], tmp_path, capsys) -> None:
+        tokens, _ = files
+        missing = str(tmp_path / "nope.log")
+        assert main(["tokens", "review", str(tokens), "--access-log", missing]) == 2
+        assert "access log not found" in capsys.readouterr().err
+
+    def test_without_a_log_the_review_is_unchanged(self) -> None:
+        review = review_tokens({"tokens": [_entry("partner")]}, AS_OF)
+        assert "access_log" not in review and "dormant" not in review
+        assert "requests" not in review["items"][0]
+
+    def test_usage_never_reveals_a_digest_or_a_query(
+        self, files: tuple[Path, Path], capsys
+    ) -> None:
+        tokens, log = files
+        main(["tokens", "review", str(tokens), "--as-of", "2026-09-26", "--access-log", str(log)])
+        out = capsys.readouterr().out
+        for token in ("daily", "idle", "never", "prober", "lapsed"):
+            assert hash_token(token) not in out
