@@ -1823,6 +1823,41 @@ at `7eab023` (run 36324535088) all six jobs passed: pytest 1301 passed, 57
 skipped on 3.10 and 3.12, persistence 274, dashboard 108/108, Firestore rules
 91/91.
 
+**Two token entries for one user in one tenant are each high, 2026-09-27.**
+`tokens issue` refuses a second entry for a user who already holds one in the
+tenant, because the access log names a caller by user and tenant, never by
+token: two entries for one pair could not be told apart in an access review.
+`tokens review` did not hold the file to the same rule. A second entry for a
+Sage partner's user, written by hand, reviewed clean, and with
+`--access-log` both entries were credited with the same requests, so the
+review could not say which credential was in use or which to revoke.
+
+Now `review_tokens()` counts entries per (user, tenant) and gives each
+member of a pair a **high** finding: "first@sage.example holds 2 entries for
+sage-spine; the access log names callers by user and tenant, so their
+requests cannot be told apart: revoke all but one". The entries stay
+`active`: the tokens still authenticate, so the finding is about
+attribution, not a broken entry, and `--fail-on high` trips on it. One user
+in two tenants is two grants and is not a finding. Entries with no
+`user_id` are already high for that and are not counted as one holder.
+
+No route, stored field, rule, vocabulary, token-file field, ledger line or
+access-log line changed. Docs: `docs/http-api.md` (the review) and
+`HANDOFF.md` (the `tokens review` section).
+
+Tests (2 new pytest, `tests/test_tokens.py::TestReview`): a hand-written
+pair is high on both entries and stays active, while one user in two tenants
+is clean; blank users are not paired. One mutation (the check disabled)
+fails the pair test.
+
+Local evidence (Windows 11, Python 3.12 venv, no-op `fcntl` stub): 1360
+tests, 1293 passed, 57 skipped, 10 failed. Untouched HEAD `53dc875` in a
+worktree: 1358 tests, 10 failed. The failure sets are identical
+(Windows-only: `fcntl`, symlinks, CRLF, the 20-writer lock). ruff format and
+lint pass. `mypy --platform linux` passes. The white-label gate and
+`git diff --check` pass. bandit is not installed in the local venv; CI
+installs its own.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

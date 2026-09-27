@@ -160,6 +160,10 @@ def review_tokens(
     only lines on or before `as_of`. Notices: an active entry with no request
     in `dormant_days`, and an entry that was refused with 403.
 
+    Two or more entries for one user in one tenant are each high: the access
+    log could not tell their requests apart. `issue_token` refuses a second
+    one, so such an entry was written by hand.
+
     `ledger` is the entries of a verified grant ledger (`grant_ledger.read_file`).
     With it, an entry with no grant on record, one that differs from its grant,
     or one revoked and back in the file is high; a matching entry gains
@@ -173,6 +177,7 @@ def review_tokens(
     digests = Counter(
         str(e.get("sha256", "")).strip().lower() for e in entries if isinstance(e, dict)
     )
+    holders = Counter(_holder(e) for e in entries if isinstance(e, dict))
     items: list[dict[str, Any]] = []
     for position, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -184,7 +189,7 @@ def review_tokens(
                 }
             )
             continue
-        items.append(_review_entry(position, entry, digests, as_of))
+        items.append(_review_entry(position, entry, digests, holders, as_of))
 
     log_summary: dict[str, Any] | None = None
     if access_log is not None:
@@ -309,8 +314,19 @@ def _last_day(seen: dict[str, Any]) -> date:
     return _at({"at": seen["last_used"]}).astimezone(timezone.utc).date()
 
 
+def _holder(entry: dict[str, Any]) -> tuple[str, str] | None:
+    """The user and tenant the access log would name this entry's caller by."""
+    user = str(entry.get("user_id", "")).strip()
+    tenant = str(entry.get("tenant_id", "")).strip()
+    return (user, tenant) if user and tenant else None
+
+
 def _review_entry(
-    position: int, entry: dict[str, Any], digests: Counter[str], as_of: date
+    position: int,
+    entry: dict[str, Any],
+    digests: Counter[str],
+    holders: Counter[tuple[str, str] | None],
+    as_of: date,
 ) -> dict[str, Any]:
     high: list[str] = []
     notice: list[str] = []
@@ -346,6 +362,12 @@ def _review_entry(
     user = str(entry.get("user_id", "")).strip()
     if not user:
         high.append("no user_id; the access log could not name this caller")
+    held = holders[_holder(entry)] if _holder(entry) else 0
+    if held > 1:
+        high.append(
+            f"{user} holds {held} entries for {tenant}; the access log names callers "
+            "by user and tenant, so their requests cannot be told apart: revoke all but one"
+        )
 
     link = entry.get("on_behalf_of")
     try:

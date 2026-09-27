@@ -884,13 +884,17 @@ refuses further edits until someone who knows no edit is running removes it.
 ```sh
 ironclad tokens review /srv/ironclad/tokens.json                   # who holds access, until when
 ironclad tokens review /srv/ironclad/tokens.json --fail-on high    # exit 4: expired entry still
-                                                                   # in the file, bad date, dup,
-                                                                   # no tenant or no known role
+                                                                   # in the file, bad date, dup
+                                                                   # digest or user, no tenant
+                                                                   # or no known role
 ```
 
 The review reads digests only, never a token, and prints the first 12 hex
 characters of each so an entry can be found. Entries without an expiry and
-those expiring within 30 days are notices (`--fail-on any`). Run it at each
+those expiring within 30 days are notices (`--fail-on any`). Two entries for
+one user in one tenant are each high: the access log names a caller by user
+and tenant, so their requests could not be told apart. `tokens issue` refuses
+the second, so a pair was written by hand; revoke all but one. Run it at each
 access review and keep the output with the access-log `head` for the same day.
 
 Give it the access log and it also says who is using what they hold:

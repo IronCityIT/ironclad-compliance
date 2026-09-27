@@ -52,7 +52,8 @@ IRONCLAD_STORE=/srv/ironclad/results \
 - `ironclad tokens review FILE --access-log LOG` adds each entry's use: its
   request count, its 403 count and its last request, matched on the user and
   tenant the log names (the log holds no digest, so two entries for one user
-  share their use). The log is verified first, and a log that is not a whole
+  share their use). `tokens issue` refuses a second entry for one user in one
+  tenant, and the review calls each of a hand-written pair high. The log is verified first, and a log that is not a whole
   chain gets no review (exit 4). Lines after `--as-of` are not counted. Two
   notices follow: an active entry with no request in `--dormant-days` (90 by
   default, our number; "since the log begins" when it has none, so a rotated

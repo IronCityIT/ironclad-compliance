@@ -167,6 +167,39 @@ class TestReview:
         assert review["high"] == len(review["items"])
         assert review["tenants"] == ["sage-spine"]
 
+    def test_two_entries_for_one_user_in_one_tenant_are_each_high(self) -> None:
+        # `issue_token` refuses the second; this one was written by hand.
+        document = {
+            "tokens": [
+                _entry("first", expires_at="2027-06-30"),
+                {**_entry("second", expires_at="2027-06-30"), "user_id": "first@sage.example"},
+                _entry("elsewhere", tenant_id="other-clinic"),
+                {**_entry("abroad"), "user_id": "elsewhere@sage.example"},
+            ]
+        }
+        review = review_tokens(document, AS_OF)
+        twins = [i for i in review["items"] if i["user_id"] == "first@sage.example"]
+        expected = (
+            "first@sage.example holds 2 entries for sage-spine; the access log names callers "
+            "by user and tenant, so their requests cannot be told apart: revoke all but one"
+        )
+        assert [_messages(i, "high") for i in twins] == [[expected], [expected]]
+        # Still working tokens, not refused: the finding is attribution, not a break.
+        assert [i["state"] for i in twins] == ["active", "active"]
+        # One user in two tenants is two grants, and neither is a finding.
+        assert [_messages(i, "high") for i in review["items"][2:]] == [[], []]
+        assert review["high"] == 2
+
+    def test_entries_with_no_user_are_not_counted_as_one_holder(self) -> None:
+        review = review_tokens(
+            {"tokens": [{**_entry("a"), "user_id": ""}, {**_entry("b"), "user_id": " "}]},
+            AS_OF,
+        )
+        for item in review["items"]:
+            assert _messages(item, "high") == [
+                "no user_id; the access log could not name this caller"
+            ]
+
     def test_only_a_digest_prefix_is_shown(self) -> None:
         review = review_tokens({"tokens": [_entry("partner")]}, AS_OF)
         text = json.dumps(review)
