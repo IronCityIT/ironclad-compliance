@@ -414,6 +414,13 @@ ATTENTION_WINDOW_DAYS = 30
 #: review set years out would keep a record out of `review-overdue` for good.
 REVIEW_HORIZON_DAYS = 365
 
+#: The furthest ahead a certificate / assurance expiry may be recorded. ICIT
+#: policy, not a standard: an ISO/IEC 27001 certificate, the longest-lived
+#: assurance the register names, runs a three-year cycle (leap day included);
+#: an expiry set further out would keep a record out of `assurance-expired`
+#: for good.
+ASSURANCE_HORIZON_DAYS = 1096
+
 #: Ratings at which a relationship must carry a dated assurance.
 ELEVATED_RISK = ("High", "Critical")
 
@@ -459,7 +466,8 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     (its rating decides whether it owes a dated assurance, so nothing else
     would ask) or whose data access was never established (whether it owes a
     BAA turns on PHI, so the BAA check could not fire), a lapsed review or assurance, a review set
-    more than `REVIEW_HORIZON_DAYS` out (which would never lapse), and gaps that leave the
+    more than `REVIEW_HORIZON_DAYS` out or an assurance expiry more than
+    `ASSURANCE_HORIZON_DAYS` out (neither would ever lapse), and gaps that leave the
     record unassessable: PHI with no scope or no recorded direction of flow
     (whether PHI leaves the practice, arrives, or both) or no technical owner
     (who cuts the feed or revokes its credential in an incident) or no network
@@ -481,6 +489,7 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
     as_of = date.fromisoformat(check_as_of(today))
     soon = (as_of + timedelta(days=ATTENTION_WINDOW_DAYS)).isoformat()
     horizon = (as_of + timedelta(days=REVIEW_HORIZON_DAYS)).isoformat()
+    assurance_horizon = (as_of + timedelta(days=ASSURANCE_HORIZON_DAYS)).isoformat()
     findings: list[dict[str, str]] = []
 
     def add(level: str, code: str, message: str) -> None:
@@ -565,6 +574,13 @@ def attention_findings(record: dict[str, Any], today: str) -> list[dict[str, str
             add("high", "assurance-expired", f"Certificate / assurance expired {expiry}.")
         elif expiry <= soon:
             add("notice", "assurance-expiring", f"Certificate / assurance expires {expiry}.")
+        elif expiry > assurance_horizon:
+            add(
+                "notice",
+                "assurance-too-distant",
+                f"Certificate / assurance expiry {expiry}, "
+                f"more than {ASSURANCE_HORIZON_DAYS} days out.",
+            )
     elif record.get("risk") in ELEVATED_RISK:
         add(
             "notice",

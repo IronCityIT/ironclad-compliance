@@ -3,6 +3,7 @@
   "today": "2026-09-26",
   "window_days": 30,
   "review_horizon_days": 365,
+  "assurance_horizon_days": 1096,
   "base": {
     "name": "Clean",
     "business_owner": "Practice manager",
@@ -161,6 +162,20 @@
       {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
     {"name": "assurance expiring on the last day of the window", "patch": {"cert_expiration_date": "2026-10-26"}, "expected": [
       {"level": "notice", "code": "assurance-expiring", "message": "Certificate / assurance expires 2026-10-26."}]},
+    {"name": "an assurance expiring on the last day of the horizon", "patch": {"cert_expiration_date": "2029-09-26"}, "expected": []},
+    {"name": "an assurance expiring one day past the horizon is too distant", "patch": {"cert_expiration_date": "2029-09-27"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2029-09-27, more than 1096 days out."}]},
+    {"name": "an assurance expiry set decades out is too distant", "patch": {"cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a distant expiry on a critical rating is dated, so not undated", "patch": {"risk": "Critical", "cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a distant expiry with no assurance named: distance first", "patch": {"cert_expiration_date": "2099-12-31", "assurance": ""}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."},
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2099-12-31 recorded with no assurance named."}]},
+    {"name": "a distant review is listed before a distant assurance expiry", "patch": {"review_due": "2099-12-31", "cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2099-12-31, more than 365 days out."},
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a retired record with a distant assurance expiry needs no attention", "patch": {"status": "Retired", "cert_expiration_date": "2099-12-31"}, "expected": []},
     {"name": "no assurance expiry recorded is not itself a finding", "patch": {"cert_expiration_date": ""}, "expected": []},
     {"name": "a medium rating with no assurance expiry is not a finding", "patch": {"risk": "Medium", "cert_expiration_date": ""}, "expected": []},
     {"name": "a high rating with no assurance expiry", "patch": {"risk": "High", "cert_expiration_date": ""}, "expected": [

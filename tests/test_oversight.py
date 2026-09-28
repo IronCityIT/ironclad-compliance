@@ -285,6 +285,26 @@ class TestTheReviewQueue:
         horizon = re.search(r"REVIEW_HORIZON_DAYS = (\d+);", core)
         assert horizon and int(horizon.group(1)) == oversight.REVIEW_HORIZON_DAYS
 
+    def test_the_assurance_horizon_is_the_dashboards(self) -> None:
+        assert ATTENTION["assurance_horizon_days"] == oversight.ASSURANCE_HORIZON_DAYS
+        core = (ROOT / "dashboard" / "public" / "oversight-core.js").read_text(encoding="utf-8")
+        horizon = re.search(r"ASSURANCE_HORIZON_DAYS = (\d+);", core)
+        assert horizon and int(horizon.group(1)) == oversight.ASSURANCE_HORIZON_DAYS
+
+    def test_the_assurance_horizon_outlasts_the_review_horizon(self) -> None:
+        # A shorter one would flag every assurance that honestly outlives a review.
+        assert oversight.ASSURANCE_HORIZON_DAYS > oversight.REVIEW_HORIZON_DAYS
+
+    def test_no_sage_seed_assurance_expires_beyond_the_horizon(self) -> None:
+        distant = [
+            entry["name"]
+            for kind in oversight.KINDS
+            for entry in SEED["oversight"][kind]
+            if "assurance-too-distant"
+            in [f["code"] for f in oversight.attention_findings(entry, "2026-09-26")]
+        ]
+        assert distant == []
+
     def test_no_sage_seed_review_is_scheduled_beyond_the_horizon(self) -> None:
         distant = [
             entry["name"]

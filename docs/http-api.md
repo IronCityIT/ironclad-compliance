@@ -357,7 +357,10 @@ here waits on B6, the browser sign-in. A service token can use these routes now.
   alone, so the record denies the PHI its own scope describes), a review or expiry within
   30 days, no review date, a review scheduled more than 365 days after
   `as_of` (`review-too-distant`: ICIT policy, `REVIEW_HORIZON_DAYS`; a review
-  set years out would never read as overdue), risk unrated on a record not yet
+  set years out would never read as overdue), a certificate / assurance
+  expiry more than 1096 days after `as_of` (`assurance-too-distant`: ICIT
+  policy, `ASSURANCE_HORIZON_DAYS`, an ISO/IEC 27001 certificate's three-year
+  cycle; an expiry set decades out would never read as expired), risk unrated on a record not yet
   `Active`, data access unknown on a record not yet `Active`, no business
   owner, a High or Critical rating with no assurance expiry recorded
   (`assurance-undated`: without one the expiry checks can never fire), an

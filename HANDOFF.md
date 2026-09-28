@@ -803,6 +803,13 @@ review scheduled more than 365 days out is a notice (`review-too-distant`):
 a review date set years ahead would keep the record out of
 `review-overdue` for good. The horizon is ICIT policy
 (`REVIEW_HORIZON_DAYS`), not a standard. No Sage seed record carries it.
+An assurance expiry recorded more than 1096 days out is a notice
+(`assurance-too-distant`): an expiry of 2099 would keep the record out of
+`assurance-expired` for good, and would satisfy `assurance-undated` on a
+High or Critical rating. The horizon is ICIT policy
+(`ASSURANCE_HORIZON_DAYS`: an ISO/IEC 27001 certificate's three-year
+cycle, a leap day included), not a standard. No Sage seed record carries
+it (none dates an assurance yet).
 An assurance expiry recorded with nothing in `assurance` is a notice
 (`assurance-unnamed`): the date cannot be checked against a SOC 2 report,
 HITRUST letter or certificate nobody named. No Sage seed record carries it

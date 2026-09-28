@@ -172,6 +172,11 @@ export const ATTENTION_WINDOW_DAYS = 30;
 // A review set years out would keep a record out of "overdue" for good.
 export const REVIEW_HORIZON_DAYS = 365;
 
+// The furthest ahead an assurance expiry may be recorded (ICIT policy: an
+// ISO/IEC 27001 certificate's three-year cycle, leap day included). An expiry
+// set further out would keep a record out of "expired" for good.
+export const ASSURANCE_HORIZON_DAYS = 1096;
+
 // Ratings at which a relationship must carry a dated assurance.
 export const ELEVATED_RISK = ["High", "Critical"];
 
@@ -198,7 +203,8 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  * today, a BAA execution date on a BAA not marked executed, an Active
  * relationship with no executed agreement, no risk rating or no established
  * data access, a lapsed review or
- * assurance, a review set more than REVIEW_HORIZON_DAYS out, and gaps that leave the record
+ * assurance, a review set more than REVIEW_HORIZON_DAYS out or an assurance
+ * expiry more than ASSURANCE_HORIZON_DAYS out, and gaps that leave the record
  * unassessable: PHI with no scope, no recorded direction of flow, no
  * technical owner (who cuts the feed in an incident) or no network exposure
  * (blank or the form's default "Unknown"), a PHI
@@ -213,6 +219,7 @@ export function attentionFindings(record, today) {
   if (record.status === "Retired") return [];
   const soon = addDays(today, ATTENTION_WINDOW_DAYS);
   const horizon = addDays(today, REVIEW_HORIZON_DAYS);
+  const assuranceHorizon = addDays(today, ASSURANCE_HORIZON_DAYS);
   const findings = [];
   const add = (level, code, message) => findings.push({ level, code, message });
   const baa = text(record.baa_status) || "not recorded";
@@ -249,6 +256,7 @@ export function attentionFindings(record, today) {
   if (ISO_DATE.test(expiry)) {
     if (expiry < today) add("high", "assurance-expired", `Certificate / assurance expired ${expiry}.`);
     else if (expiry <= soon) add("notice", "assurance-expiring", `Certificate / assurance expires ${expiry}.`);
+    else if (expiry > assuranceHorizon) add("notice", "assurance-too-distant", `Certificate / assurance expiry ${expiry}, more than ${ASSURANCE_HORIZON_DAYS} days out.`);
   } else if (ELEVATED_RISK.includes(record.risk)) {
     add("notice", "assurance-undated", `Rated ${record.risk} with no certificate / assurance expiry recorded.`);
   }
