@@ -2444,6 +2444,46 @@ the duplicate `push` run 36504358291 was cancelled): all six jobs, pytest
 1478 passed, 57 skipped on 3.10 and 3.12, persistence 339, dashboard
 117/117, Firestore rules 96/96.
 
+**The pipelines' commands are held to the CLI, 2026-09-28.** The runbook
+check above left out the one caller that runs `ironclad` for a client:
+`compliance-assessment.yml` and the `Jenkinsfile` call
+`python -m ironclad.cli` in shell, and nothing but a real dispatch or build
+runs that shell. A flag renamed in `ironclad/cli.py` would first fail on a
+client's assessment, after the evidence was staged. The existing workflow
+check covered one direction of one list (every loader alias is a workflow
+framework choice).
+
+`tests/test_pipeline_commands.py` parses every `python -m ironclad.cli`
+command in `ci.yml`, `compliance-assessment.yml`, `framework-updates.yml` and
+the `Jenkinsfile` with `build_parser()`, without running it. That is 19
+commands: 5 in CI, 8 in the workflow, 10 in Jenkins. An optional flag held
+in a shell variable (`previous="--previous ..."`, `compare="--compare-to
+..."`) is parsed both expanded and empty. A dispatch choice
+(`${{ inputs.assessment_type }}` and the rest) is parsed with each option
+the form offers, so the workflow's assessment step alone is 72 cases. The
+workflow's framework, group and assessment-type options, the Jenkins
+`FRAMEWORK` and `GROUP` choices, and the two smoke loops' framework lists
+must each equal what the engine knows (loader aliases, registry groups,
+report views), in both directions, with no duplicates. Every choice
+default must be one of its options. A guard requires the assess, report,
+export, `store latest`, `store health` and `store publish` steps of both
+pipelines, and the assess step with and without `--previous`, to be among
+those found.
+
+No drift was found. Four mutations each fail named tests: renaming
+`--compare-to` fails the report step in both pipelines, renaming
+`store latest --before` fails the workflow's fetch, a group `express` offered
+by the workflow fails the workflow-group case, and Jenkins dropping `hipaa`
+fails the Jenkins-FRAMEWORK case. No code, workflow, route, rule or document
+behaviour changed. `HANDOFF.md` §11 says so, and its table no longer calls
+the workflow never executed (it has run as a dry run).
+
+Local gates on Windows, 2026-09-28: pytest 1643 collected, 57 skipped,
+10 failed. The same 10 fail on untouched `700330c` in a worktree (1535
+collected; Windows-only). The new file is 108/108. `mypy --platform
+linux`, `ruff check` and `ruff format --check` are clean.
+`scripts/check_white_label.sh` passes and `git diff --check` is clean.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

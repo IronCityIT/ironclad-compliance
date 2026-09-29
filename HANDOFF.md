@@ -437,7 +437,7 @@ gate, open a PR and stop. Nothing is merged, nothing is deployed, and no
 | Workflow | Trigger | State |
 |---|---|---|
 | `ci.yml` | push, PR | **Green.** Five jobs: quality gates ×2 Python versions, Cloud Functions and dashboard, Firestore rules, security gate. |
-| `compliance-assessment.yml` | `workflow_dispatch` | **Never executed.** YAML parses; framework choices are checked against the loader by a test. |
+| `compliance-assessment.yml` | `workflow_dispatch` | **Run as a dry run only** (STATUS, "Dry runs"); never against a client. Its choices and every `ironclad` command it runs are checked against the CLI by a test (below). |
 | `framework-updates.yml` | schedule + dispatch | Last run 2026-08-29 on `main`, success — **and its output was wrong**, see below. |
 
 **PR #3 is a live false positive, still open.** The quarterly checker on `main`
@@ -473,6 +473,19 @@ bound to the retired ingest alone; it now prefers an `ironclad-store`
 credential (a volume path or DSN) the way the workflow prefers
 `IRONCLAD_STORE`, and neither credential id exists yet. Still unproven: the
 Docker agent and ICIT's own controller.
+
+Both pipelines call `python -m ironclad.cli` in shell, which only a real
+dispatch or build runs. `tests/test_pipeline_commands.py` parses every such
+command in `ci.yml`, `compliance-assessment.yml`, `framework-updates.yml` and
+the `Jenkinsfile` with the CLI's own parser, without running it: 19 commands,
+an optional flag held in a shell variable (`$previous`, `$compare`) expanded
+both ways, and the workflow's assessment with every framework, group and
+assessment type the dispatch form offers. The dispatch choices, the Jenkins `FRAMEWORK` and `GROUP` choices and
+the smoke loops' framework lists must each equal what the engine knows, so a
+framework added to the engine and not to a pipeline fails too. A guard requires
+the assess, report, export and store steps of both pipelines to be among those
+found. Renaming a flag either pipeline passes now fails there, not on a
+client's run after the evidence was staged.
 
 `compliance-assessment.yml` calls `IronCityIT/consensus-engine` by
 `workflow_call`. Its real contract — read from that repository, not assumed — is
