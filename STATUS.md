@@ -2489,6 +2489,42 @@ the duplicate `push` run 36506603473 was cancelled): all six jobs, pytest
 1586 passed, 57 skipped on 3.10 and 3.12, persistence 339, dashboard
 117/117, Firestore rules 96/96.
 
+**The HTTP route table is held to the router, 2026-09-29.** The command
+checks above cover what an operator types. The one surface a dashboard
+author, a partner's integrator or an auditor reads to learn what
+`ironclad serve` answers, and who may ask, is the route table in
+`docs/http-api.md`. Nothing held it to `App._register()`. A route added
+without a row would be a surface nobody reviewed. A row left after its
+route was removed would be a promise the server breaks. A "Needs" cell out
+of step with the permission the service checks would give an auditor the
+wrong access rule.
+
+`tests/test_documented_routes.py` reads the table and builds the router
+without serving. Every row's method and path must be a registered route
+(`/health` is asked through `App.handle` with no authenticator, the way a
+load balancer asks), and every registered route must be a row. The query
+parameters a row shows (`?limit=`, `?status=`, `?as_of=`) must be exactly
+the ones its handler reads. The "Needs" cell must match what the handler
+enforces. A permission such as `audit:read` must be the one the service
+method it calls passes to `authorize`. "any role in the tenant" must be a
+read-scoped register check. "owner, compliance manager, contributor" must
+be a write-scoped check whose roles equal `oversight.MAINTAIN_ROLES`. "a
+token" means authentication alone, and "nothing" is `/health` only. The
+roles listed under Authentication must equal `Role`, and the register
+kinds must equal `oversight.KINDS`. That is 65 cases.
+
+No drift was found. Six mutations each fail named tests: the revoke row
+saying `exception:read`, the service checking `report:read` for the audit
+trail, `?limit=` dropped from the assessments row, an undocumented
+`/oversight/raw` route, the review queue scoped as a write, and revoke
+registered as `PUT`. No code, route, rule or document behaviour changed.
+
+Local gates on Windows, 2026-09-29: pytest 1708 collected, 57 skipped,
+10 failed. The 10 are the Windows-only set recorded for `560d83a` above
+(symlinks, CRLF checkout, the 20-writer lock). The new file is 65/65.
+`mypy --platform linux`, `ruff check` and `ruff format --check` are clean.
+`scripts/check_white_label.sh` passes and `git diff --check` is clean.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
