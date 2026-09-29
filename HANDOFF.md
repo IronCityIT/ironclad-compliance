@@ -697,6 +697,13 @@ regulator's wording automatically, and neither does this session.
 **Nothing is deployed, so no production runbook can be written honestly yet.**
 What follows is what exists.
 
+Every `ironclad` command in a `sh` block here, in `README.md`,
+`docs/http-api.md` and `docs/ingestion-contract.md` is parsed by the CLI's
+own parser in `tests/test_documented_commands.py`, and every command quoted
+inline in their prose must name subcommands and flags that exist. A renamed
+flag fails that test, not an operator at the terminal. Write `...` for
+arguments shown in full elsewhere; the rest of the line must still parse.
+
 ### Validate a store before publishing anything real to it
 
 ```sh
