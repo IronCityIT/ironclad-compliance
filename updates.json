@@ -1,0 +1,43 @@
+{
+  "checked_at": "2026-10-01T05:24:10.798371+00:00",
+  "updates_found": true,
+  "frameworks": [
+    "soc2",
+    "nist-csf",
+    "pci-dss"
+  ],
+  "checks": [
+    {
+      "framework_id": "soc2",
+      "name": "SOC 2 Trust Service Criteria",
+      "checked_at": "2026-10-01T05:24:10.798397+00:00",
+      "update_detected": true,
+      "details": "Found 'latest' - manual review recommended",
+      "error": null
+    },
+    {
+      "framework_id": "nist-csf",
+      "name": "NIST Cybersecurity Framework",
+      "checked_at": "2026-10-01T05:24:11.820205+00:00",
+      "update_detected": true,
+      "details": "Found 'latest' - manual review recommended",
+      "error": null
+    },
+    {
+      "framework_id": "pci-dss",
+      "name": "PCI Data Security Standard",
+      "checked_at": "2026-10-01T05:24:12.001574+00:00",
+      "update_detected": true,
+      "details": "Found 'latest' - manual review recommended",
+      "error": null
+    },
+    {
+      "framework_id": "hipaa",
+      "name": "HIPAA Security Rule",
+      "checked_at": "2026-10-01T05:24:13.018911+00:00",
+      "update_detected": false,
+      "details": null,
+      "error": null
+    }
+  ]
+}
