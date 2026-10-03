@@ -264,8 +264,27 @@ file, so a policy **cannot assert an approval the workflow would refuse**:
 - an approved acceptance must name its approver and must carry an expiry
 - no acceptance may run beyond 365 days
 
-`status` may be `draft`, `pending_approval`, `approved`, `rejected` or `revoked`.
-Only an approved, unexpired acceptance changes a verdict.
+| Field | Required | Notes |
+|---|---|---|
+| `control_id` | yes | one open acceptance per control; a closed one does not occupy it |
+| `justification` | yes | a written reason |
+| `requested_by` | yes | may not also be the approver |
+| `status` | no | defaults to `approved` |
+| `approved_by` | for `approved` and `expired` | someone other than the requester |
+| `expires_at` | for `approved` and `expired` | no more than 365 days after the request date |
+| `approved_at` | no | ISO-8601; defaults to the request date |
+| `requested_at` | no | ISO-8601; defaults to `approved_at`, then to the time the file is read |
+| `compensating_controls` | no | an array of strings |
+| `exception_id` | no | derived from the tenant, control and request date when absent |
+| `note` | no | the reason recorded on a rejection or revocation |
+
+The 365 days and the expiry are measured from the request date. Give
+`requested_at` (or at least `approved_at`): an acceptance with neither is dated
+from the moment the file is read, so once it has run out the policy no longer
+loads.
+
+`status` may be `draft`, `pending_approval`, `approved`, `rejected`, `revoked`
+or `expired`. Only an approved, unexpired acceptance changes a verdict.
 
 Where a control is both excluded and accepted, **the exclusion wins** and the
 run warns — otherwise the control would return to the denominator as

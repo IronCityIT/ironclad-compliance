@@ -122,7 +122,12 @@ class TestPolicyValidation:
                 approved_at="2026-01-15T00:00:00+00:00",
                 expires_at="2026-06-01T00:00:00+00:00",
             ),
-            acceptance(status="rejected", approved_by="", approved_at=None),
+            acceptance(
+                status="rejected",
+                approved_by="",
+                approved_at=None,
+                requested_at="2026-08-10T00:00:00+00:00",
+            ),
         ]
         assert validate_policy(policy_doc(exceptions=[*history, acceptance()])) == []
         # and the file that validates also loads, with every state intact

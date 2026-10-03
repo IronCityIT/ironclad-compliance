@@ -252,7 +252,17 @@ def policy_from_document(document: dict[str, Any]) -> TenantPolicy:
 
     exceptions: list[RiskException] = []
     for raw in document.get("exceptions", []):
-        requested_at = _parse_moment(raw.get("requested_at"), "", []) or now
+        # A hand-written file often gives only the approval date. The request
+        # came no later than that, so it is the date the 365-day cap and the
+        # expiry are measured from. Falling straight through to "now" measured
+        # them from the day the file was read: an approval running 20 months
+        # loaded, and once an acceptance had run out the whole policy refused
+        # to load instead of the engine reporting it lapsed.
+        requested_at = (
+            _parse_moment(raw.get("requested_at"), "", [])
+            or _parse_moment(raw.get("approved_at"), "", [])
+            or now
+        )
         control_id = str(raw["control_id"]).strip()
         expires_at = _parse_moment(raw.get("expires_at"), "", [])
 
