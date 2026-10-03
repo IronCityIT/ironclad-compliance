@@ -1,0 +1,214 @@
+{
+  "about": "The review queue's specification: each case is `base` with `patch` applied (null clears a field), judged as of `today`. dashboard/public/oversight-core.js attentionFindings() and ironclad/oversight.py attention_findings() must both return `expected` exactly, in order. Held by dashboard/test/oversight.test.js and tests/test_oversight.py.",
+  "today": "2026-09-26",
+  "window_days": 30,
+  "review_horizon_days": 365,
+  "assurance_horizon_days": 1096,
+  "base": {
+    "name": "Clean",
+    "business_owner": "Practice manager",
+    "technical_owner": "Practice IT",
+    "network_exposure": "Clinical VLAN / private network",
+    "status": "Active",
+    "risk": "Low",
+    "data_access": "PHI",
+    "agreement_status": "Executed",
+    "baa_status": "Executed",
+    "baa_execution_date": "2025-01-15",
+    "baa_document_ref": "Contract 42",
+    "phi_scope": "Demographics and imaging",
+    "data_flow_direction": "Bidirectional",
+    "review_due": "2027-03-01",
+    "cert_expiration_date": "2027-06-30",
+    "assurance": "SOC 2 Type II report, 2026"
+  },
+  "cases": [
+    {"name": "a fully governed PHI record needs no attention", "patch": {}, "expected": []},
+    {"name": "PHI with the BAA pending review", "patch": {"baa_execution_date": "", "baa_status": "Pending review"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."}]},
+    {"name": "PHI with the BAA marked not required is still high", "patch": {"baa_execution_date": "", "baa_status": "Not required"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Not required)."}]},
+    {"name": "PHI with no BAA status recorded", "patch": {"baa_execution_date": "", "baa_status": ""}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: not recorded)."}]},
+    {"name": "operational data with no BAA required needs no attention", "patch": {"phi_scope": "", "baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": []},
+    {"name": "an executed BAA with no execution date", "patch": {"baa_execution_date": ""}, "expected": [
+      {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date recorded."}]},
+    {"name": "an executed BAA with no date and no document", "patch": {"baa_execution_date": "", "baa_document_ref": null}, "expected": [
+      {"level": "high", "code": "baa-evidence-missing", "message": "BAA marked executed with no execution date or document reference recorded."}]},
+    {"name": "an executed BAA dated tomorrow is not yet in effect", "patch": {"baa_execution_date": "2026-09-27"}, "expected": [
+      {"level": "high", "code": "baa-not-yet-effective", "message": "BAA marked executed with an execution date of 2026-09-27, after today."}]},
+    {"name": "an executed BAA dated today is in effect", "patch": {"baa_execution_date": "2026-09-26"}, "expected": []},
+    {"name": "a future date on a BAA not marked executed is the missing BAA, not one ahead of itself", "patch": {"baa_status": "Pending review", "baa_execution_date": "2027-01-01"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
+      {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2027-01-01 recorded but BAA status is Pending review."}]},
+    {"name": "an execution date on a BAA still under review", "patch": {"baa_status": "Under review"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Under review)."},
+      {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is Under review."}]},
+    {"name": "an execution date on a BAA ruled not required", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is Not required."}]},
+    {"name": "an execution date with no BAA status recorded", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": null}, "expected": [
+      {"level": "notice", "code": "baa-date-unexecuted", "message": "BAA execution date 2025-01-15 recorded but BAA status is not recorded."}]},
+    {"name": "a document reference alone on an unexecuted BAA is a draft, not a contradiction", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Under review", "baa_execution_date": ""}, "expected": []},
+    {"name": "an unreadable execution date on an unexecuted BAA is not a recorded one", "patch": {"phi_scope": "", "data_access": "Operational only", "baa_status": "Not required", "baa_execution_date": "Jan 2025"}, "expected": []},
+    {"name": "an active relationship with its agreement under review", "patch": {"agreement_status": "Under review"}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."}]},
+    {"name": "an active relationship with its agreement required and pending", "patch": {"agreement_status": "Required - pending"}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Required - pending)."}]},
+    {"name": "an active relationship with no agreement status recorded", "patch": {"agreement_status": null}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: not recorded)."}]},
+    {"name": "an agreement ruled not required settles it", "patch": {"agreement_status": "Not required"}, "expected": []},
+    {"name": "an unsigned agreement while onboarding is not yet a finding", "patch": {"status": "Onboarding", "agreement_status": "Required - pending"}, "expected": []},
+    {"name": "an unsigned agreement under review of the relationship is not this finding", "patch": {"status": "Under review", "agreement_status": "Pending review"}, "expected": []},
+    {"name": "active with neither agreement nor BAA: the BAA first", "patch": {"baa_execution_date": "", "agreement_status": "Pending review", "baa_status": "Pending review"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Pending review)."}]},
+    {"name": "an active relationship never risk-rated", "patch": {"risk": "Unrated"}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."}]},
+    {"name": "an active relationship with its risk cleared", "patch": {"risk": null}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."}]},
+    {"name": "an unrated relationship while onboarding is only the notice", "patch": {"status": "Onboarding", "risk": "Unrated"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "an unrated proposal is only the notice", "patch": {"status": "Pending information", "risk": "Unrated"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "a retired unrated relationship needs no attention", "patch": {"status": "Retired", "risk": "Unrated"}, "expected": []},
+    {"name": "active with no agreement and no rating: the agreement first", "patch": {"agreement_status": "Under review", "risk": "Unrated", "business_owner": ""}, "expected": [
+      {"level": "high", "code": "agreement-not-executed", "message": "Active without an executed agreement (Agreement: Under review)."},
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."},
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "an active relationship whose data access is unknown", "patch": {"data_access": "Unknown"}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "an active relationship with its data access cleared", "patch": {"data_access": null}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "active with data access unknown and no BAA: the BAA check cannot fire, this does", "patch": {"data_access": "Unknown", "baa_status": "Pending review", "baa_execution_date": ""}, "expected": [
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "data access unknown while onboarding is only the notice", "patch": {"status": "Onboarding", "data_access": "Unknown"}, "expected": [
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a retired relationship of unknown data access needs no attention", "patch": {"status": "Retired", "data_access": "Unknown"}, "expected": []},
+    {"name": "active, unrated and of unknown data access: the rating first", "patch": {"risk": "Unrated", "data_access": "Unknown"}, "expected": [
+      {"level": "high", "code": "active-unrated", "message": "Active with risk not yet rated."},
+      {"level": "high", "code": "active-access-unknown", "message": "Active with data access not established."}]},
+    {"name": "PHI with no scope recorded", "patch": {"phi_scope": null}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
+    {"name": "PHI with no data flow direction recorded", "patch": {"data_flow_direction": ""}, "expected": [
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
+    {"name": "PHI with the data flow direction cleared", "patch": {"data_flow_direction": null}, "expected": [
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
+    {"name": "PHI with no technical owner recorded", "patch": {"technical_owner": ""}, "expected": [
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."}]},
+    {"name": "PHI with the technical owner cleared", "patch": {"technical_owner": null}, "expected": [
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."}]},
+    {"name": "a blank technical owner counts as none", "patch": {"technical_owner": "   "}, "expected": [
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."}]},
+    {"name": "no PHI, no technical owner owed", "patch": {"phi_scope": "", "data_access": "PII", "technical_owner": ""}, "expected": []},
+    {"name": "PHI with neither direction nor technical owner: direction first", "patch": {"data_flow_direction": "", "technical_owner": ""}, "expected": [
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."},
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."}]},
+    {"name": "PHI with no network exposure recorded", "patch": {"network_exposure": ""}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "PHI with the network exposure cleared", "patch": {"network_exposure": null}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "PHI with the form's default Unknown exposure", "patch": {"network_exposure": "Unknown"}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "a blank network exposure counts as none", "patch": {"network_exposure": "  "}, "expected": [
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "no PHI, no network exposure owed", "patch": {"phi_scope": "", "data_access": "PII", "network_exposure": "Unknown"}, "expected": []},
+    {"name": "PHI with neither technical owner nor exposure: owner first", "patch": {"technical_owner": "", "network_exposure": ""}, "expected": [
+      {"level": "notice", "code": "technical-owner-unassigned", "message": "Handles PHI with no technical owner recorded."},
+      {"level": "notice", "code": "phi-exposure-unrecorded", "message": "Handles PHI with no network exposure recorded."}]},
+    {"name": "no PHI, no direction of flow owed", "patch": {"phi_scope": "", "data_access": "PII", "data_flow_direction": ""}, "expected": []},
+    {"name": "PHI with neither scope nor direction: scope first", "patch": {"phi_scope": "", "data_flow_direction": ""}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
+      {"level": "notice", "code": "phi-flow-unrecorded", "message": "Handles PHI with no data flow direction recorded."}]},
+    {"name": "a blank PHI scope counts as none", "patch": {"phi_scope": "   "}, "expected": [
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."}]},
+    {"name": "no PHI scope is not a finding when no PHI is handled", "patch": {"baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required", "phi_scope": ""}, "expected": []},
+    {"name": "a PHI scope on a record set to operational data only", "patch": {"baa_execution_date": "", "data_access": "Operational only", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is Operational only."}]},
+    {"name": "a PHI scope on a record set to PII", "patch": {"baa_execution_date": "", "data_access": "PII", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is PII."}]},
+    {"name": "a PHI scope on a record set to no production data", "patch": {"baa_execution_date": "", "data_access": "No production data", "baa_status": "Pending review"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is No production data."}]},
+    {"name": "a PHI scope contradicted while onboarding is still a notice", "patch": {"status": "Onboarding", "baa_execution_date": "", "data_access": "PII", "baa_status": "Not required"}, "expected": [
+      {"level": "notice", "code": "phi-scope-contradicted", "message": "PHI scope recorded but data access is PII."}]},
+    {"name": "a blank PHI scope on a non-PHI record is no contradiction", "patch": {"baa_execution_date": "", "data_access": "PII", "baa_status": "Not required", "phi_scope": "  "}, "expected": []},
+    {"name": "a PHI scope with data access cleared is the unknown access, not a contradiction", "patch": {"status": "Onboarding", "data_access": null}, "expected": [
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a PHI scope retired with the record needs no attention", "patch": {"status": "Retired", "data_access": "PII"}, "expected": []},
+    {"name": "no business owner", "patch": {"business_owner": null}, "expected": [
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "a blank business owner counts as none", "patch": {"business_owner": "  "}, "expected": [
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "a review due yesterday is overdue", "patch": {"review_due": "2026-09-25"}, "expected": [
+      {"level": "high", "code": "review-overdue", "message": "Review overdue since 2026-09-25."}]},
+    {"name": "a review due today is due soon, not overdue", "patch": {"review_due": "2026-09-26"}, "expected": [
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-09-26."}]},
+    {"name": "a review on the last day of the window", "patch": {"review_due": "2026-10-26"}, "expected": [
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-10-26."}]},
+    {"name": "a review one day past the window", "patch": {"review_due": "2026-10-27"}, "expected": []},
+    {"name": "no review date", "patch": {"review_due": ""}, "expected": [
+      {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
+    {"name": "a review date that is not ISO counts as none", "patch": {"review_due": "2026/10/01"}, "expected": [
+      {"level": "notice", "code": "review-unscheduled", "message": "No review date set."}]},
+    {"name": "a review on the last day of the horizon", "patch": {"review_due": "2027-09-26"}, "expected": []},
+    {"name": "a review one day past the horizon is too distant", "patch": {"review_due": "2027-09-27"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2027-09-27, more than 365 days out."}]},
+    {"name": "a review set decades out is too distant", "patch": {"review_due": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2099-12-31, more than 365 days out."}]},
+    {"name": "a distant review is listed before an assurance notice", "patch": {"review_due": "2030-01-01", "cert_expiration_date": "2026-10-10"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2030-01-01, more than 365 days out."},
+      {"level": "notice", "code": "assurance-expiring", "message": "Certificate / assurance expires 2026-10-10."}]},
+    {"name": "a retired record with a distant review needs no attention", "patch": {"status": "Retired", "review_due": "2099-12-31"}, "expected": []},
+    {"name": "expired assurance", "patch": {"cert_expiration_date": "2026-01-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
+    {"name": "assurance expiring on the last day of the window", "patch": {"cert_expiration_date": "2026-10-26"}, "expected": [
+      {"level": "notice", "code": "assurance-expiring", "message": "Certificate / assurance expires 2026-10-26."}]},
+    {"name": "an assurance expiring on the last day of the horizon", "patch": {"cert_expiration_date": "2029-09-26"}, "expected": []},
+    {"name": "an assurance expiring one day past the horizon is too distant", "patch": {"cert_expiration_date": "2029-09-27"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2029-09-27, more than 1096 days out."}]},
+    {"name": "an assurance expiry set decades out is too distant", "patch": {"cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a distant expiry on a critical rating is dated, so not undated", "patch": {"risk": "Critical", "cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a distant expiry with no assurance named: distance first", "patch": {"cert_expiration_date": "2099-12-31", "assurance": ""}, "expected": [
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."},
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2099-12-31 recorded with no assurance named."}]},
+    {"name": "a distant review is listed before a distant assurance expiry", "patch": {"review_due": "2099-12-31", "cert_expiration_date": "2099-12-31"}, "expected": [
+      {"level": "notice", "code": "review-too-distant", "message": "Review scheduled 2099-12-31, more than 365 days out."},
+      {"level": "notice", "code": "assurance-too-distant", "message": "Certificate / assurance expiry 2099-12-31, more than 1096 days out."}]},
+    {"name": "a retired record with a distant assurance expiry needs no attention", "patch": {"status": "Retired", "cert_expiration_date": "2099-12-31"}, "expected": []},
+    {"name": "no assurance expiry recorded is not itself a finding", "patch": {"cert_expiration_date": ""}, "expected": []},
+    {"name": "a medium rating with no assurance expiry is not a finding", "patch": {"risk": "Medium", "cert_expiration_date": ""}, "expected": []},
+    {"name": "a high rating with no assurance expiry", "patch": {"risk": "High", "cert_expiration_date": ""}, "expected": [
+      {"level": "notice", "code": "assurance-undated", "message": "Rated High with no certificate / assurance expiry recorded."}]},
+    {"name": "a critical rating with an expiry that is not ISO counts as none", "patch": {"risk": "Critical", "cert_expiration_date": "06/30/2027"}, "expected": [
+      {"level": "notice", "code": "assurance-undated", "message": "Rated Critical with no certificate / assurance expiry recorded."}]},
+    {"name": "a high rating with a dated assurance needs no attention", "patch": {"risk": "High"}, "expected": []},
+    {"name": "an assurance expiry with no assurance named", "patch": {"assurance": ""}, "expected": [
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2027-06-30 recorded with no assurance named."}]},
+    {"name": "an assurance expiry with the assurance cleared", "patch": {"assurance": null}, "expected": [
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2027-06-30 recorded with no assurance named."}]},
+    {"name": "an assurance named only in whitespace is unnamed", "patch": {"assurance": "   "}, "expected": [
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2027-06-30 recorded with no assurance named."}]},
+    {"name": "no expiry and no assurance owes no name", "patch": {"assurance": "", "cert_expiration_date": ""}, "expected": []},
+    {"name": "a lapsed unnamed assurance is the lapse first, then the name", "patch": {"assurance": "", "cert_expiration_date": "2026-01-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."},
+      {"level": "notice", "code": "assurance-unnamed", "message": "Certificate / assurance expiry 2026-01-01 recorded with no assurance named."}]},
+    {"name": "a high rating whose assurance lapsed is the lapse, not undated", "patch": {"risk": "High", "cert_expiration_date": "2026-01-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-01-01."}]},
+    {"name": "risk unset and data access unknown", "patch": {"status": "Under review", "risk": null, "data_access": "Unknown"}, "expected": [
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."},
+      {"level": "notice", "code": "data-access-unknown", "message": "Data access not established."}]},
+    {"name": "a not-yet-effective BAA, no scope and no owner: the high first", "patch": {"phi_scope": "", "business_owner": "", "baa_execution_date": "2026-12-01"}, "expected": [
+      {"level": "high", "code": "baa-not-yet-effective", "message": "BAA marked executed with an execution date of 2026-12-01, after today."},
+      {"level": "notice", "code": "phi-scope-missing", "message": "Handles PHI with no PHI scope recorded."},
+      {"level": "notice", "code": "owner-unassigned", "message": "No business owner recorded."}]},
+    {"name": "high findings in the order found, then notices", "patch": {"status": "Under review", "baa_execution_date": "", "risk": "Unrated", "baa_status": "Pending review", "review_due": "2020-01-01"}, "expected": [
+      {"level": "high", "code": "phi-without-baa", "message": "Handles PHI without an executed BAA (BAA: Pending review)."},
+      {"level": "high", "code": "review-overdue", "message": "Review overdue since 2020-01-01."},
+      {"level": "notice", "code": "risk-unrated", "message": "Risk not yet rated."}]},
+    {"name": "a high found after a notice still sorts first", "patch": {"review_due": "2026-10-01", "cert_expiration_date": "2026-09-01"}, "expected": [
+      {"level": "high", "code": "assurance-expired", "message": "Certificate / assurance expired 2026-09-01."},
+      {"level": "notice", "code": "review-due-soon", "message": "Review due 2026-10-01."}]},
+    {"name": "a retired record needs no attention", "patch": {"status": "Retired", "baa_status": "", "review_due": "2020-01-01"}, "expected": []}
+  ]
+}

@@ -1,0 +1,268 @@
+rules_version = '2';
+
+// Ironclad Compliance — multi-tenant Firestore rules.
+//
+// Data is partitioned as clients/{client_id}/... . A signed-in user may read
+// only their own client's data. The client_id and roles are asserted on the
+// Auth0 -> Firebase custom token by functions/exchange.js; nothing else mints
+// them, so there is no path to another tenant's documents.
+//
+// Assessment, evidence, remediation and risk writes remain Admin/service-owned.
+// The only browser-write exception is the tenant partner/integration register,
+// restricted to owner, compliance_manager and contributor roles.
+//
+// Roles mirror ironclad.model.tenant.Role. The two role checks below are the
+// ones that matter at the data layer:
+//   * evidence and the audit trail are not visible to a plain viewer
+//   * only oversight records are client-maintainable; assessment records stay read-only
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function callerClientId() {
+      return request.auth != null ? request.auth.token.client_id : null;
+    }
+
+    function callerRoles() {
+      return request.auth != null && request.auth.token.roles is list
+        ? request.auth.token.roles
+        : [];
+    }
+
+    function ownsTenant(clientId) {
+      return callerClientId() == clientId;
+    }
+
+    // Evidence references and the audit trail are privileged reads within the
+    // tenant. A viewer sees the readiness position; they do not see the
+    // underlying evidence index or who accepted which risk.
+    function canReadPrivileged() {
+      return callerRoles().hasAny(['owner', 'compliance_manager', 'auditor']);
+    }
+
+    function canMaintainOversight() {
+      return callerRoles().hasAny(['owner', 'compliance_manager', 'contributor']);
+    }
+
+    function canApproveOversight() {
+      return callerRoles().hasAny(['owner', 'compliance_manager']);
+    }
+
+    // The register is the one browser-writable surface, so its shape is fixed
+    // here rather than trusted to the page: a closed field list, closed
+    // vocabularies for every governance field, ISO dates, bounded text. An
+    // open map would let any contributor park arbitrary data - PHI included -
+    // in fields nobody reviews.
+    function oversightFields() {
+      return ['tenant_id', 'name', 'business_owner', 'technical_owner', 'status',
+        'risk', 'data_access', 'phi_scope', 'data_flow_direction',
+        'agreement_status', 'baa_status', 'baa_execution_date', 'baa_document_ref',
+        'review_due', 'integration_method', 'port_protocol', 'network_exposure',
+        'assurance', 'cert_expiration_date', 'notes', 'revision',
+        'created_at', 'created_by', 'updated_at', 'updated_by'];
+    }
+
+    function optionalText(d, key, max) {
+      return !(key in d) || (d[key] is string && d[key].size() <= max);
+    }
+
+    function optionalOneOf(d, key, values) {
+      return !(key in d) || d[key] in values;
+    }
+
+    // Month 01-12 and day 01-31: the rules cannot do calendar arithmetic, so
+    // 2026-02-30 passes here and is refused by the server's check
+    // (ironclad/oversight.py), which names only days that exist.
+    function optionalDate(d, key) {
+      return !(key in d)
+        || (d[key] is string && (d[key] == ''
+          || d[key].matches('[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])')));
+    }
+
+    function validOversightShape() {
+      let d = request.resource.data;
+      let agreement = ['Pending review', 'Under review', 'Required - pending', 'Executed', 'Not required'];
+      return d.keys().hasOnly(oversightFields())
+        && d.keys().hasAll(['tenant_id', 'name', 'status', 'risk', 'agreement_status', 'baa_status',
+          'revision', 'created_at', 'created_by', 'updated_at', 'updated_by'])
+        && d.revision is int
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.status in ['Pending information', 'Onboarding', 'Active', 'Under review', 'Offboarding', 'Retired']
+        && d.risk in ['Unrated', 'Low', 'Medium', 'High', 'Critical']
+        && d.agreement_status in agreement
+        && d.baa_status in agreement
+        && optionalOneOf(d, 'data_access', ['PHI', 'PII', 'Operational only', 'No production data', 'Unknown'])
+        && optionalOneOf(d, 'data_flow_direction', ['', 'Bidirectional', 'Outbound / push', 'Inbound / pull', 'Unidirectional'])
+        && optionalDate(d, 'baa_execution_date')
+        && optionalDate(d, 'review_due')
+        && optionalDate(d, 'cert_expiration_date')
+        && optionalText(d, 'business_owner', 120)
+        && optionalText(d, 'technical_owner', 120)
+        && optionalText(d, 'phi_scope', 300)
+        && optionalText(d, 'baa_document_ref', 300)
+        && optionalText(d, 'integration_method', 120)
+        && optionalText(d, 'port_protocol', 120)
+        && optionalText(d, 'network_exposure', 120)
+        && optionalText(d, 'assurance', 300)
+        && optionalText(d, 'notes', 2000);
+    }
+
+    // Change history. Every write to a register record carries the next
+    // revision number and must, in the same batch, create history/{revision}
+    // holding an exact copy of the record as written. updated_by/updated_at in
+    // that copy say who changed it and when; adjacent revisions say what. The
+    // copy is immutable, and because history/{n} can be created only once, two
+    // editors working from the same revision cannot both land: the second is
+    // refused instead of silently overwriting the first.
+    function oversightHistory(clientId, kind, recordId, revision) {
+      return /databases/$(database)/documents/clients/$(clientId)/$(kind)/$(recordId)/history/$(string(revision));
+    }
+
+    function recordsHistory(clientId, kind, recordId) {
+      return existsAfter(oversightHistory(clientId, kind, recordId, request.resource.data.revision));
+    }
+
+    // A history entry is only ever the record's own post-write state, written
+    // by the caller who made that write, in that request.
+    function canRecordOversightHistory(clientId, kind, recordId, revision) {
+      let after = getAfter(/databases/$(database)/documents/clients/$(clientId)/$(kind)/$(recordId));
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && after != null
+        && revision == string(after.data.revision)
+        && after.data.updated_by == request.auth.uid
+        && after.data.updated_at == request.time
+        && request.resource.data == after.data;
+    }
+
+    function validOversightCreate(clientId) {
+      return request.resource.data.tenant_id == clientId
+        && request.resource.data.revision == 1
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.updated_by == request.auth.uid
+        && request.resource.data.created_at == request.time
+        && request.resource.data.updated_at == request.time;
+    }
+
+    function validOversightUpdate(clientId) {
+      return request.resource.data.tenant_id == clientId
+        && request.resource.data.tenant_id == resource.data.tenant_id
+        && request.resource.data.created_by == resource.data.created_by
+        && request.resource.data.created_at == resource.data.created_at
+        // Records seeded before history existed carry no revision; their first
+        // edit is revision 1.
+        && request.resource.data.revision == resource.data.get('revision', 0) + 1
+        && request.resource.data.updated_by == request.auth.uid
+        && request.resource.data.updated_at == request.time;
+    }
+
+    function contributorKeepsGovernanceState() {
+      return !callerRoles().hasAny(['contributor'])
+        || callerRoles().hasAny(['owner', 'compliance_manager'])
+        // data_access is proposed on create and then settled by an approver:
+        // whether the relationship owes a BAA turns on it.
+        || (!request.resource.data.diff(resource.data).affectedKeys().hasAny(
+          ['risk', 'agreement_status', 'baa_status', 'status', 'data_access']
+        ));
+    }
+
+    // A contributor may propose a record; only an approver may rate it.
+    function contributorCreatesUnrated() {
+      return canApproveOversight()
+        || (request.resource.data.risk == 'Unrated'
+          && request.resource.data.agreement_status == 'Pending review'
+          && request.resource.data.baa_status == 'Pending review'
+          && request.resource.data.status == 'Pending information');
+    }
+
+    function canCreateOversight(clientId, kind, recordId) {
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && validOversightCreate(clientId)
+        && validOversightShape()
+        && contributorCreatesUnrated()
+        && recordsHistory(clientId, kind, recordId);
+    }
+
+    function canUpdateOversight(clientId, kind, recordId) {
+      return ownsTenant(clientId)
+        && canMaintainOversight()
+        && validOversightUpdate(clientId)
+        && validOversightShape()
+        && contributorKeepsGovernanceState()
+        && recordsHistory(clientId, kind, recordId);
+    }
+
+    match /clients/{clientId} {
+      allow read: if ownsTenant(clientId);
+      allow write: if false;
+
+      match /assessments/{assessmentId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+
+        // Per-control detail, stored separately for large frameworks.
+        match /controls/{controlId} {
+          allow read: if ownsTenant(clientId);
+          allow write: if false;
+        }
+      }
+
+      match /remediation/{itemId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      // Client-maintained third-party and integration inventory. These are the
+      // only browser-writable records in the tenant tree. The authenticated
+      // tenant owns the path and only programme contributors may change it.
+      match /partners/{partnerId} {
+        allow read: if ownsTenant(clientId);
+        allow create: if canCreateOversight(clientId, 'partners', partnerId);
+        allow update: if canUpdateOversight(clientId, 'partners', partnerId);
+        // Retain history. Offboard/retire records by status rather than deleting them.
+        allow delete: if false;
+
+        match /history/{revision} {
+          allow read: if ownsTenant(clientId);
+          allow create: if canRecordOversightHistory(clientId, 'partners', partnerId, revision);
+          allow update, delete: if false;
+        }
+      }
+
+      match /integrations/{integrationId} {
+        allow read: if ownsTenant(clientId);
+        allow create: if canCreateOversight(clientId, 'integrations', integrationId);
+        allow update: if canUpdateOversight(clientId, 'integrations', integrationId);
+        // Retain history. Offboard/retire records by status rather than deleting them.
+        allow delete: if false;
+
+        match /history/{revision} {
+          allow read: if ownsTenant(clientId);
+          allow create: if canRecordOversightHistory(clientId, 'integrations', integrationId, revision);
+          allow update, delete: if false;
+        }
+      }
+
+      match /exceptions/{exceptionId} {
+        allow read: if ownsTenant(clientId);
+        allow write: if false;
+      }
+
+      match /evidence/{artifactId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+
+      match /audit/{eventId} {
+        allow read: if ownsTenant(clientId) && canReadPrivileged();
+        allow write: if false;
+      }
+    }
+
+    // Anything not matched above is closed. Stated explicitly rather than left
+    // to the default, so a new collection cannot be readable by accident.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
