@@ -112,6 +112,9 @@ class Comparison:
     readiness_before: float
     readiness_after: float
     comparable: bool = True
+    # Why it is not comparable, in a few words for the headline. The caveat
+    # says it in full.
+    not_comparable_because: str = ""
     caveats: list[str] = field(default_factory=list)
     improved: list[ControlChange] = field(default_factory=list)
     regressed: list[ControlChange] = field(default_factory=list)
@@ -189,6 +192,13 @@ class Comparison:
 
     def headline(self) -> str:
         """One line a human can read off the end of a pipeline."""
+        if not self.comparable:
+            # The report section states the reason and shows no numbers. The
+            # line printed beside it showed the movement anyway (§16.7).
+            return (
+                f"not comparable with {self.earlier_id} ({self.not_comparable_because}); "
+                f"no readiness change, control movement or remediation counts are reported"
+            )
         direction = (
             "up"
             if self.readiness_change > 0
@@ -297,6 +307,7 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
 
     if earlier_framework != later_framework:
         comparison.comparable = False
+        comparison.not_comparable_because = "different frameworks"
         comparison.caveats.append(
             f"These are assessments against different frameworks "
             f"({earlier_framework} and {later_framework}). The readiness figures are "
@@ -304,6 +315,7 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         )
     elif earlier_version != later_version:
         comparison.comparable = False
+        comparison.not_comparable_because = "the framework version changed"
         comparison.caveats.append(
             f"The framework moved from version {earlier_version} to {later_version} "
             f"between these assessments. Controls that changed with it are not a "

@@ -2798,6 +2798,30 @@ CI for this change: green at `ba21278` (run 37487188724, `pull_request`;
 the duplicate `push` run 37487181177 was cancelled): all six jobs, pytest 1773 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**A pair that is not comparable prints no trend, 2026-10-06.** When two
+assessments are against different frameworks, or different versions of one,
+`compare()` marks them not comparable and the report's "Since the last
+assessment" section states the reason and shows no numbers. The one-line
+headline printed beside it did not check. `ironclad report --compare-to` and
+`ironclad compare` printed `readiness 40.0% → 80.0% (up 40.0), 1 improved, …`
+to the operator for the same pair. That is the number that looks like a trend
+and is not. `PRODUCTIZE_NOTES.md` §16.7 had recorded this and left it. The
+headline now reads `not comparable with <earlier id> (different frameworks)`,
+or `(the framework version changed)`. It adds that no readiness change,
+control movement or remediation counts are reported. `ironclad compare` still
+prints the full caveat after it. The JSON is unchanged and still carries
+`"comparable": false`.
+`tests/test_compare.py::TestTheHeadline::test_a_pair_that_is_not_comparable_reports_no_movement`
+(both causes) and
+`TestTheCompareCommand::test_the_report_command_prints_no_trend_across_frameworks`
+hold it. All three failed against `d670aef` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1833 collected, 57 skipped,
+10 failed, the same set as untouched `d670aef` run in a worktree (1830
+collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the 20-writer lock,
+fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` passes.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

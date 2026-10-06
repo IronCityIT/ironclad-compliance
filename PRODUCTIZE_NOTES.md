@@ -1000,8 +1000,9 @@ reading any evidence.
   shape, naming the file and the reason.
 - Checked and already right: an earlier assessment against a *different
   framework* produces a "Since the last assessment" section that states the
-  reason and shows no numbers. The CLI's stderr headline still prints the
-  movement figure for that case; the report a client sees does not.
+  reason and shows no numbers. The CLI's stderr headline still printed the
+  movement figure for that case; the report a client sees did not. Closed
+  2026-10-06: the headline names the reason and reports no movement.
 
 ### 16.8 Hostile and incidental content
 

@@ -462,6 +462,21 @@ class TestTheHeadline:
     def test_no_movement_reads_as_level(self, earlier) -> None:
         assert "level" in compare(earlier, earlier).headline()
 
+    @pytest.mark.parametrize("field, value", [("id", "hipaa"), ("version", "2.0")])
+    def test_a_pair_that_is_not_comparable_reports_no_movement(
+        self, earlier, field: str, value: str
+    ) -> None:
+        # The report section states the reason and shows no numbers; the
+        # headline printed "readiness 40.0% → 80.0% (up 40.0), 1 improved"
+        # for the same pair, the figure that looks like a trend and is not.
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        later["framework"][field] = value
+        later["summary"]["readiness_score"] = 80.0
+        headline = compare(earlier, later).headline()
+        assert headline.startswith("not comparable with acme-q3")
+        for movement in ("→", "up", "down", "level", "improved", "regressed", "closed", "opened"):
+            assert movement not in headline
+
 
 class TestTheCompareCommand:
     def _write(self, path: Path, document: dict[str, Any]) -> Path:
@@ -509,6 +524,22 @@ class TestTheCompareCommand:
         b = self._write(tmp_path / "q4.json", later)
         main(["compare", "--from", str(a), "--to", str(b)])
         assert "caveat:" in capsys.readouterr().err
+
+    def test_the_report_command_prints_no_trend_across_frameworks(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        # The report it writes shows no numbers for this pair; the line it
+        # printed to the operator showed the movement anyway (§16.7).
+        other = revised(earlier)
+        other["framework"]["id"] = "hipaa"
+        a = self._write(tmp_path / "q3.json", other)
+        b = self._write(tmp_path / "q4.json", revised(earlier, "acme-q5"))
+        out = tmp_path / "report.html"
+        code = main(["report", "--input", str(b), "--compare-to", str(a), "--out", str(out)])
+        assert code == 0
+        err = capsys.readouterr().err
+        assert "not comparable with acme-q4" in err
+        assert "→" not in err
 
 
 class TestTheTrendReachesTheClient:
