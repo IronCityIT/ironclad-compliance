@@ -2698,8 +2698,8 @@ clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh`
 pass.
 
 CI for this change: green at `7294a1e` (run 37474988157, `pull_request`;
-the duplicate `push` run 37474977721 completed green before it was
-cancelled): all six jobs, pytest 1768 passed, 57 skipped on 3.10 and 3.12,
+the duplicate `push` run 37474977721 also ran to completion, green,
+before it could be cancelled): all six jobs, pytest 1768 passed, 57 skipped on 3.10 and 3.12,
 persistence 339, dashboard 117/117, Firestore rules 96/96.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
