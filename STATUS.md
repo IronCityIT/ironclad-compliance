@@ -2644,6 +2644,30 @@ the duplicate `push` run 37468108959 was cancelled): all six jobs, pytest
 1766 passed, 57 skipped on 3.10 and 3.12, persistence 339, dashboard
 117/117, Firestore rules 96/96.
 
+**A remediation item whose control left the assessment is not closed,
+2026-10-06.** `compare()` counted every item missing from the later plan as
+closed unless its control was now accepted or scoped out. When a control was
+in the earlier assessment and not in the later one, its item left the plan
+with it and was counted as "remediation closed" in the headline and on the
+report's card. The comparison already said such a control "is either a scope
+change or a defect" and named it rather than dropping it, but then counted its
+item as fixed work. Reproduced with the `tiny_framework` fixture: drop `CC9.9`
+from the later run and its high-severity item came back in `remediation_closed`.
+Such items now go into their own list, `remediation_control_gone`
+(`"control_gone"` under `remediation` in the JSON). They are neither closed
+nor set aside by decision. A caveat gives their count and says they are not
+counted as closed. Two assessments against different frameworks share no
+controls, so every earlier item now lands there instead of reading as closed.
+`tests/test_compare.py::TestRemediationMovement::test_an_item_whose_control_left_the_assessment_is_not_closed`
+holds it. It failed against `af57bc0` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1824 collected, 57 skipped,
+10 failed, the same set as untouched `af57bc0` run in a worktree (1823
+collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the 20-writer lock,
+fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh`
+pass. CI is the authoritative gate for this change.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

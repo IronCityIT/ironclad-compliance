@@ -262,6 +262,22 @@ class TestRemediationMovement:
         assert [i["item_id"] for i in result.remediation_closed] == [dropped["item_id"]]
         assert result.remediation_opened == []
 
+    def test_an_item_whose_control_left_the_assessment_is_not_closed(self, earlier) -> None:
+        # The control is in neither list of the later run, so its item went
+        # with it. Nothing was fixed: it read as one more remediation closed.
+        later = revised(earlier)
+        later["controls"] = [c for c in later["controls"] if c["control_id"] != "CC9.9"]
+        later["remediation"]["items"] = [
+            i for i in later["remediation"]["items"] if i["control_id"] != "CC9.9"
+        ]
+        result = compare(earlier, later)
+        assert result.remediation_closed == []
+        assert [i["control_id"] for i in result.remediation_control_gone] == ["CC9.9"]
+        assert result.remediation_set_aside == []
+        assert result.to_dict()["remediation"]["control_gone"] == result.remediation_control_gone
+        assert any("not counted as closed" in c for c in result.caveats)
+        assert "0 remediation item(s) closed" in result.headline()
+
     def test_a_new_item_is_opened(self, earlier) -> None:
         later = revised(earlier)
         later["remediation"]["items"].append(

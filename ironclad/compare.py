@@ -128,6 +128,9 @@ class Comparison:
     # Items that left the plan without the control being fixed: the control
     # was accepted, or scoped out. Not "closed".
     remediation_set_aside: list[dict[str, Any]] = field(default_factory=list)
+    # Items whose control is not in the later assessment at all. The item went
+    # with the control; nothing says it was fixed. Not "closed" either.
+    remediation_control_gone: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def readiness_change(self) -> float:
@@ -161,6 +164,7 @@ class Comparison:
                 "closed": self.remediation_closed,
                 "opened": self.remediation_opened,
                 "set_aside": self.remediation_set_aside,
+                "control_gone": self.remediation_control_gone,
                 "still_open": len(self.remediation_carried),
             },
         }
@@ -388,16 +392,21 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         }
     )
     gone = sorted(set(items_before) - set(items_after))
-    comparison.remediation_closed = [
-        _brief(items_before[i])
-        for i in gone
-        if str(items_before[i].get("control_id", "")) not in set_aside_controls
-    ]
-    comparison.remediation_set_aside = [
-        _brief(items_before[i])
-        for i in gone
-        if str(items_before[i].get("control_id", "")) in set_aside_controls
-    ]
+    for item_id in gone:
+        control_id = str(items_before[item_id].get("control_id", ""))
+        if control_id not in after:
+            # The control left the assessment and took its item with it.
+            comparison.remediation_control_gone.append(_brief(items_before[item_id]))
+        elif control_id in set_aside_controls:
+            comparison.remediation_set_aside.append(_brief(items_before[item_id]))
+        else:
+            comparison.remediation_closed.append(_brief(items_before[item_id]))
+    if comparison.remediation_control_gone:
+        comparison.caveats.append(
+            f"{len(comparison.remediation_control_gone)} remediation item(s) belong to "
+            f"controls that are not in the later assessment. They left the plan with "
+            f"their control and are not counted as closed."
+        )
     comparison.remediation_opened = [
         _brief(items_after[i]) for i in sorted(set(items_after) - set(items_before))
     ]
