@@ -384,6 +384,59 @@ class TestTheComparisonRefusesToMislead:
         del first["modules_run"]
         assert compare(first, revised(earlier)).caveats == []
 
+    def test_two_runs_without_remediation_planning_count_no_remediation(
+        self, tiny_framework, evidence, tmp_path: Path, capsys
+    ) -> None:
+        # Two quick runs, a gap fixed between them: the line read "1 improved,
+        # 0 regressed, 0 remediation item(s) closed, 0 opened" with no caveat,
+        # and the record gave empty lists. Neither run planned anything to close.
+        quick = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="quick",
+            as_of=NOW,
+            assessment_id="acme-q3",
+        )
+        first = json.loads(json.dumps(quick.to_dict()))
+        first["started_at"] = "2026-01-01T00:00:00+00:00"
+        assert "remediation_plan" not in first["modules_run"]
+        assert any(c["status"] == "gap" for c in first["controls"] if c["control_id"] == "CC9.9")
+        later = revised(first, **{"CC9.9": "compliant"})
+        result = compare(first, later)
+        assert [c.control_id for c in result.improved] == ["CC9.9"]
+        assert result.remediation_tracked is False
+        assert result.headline().startswith("readiness ")
+        assert "1 improved" in result.headline()
+        assert "remediation item(s) closed" not in result.headline()
+        assert "no remediation planned by either run" in result.headline()
+        assert any("Neither assessment ran remediation planning" in c for c in result.caveats)
+        # Null, not empty, as for a pair that is not comparable: an empty list
+        # claims nothing was closed. The control movement is still reported.
+        a = tmp_path / "q3.json"
+        b = tmp_path / "q4.json"
+        a.write_text(json.dumps(first), encoding="utf-8")
+        b.write_text(json.dumps(later), encoding="utf-8")
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 0
+        captured = capsys.readouterr()
+        reported = json.loads(captured.out)
+        assert reported["remediation"] is None
+        assert reported["controls"]["improved"][0]["control_id"] == "CC9.9"
+        assert "caveat: Neither assessment ran remediation planning" in captured.err
+
+    def test_two_records_without_a_module_list_still_count_remediation(self, earlier) -> None:
+        # An older record with no module list and an empty plan may have planned
+        # and found nothing to fix; only the module lists can say it did not.
+        first = json.loads(json.dumps(earlier))
+        del first["modules_run"]
+        first["remediation"]["items"] = []
+        later = revised(first)
+        result = compare(first, later)
+        assert result.remediation_tracked is True
+        assert result.caveats == []
+        assert result.headline().endswith("0 remediation item(s) closed, 0 opened")
+        assert result.to_dict()["remediation"] is not None
+
 
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:
@@ -876,6 +929,21 @@ class TestTheTrendReachesTheClient:
         assert "Since the last assessment" in html
         assert "Read with care" in html
         assert "Readiness change" not in html
+
+    def test_the_remediation_cards_need_a_plan_on_one_side(self, earlier) -> None:
+        # Two quick runs showed "0 Remediation closed" on the client's page, a
+        # count of items neither run had planned.
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        assert "Remediation closed" in self._rendered(earlier, later)
+        first = json.loads(json.dumps(earlier))
+        first["modules_run"] = ["evidence_inventory", "control_mapping"]
+        first["remediation"]["items"] = []
+        later = revised(first, **{"CC9.9": "compliant"})
+        html = self._rendered(first, later)
+        assert "Readiness change" in html
+        assert "Remediation closed" not in html
+        assert "Newly raised" not in html
+        assert "Neither assessment ran remediation planning" in html
 
     def test_client_text_in_a_comparison_cannot_inject_markup(self, earlier) -> None:
         later = revised(earlier, **{"CC9.9": "compliant"})

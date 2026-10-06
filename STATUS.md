@@ -3008,6 +3008,33 @@ CI for this change: green at `9a82b72` (run 37519103969, `pull_request`;
 the duplicate `push` run 37519096324 was cancelled): all six jobs, pytest 1800 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**Two runs that planned no remediation count none, 2026-10-06.** The earlier
+fixes covered one side of a pair skipping remediation planning. Neither side
+skipping it was left alone. Two real `quick` engine runs of the tiny framework,
+with `CC9.9` a gap in the first and met in the second, compared to "readiness
+… 1 improved, 0 regressed, 0 remediation item(s) closed, 0 opened" with no
+caveat. The JSON record gave empty `closed` and `opened` lists, and the client
+report showed a "Remediation closed: 0" card. The gap that was fixed would have
+had an item, and neither run planned one to close. Now, when both records' module
+lists leave out `remediation_plan`, the headline says "no remediation planned by
+either run" in place of the counts, the record's `remediation` is `null` (null,
+not empty, as for a pair that is not comparable), the report drops its three
+remediation cards, and a caveat says why. Control movement is still reported.
+A record without a module list keeps the counts: an empty plan there may mean
+it planned and found nothing to fix, so nothing is guessed. The README's
+comparison section documents this.
+`tests/test_compare.py::TestTheComparisonRefusesToMislead::test_two_runs_without_remediation_planning_count_no_remediation`,
+`test_two_records_without_a_module_list_still_count_remediation` and
+`TestTheTrendReachesTheClient::test_the_remediation_cards_need_a_plan_on_one_side`
+hold it. All three fail with only `ironclad/compare.py` and
+`ironclad/report/render.py` reverted to `0cd350b`.
+
+Local gates on Windows, 2026-10-06: pytest 1860 collected, 57 skipped,
+10 failed, the same set as untouched `0cd350b` run in a worktree
+(1857 collected, 57 skipped, 10 failed). `mypy --platform linux`, `ruff check`
+and `ruff format --check` are clean. `scripts/check_white_label.sh` and
+`scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

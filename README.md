@@ -452,6 +452,11 @@ For a pair that is not comparable, the JSON record carries
 reports no trend: `readiness.change`, `controls` and `remediation` are `null`.
 Each run's own readiness is still given.
 
+When neither run planned remediation (two `quick` runs, say), there were no
+items to open or close. The record's `remediation` is `null`, the headline says
+"no remediation planned by either run" in place of the counts, and a caveat says
+why. The control movement is still reported.
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty

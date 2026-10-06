@@ -325,6 +325,19 @@ def _comparison_section(comparison: Any) -> str:
         {table("Acceptance lapsed", comparison.acceptance_lapsed, "regressed")}
         """
 
+    # Neither run planned remediation: "0 closed" would be a count of nothing.
+    remediation_cards = (
+        f"""
+      <div class="card"><div class="value">{len(comparison.remediation_closed)}</div>
+        <div class="label">Remediation closed</div></div>
+      <div class="card"><div class="value">{len(comparison.remediation_opened)}</div>
+        <div class="label">Newly raised</div></div>
+      <div class="card"><div class="value">{len(comparison.remediation_set_aside)}</div>
+        <div class="label">Set aside by decision</div></div>"""
+        if comparison.remediation_tracked
+        else ""
+    )
+
     return f"""
     <h2>Since the last assessment</h2>
     <p>Compared with {escape(comparison.earlier_id)}.</p>
@@ -335,13 +348,7 @@ def _comparison_section(comparison: Any) -> str:
       <div class="card"><div class="value">{comparison.readiness_before}%</div>
         <div class="label">Was</div></div>
       <div class="card"><div class="value">{comparison.readiness_after}%</div>
-        <div class="label">Now</div></div>
-      <div class="card"><div class="value">{len(comparison.remediation_closed)}</div>
-        <div class="label">Remediation closed</div></div>
-      <div class="card"><div class="value">{len(comparison.remediation_opened)}</div>
-        <div class="label">Newly raised</div></div>
-      <div class="card"><div class="value">{len(comparison.remediation_set_aside)}</div>
-        <div class="label">Set aside by decision</div></div>
+        <div class="label">Now</div></div>{remediation_cards}
     </div>
     {table("Improved", comparison.improved, "improved")}
     {table("Regressed", comparison.regressed, "regressed")}

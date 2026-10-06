@@ -115,6 +115,9 @@ class Comparison:
     # Why it is not comparable, in a few words for the headline. The caveat
     # says it in full.
     not_comparable_because: str = ""
+    # False when neither run planned remediation: there were no items to open
+    # or close, and "0 closed, 0 opened" would be a count of nothing.
+    remediation_tracked: bool = True
     caveats: list[str] = field(default_factory=list)
     improved: list[ControlChange] = field(default_factory=list)
     regressed: list[ControlChange] = field(default_factory=list)
@@ -177,6 +180,10 @@ class Comparison:
             record["remediation"] = None
             return record
         record.update(self._movement())
+        if not self.remediation_tracked:
+            # Two quick runs with a control fixed between them gave empty lists,
+            # which claim nothing was closed. Nothing was planned to close.
+            record["remediation"] = None
         return record
 
     def _movement(self) -> dict[str, Any]:
@@ -230,12 +237,17 @@ class Comparison:
                 f"{len(self.scoped_out)} scoped out, "
                 f"{len(self.scoped_in)} scoped back in"
             )
+        remediation = (
+            f"{len(self.remediation_closed)} remediation item(s) closed, "
+            f"{len(self.remediation_opened)} opened"
+            if self.remediation_tracked
+            else "no remediation planned by either run"
+        )
         return (
             f"readiness {self.readiness_before}% → {self.readiness_after}% "
             f"({direction} {abs(self.readiness_change)}), "
             f"{len(self.improved)} improved, {len(self.regressed)} regressed, "
-            f"{len(self.remediation_closed)} remediation item(s) closed, "
-            f"{len(self.remediation_opened)} opened{decided}"
+            f"{remediation}{decided}"
         )
 
 
@@ -466,6 +478,17 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"The {which} assessment did not run remediation planning (its capability "
             f"group left it out), so the counts of remediation items opened and closed "
             f"are not a trend."
+        )
+    elif _ran(earlier, "remediation_plan") is False and _ran(later, "remediation_plan") is False:
+        # Two quick runs, a gap fixed between them: the line read "1 improved,
+        # 0 remediation item(s) closed" with nothing to say no plan existed.
+        # Only on the module lists' word: a record without one and an empty
+        # plan may have planned and found nothing to fix.
+        comparison.remediation_tracked = False
+        comparison.caveats.append(
+            "Neither assessment ran remediation planning (their capability groups "
+            "left it out), so no remediation items were planned, and none are "
+            "counted as opened or closed."
         )
 
     items_before, items_after = _items(earlier), _items(later)
