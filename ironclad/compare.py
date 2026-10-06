@@ -131,6 +131,9 @@ class Comparison:
     # Items whose control is not in the later assessment at all. The item went
     # with the control; nothing says it was fixed. Not "closed" either.
     remediation_control_gone: list[dict[str, Any]] = field(default_factory=list)
+    # Items the later run could not have kept, because it did not plan
+    # remediation at all. Whether they were fixed is unknown. Not "closed".
+    remediation_unplanned: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def readiness_change(self) -> float:
@@ -165,6 +168,7 @@ class Comparison:
                 "opened": self.remediation_opened,
                 "set_aside": self.remediation_set_aside,
                 "control_gone": self.remediation_control_gone,
+                "unplanned": self.remediation_unplanned,
                 "still_open": len(self.remediation_carried),
             },
         }
@@ -394,7 +398,10 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
     gone = sorted(set(items_before) - set(items_after))
     for item_id in gone:
         control_id = str(items_before[item_id].get("control_id", ""))
-        if control_id not in after:
+        if not planned_after:
+            # The later run planned nothing, so every item is missing from it.
+            comparison.remediation_unplanned.append(_brief(items_before[item_id]))
+        elif control_id not in after:
             # The control left the assessment and took its item with it.
             comparison.remediation_control_gone.append(_brief(items_before[item_id]))
         elif control_id in set_aside_controls:
@@ -406,6 +413,12 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"{len(comparison.remediation_control_gone)} remediation item(s) belong to "
             f"controls that are not in the later assessment. They left the plan with "
             f"their control and are not counted as closed."
+        )
+    if comparison.remediation_unplanned:
+        comparison.caveats.append(
+            f"{len(comparison.remediation_unplanned)} remediation item(s) from the earlier "
+            f"plan were not re-planned by the later assessment. Whether they were fixed "
+            f"is unknown; they are not counted as closed."
         )
     comparison.remediation_opened = [
         _brief(items_after[i]) for i in sorted(set(items_after) - set(items_before))

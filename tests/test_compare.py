@@ -249,6 +249,32 @@ class TestTheComparisonRefusesToMislead:
         assert any("did not run remediation planning" in c for c in result.caveats)
         assert any("earlier assessment" in c for c in result.caveats)
 
+    def test_a_later_run_without_remediation_planning_closes_nothing(
+        self, earlier, tiny_framework, evidence
+    ) -> None:
+        # A deep run followed by a quick one: the quick run planned nothing, so
+        # every item left the plan, and each read as remediation closed in the
+        # headline and on the report card. Nothing says any was fixed.
+        quick = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="quick",
+            as_of=NOW,
+            assessment_id="acme-q4",
+        )
+        later = json.loads(json.dumps(quick.to_dict()))
+        later["started_at"] = "2026-12-01T00:00:00+00:00"
+        assert earlier["remediation"]["items"], "the fixture must plan something"
+        result = compare(earlier, later)
+        assert result.remediation_closed == []
+        assert sorted(i["item_id"] for i in result.remediation_unplanned) == sorted(
+            i["item_id"] for i in earlier["remediation"]["items"]
+        )
+        assert result.to_dict()["remediation"]["unplanned"] == result.remediation_unplanned
+        assert "0 remediation item(s) closed" in result.headline()
+        assert any("not counted as closed" in c for c in result.caveats)
+
     def test_an_identical_pair_carries_no_caveat(self, earlier) -> None:
         assert compare(earlier, earlier).caveats == []
         assert compare(earlier, earlier).comparable is True

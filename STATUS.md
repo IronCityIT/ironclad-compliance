@@ -2673,6 +2673,30 @@ the duplicate `push` run 37471518420 was cancelled): all six jobs, pytest
 1767 passed, 57 skipped on 3.10 and 3.12, persistence 339, dashboard
 117/117, Firestore rules 96/96.
 
+**A later run that planned no remediation closes nothing, 2026-10-06.**
+The `quick` capability group leaves out `remediation_plan`. When a quick run
+followed a deep or standard one, every item in the earlier plan was missing
+from the later one. `compare()` counted each as "remediation closed" in the
+headline and on the report's card. A caveat said the counts "are not a trend",
+but the card and the headline still claimed the work was done. Reproduced with
+the real engine: the `tiny_framework` fixture run `deep`, then `quick`, gave
+2 of 2 items closed. Such items now go into their own list,
+`remediation_unplanned` (`"unplanned"` under `remediation` in the JSON). They
+are not closed, not set aside and not control-gone, and a second caveat gives
+their count. The opposite direction is unchanged: a quick run followed by a
+deep one still reports the deep run's items as opened, under the existing
+caveat (`test_a_run_without_remediation_planning_is_not_a_remediation_trend`
+pins that). Overstating open work does not flatter the client.
+`tests/test_compare.py::TestTheComparisonRefusesToMislead::test_a_later_run_without_remediation_planning_closes_nothing`
+holds it. It failed against `8603c38` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1825 collected, 57 skipped,
+10 failed, the same set as untouched `8603c38` run in a worktree (1824
+collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the 20-writer lock,
+fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh`
+pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
