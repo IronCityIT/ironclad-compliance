@@ -1148,14 +1148,22 @@ def cmd_compare(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT
-        recent = store.list_assessments(args.client, limit=2)
+        # list_assessments is most recent first. The pair is the latest run and
+        # the latest before it against the same framework, as `store latest`
+        # picks it: a tenant assessed against two frameworks has them
+        # interleaved, and the two most recent rows were a pair "not
+        # comparable" while two runs of one framework sat in the store.
+        recent = store.list_assessments(args.client, limit=50)
+        framework_id = str(recent[0].get("framework_id", "")) if recent else ""
+        recent = [r for r in recent if str(r.get("framework_id", "")) == framework_id]
         if len(recent) < 2:
+            which = f" {framework_id}" if framework_id else ""
             print(
-                f"{args.client} has {len(recent)} stored assessment(s); two are needed to compare",
+                f"{args.client} has {len(recent)} stored{which} assessment(s); "
+                f"two are needed to compare",
                 file=sys.stderr,
             )
             return EXIT_BAD_INPUT
-        # list_assessments is most recent first.
         later = reader(args.client, str(recent[0]["assessment_id"]))
         earlier = reader(args.client, str(recent[1]["assessment_id"]))
     else:

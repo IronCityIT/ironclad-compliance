@@ -80,7 +80,7 @@ ironclad store publish --input out/assessment.json
 ironclad store list --client acme-corp
 
 ironclad compare --from q3/assessment.json --to q4/assessment.json
-ironclad compare --client acme-corp        # the two most recent, from the store
+ironclad compare --client acme-corp        # the two most recent of the latest run's framework
 ironclad report --input q4.json --compare-to q3.json --out report.html
 
 ironclad evidence stage --client acme-corp --out evidence/

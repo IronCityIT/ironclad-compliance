@@ -505,6 +505,49 @@ class TestTheCompareCommand:
         assert reported["earlier"]["assessment_id"] == "acme-q3"
         assert reported["later"]["assessment_id"] == "acme-q4"
 
+    def test_the_store_pair_is_two_runs_of_one_framework(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        # A tenant assessed against two frameworks has them interleaved in the
+        # store. The two most recent were a HIPAA run and a test-fw run, and
+        # the command compared those: "not comparable", while two test-fw runs
+        # sat in the store. `store latest` already matches the framework.
+        from ironclad.store import FileResultStore
+
+        store = FileResultStore(tmp_path / "nas")
+        store.put_assessment(earlier)
+        other = revised(earlier, "acme-hipaa")
+        other["started_at"] = "2026-11-01T00:00:00+00:00"
+        other["framework"]["id"] = "hipaa"
+        store.put_assessment(other)
+        store.put_assessment(revised(earlier, **{"CC9.9": "compliant"}))
+        capsys.readouterr()
+
+        assert main(["compare", "--client", "acme", "--store", str(tmp_path / "nas")]) == 0
+        reported = json.loads(capsys.readouterr().out)
+        assert reported["earlier"]["assessment_id"] == "acme-q3"
+        assert reported["later"]["assessment_id"] == "acme-q4"
+        assert reported["comparable"] is True
+        assert [c["control_id"] for c in reported["controls"]["improved"]] == ["CC9.9"]
+
+    def test_one_run_of_the_latest_framework_is_not_a_trend(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        from ironclad.store import FileResultStore
+
+        store = FileResultStore(tmp_path / "nas")
+        store.put_assessment(earlier)
+        other = revised(earlier, "acme-hipaa")
+        other["framework"]["id"] = "hipaa"
+        store.put_assessment(other)
+        capsys.readouterr()
+
+        code = main(["compare", "--client", "acme", "--store", str(tmp_path / "nas")])
+        assert code == 2
+        err = capsys.readouterr().err
+        assert "1 stored hipaa assessment(s)" in err
+        assert "two are needed" in err
+
     def test_one_assessment_is_not_a_trend(self, earlier, tmp_path: Path, capsys) -> None:
         from ironclad.store import FileResultStore
 

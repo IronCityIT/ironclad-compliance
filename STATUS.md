@@ -2843,13 +2843,27 @@ holds it and failed against `63b250e` before the change.
 `test_the_report_command_prints_no_caveat_for_a_clean_pair` holds the other
 side.
 
-Local gates on Windows, 2026-10-06: pytest 1840 collected, 57 skipped,
-11 failed. Ten are the same set as untouched `63b250e` run in a worktree
-(1835 collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the
-20-writer lock, fcntl). The eleventh,
-`test_access_review.py::TestTheCommands::test_file_then_verify_with_the_recorded_digest`,
-was a Windows `os.replace` "Access is denied" in the full run and passed 3/3
-alone. `mypy --platform linux`, `ruff check` and `ruff format --check` are
+**The store pair is two runs of one framework, 2026-10-06.**
+`ironclad compare --client` read the tenant's two most recent stored
+assessments, whatever framework each was run against. A tenant assessed
+against SOC 2 and HIPAA has them interleaved in the store. Store a SOC 2 run,
+a HIPAA run and a second SOC 2 run of one tenant in a volume, and the command
+compared the HIPAA run with the second SOC 2 run. It printed `not comparable
+... (different frameworks)` and three caveats about 23 and 33 controls present
+on one side only, while two SOC 2 runs sat in the store. The pipelines were
+not affected: `store latest` already matches the framework. `compare --client`
+now picks the same way: the most recent run, and the most recent before it
+against the same framework. The same volume now reads
+`readiness 0.0% → 0.0% (level 0.0)` with no caveat. One run of the latest
+framework is refused as one stored assessment of that framework, and names
+it. `tests/test_compare.py::TestTheCompareCommand::test_the_store_pair_is_two_runs_of_one_framework`
+and `test_one_run_of_the_latest_framework_is_not_a_trend` hold it, and both
+failed against `9b537ab` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1843 collected, 57 skipped,
+10 failed, the same set as untouched `9b537ab` run in a worktree
+(1840 collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the
+20-writer lock, fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
 clean. `scripts/check_white_label.sh` passes. Dashboard oversight and render
 tests 104/104.
 
