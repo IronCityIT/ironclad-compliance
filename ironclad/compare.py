@@ -134,6 +134,10 @@ class Comparison:
     # Items the later run could not have kept, because it did not plan
     # remediation at all. Whether they were fixed is unknown. Not "closed".
     remediation_unplanned: list[dict[str, Any]] = field(default_factory=list)
+    # Items in the later plan that the earlier run could not have held, because
+    # it did not plan remediation at all. Whether the gap is new is unknown.
+    # Not "opened".
+    remediation_first_planned: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def readiness_change(self) -> float:
@@ -169,6 +173,7 @@ class Comparison:
                 "set_aside": self.remediation_set_aside,
                 "control_gone": self.remediation_control_gone,
                 "unplanned": self.remediation_unplanned,
+                "first_planned": self.remediation_first_planned,
                 "still_open": len(self.remediation_carried),
             },
         }
@@ -368,8 +373,9 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         )
 
     # A run without the remediation capability planned nothing, so every item
-    # in the other run reads as opened (or closed) against it. A quick-group
-    # run followed by a deep one: "27 opened", and no gap had appeared.
+    # in the other run would read as opened (or closed) against it. A quick-group
+    # run followed by a deep one read "27 opened", and no gap had appeared. Those
+    # items go to first_planned (or unplanned) below; this caveat says why.
     planned_before = _planned_remediation(earlier)
     planned_after = _planned_remediation(later)
     if planned_before != planned_after:
@@ -420,9 +426,18 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"plan were not re-planned by the later assessment. Whether they were fixed "
             f"is unknown; they are not counted as closed."
         )
-    comparison.remediation_opened = [
-        _brief(items_after[i]) for i in sorted(set(items_after) - set(items_before))
-    ]
+    new = [_brief(items_after[i]) for i in sorted(set(items_after) - set(items_before))]
+    if planned_before:
+        comparison.remediation_opened = new
+    else:
+        # The earlier run planned nothing, so every item is new to it.
+        comparison.remediation_first_planned = new
+    if comparison.remediation_first_planned:
+        comparison.caveats.append(
+            f"{len(comparison.remediation_first_planned)} remediation item(s) in the later "
+            f"plan were first planned by it; the earlier assessment planned none. Whether "
+            f"the gaps are new is unknown; they are not counted as opened."
+        )
     comparison.remediation_carried = [
         _brief(items_after[i]) for i in sorted(set(items_after) & set(items_before))
     ]

@@ -238,16 +238,43 @@ class TestTheComparisonRefusesToMislead:
         assert any("appear only in the earlier" in c for c in result.caveats)
 
     def test_a_run_without_remediation_planning_is_not_a_remediation_trend(self, earlier) -> None:
-        # A quick-group run plans nothing; against a deep run every item reads
+        # A quick-group run plans nothing; against a deep run every item read
         # as opened — "27 opened" with no gap having appeared.
         quick = json.loads(json.dumps(earlier))
         quick["modules_run"] = ["evidence_inventory", "control_mapping"]
         quick["remediation"]["items"] = []
         deep = revised(earlier)
         result = compare(quick, deep)
-        assert result.remediation_opened, "the counts are still reported"
         assert any("did not run remediation planning" in c for c in result.caveats)
         assert any("earlier assessment" in c for c in result.caveats)
+
+    def test_an_earlier_run_without_remediation_planning_opens_nothing(
+        self, earlier, tiny_framework, evidence
+    ) -> None:
+        # A quick run followed by a deep one: the quick run planned nothing, so
+        # every item of the deep plan was new to it, and each read as newly
+        # raised in the headline and on the report card. Nothing says any gap
+        # appeared between the two.
+        quick = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="quick",
+            as_of=NOW,
+            assessment_id="acme-q2",
+        )
+        first = json.loads(json.dumps(quick.to_dict()))
+        first["started_at"] = "2026-01-01T00:00:00+00:00"
+        later = revised(earlier)
+        assert later["remediation"]["items"], "the fixture must plan something"
+        result = compare(first, later)
+        assert result.remediation_opened == []
+        assert sorted(i["item_id"] for i in result.remediation_first_planned) == sorted(
+            i["item_id"] for i in later["remediation"]["items"]
+        )
+        assert result.to_dict()["remediation"]["first_planned"] == result.remediation_first_planned
+        assert result.headline().endswith(", 0 opened")
+        assert any("not counted as opened" in c for c in result.caveats)
 
     def test_a_later_run_without_remediation_planning_closes_nothing(
         self, earlier, tiny_framework, evidence

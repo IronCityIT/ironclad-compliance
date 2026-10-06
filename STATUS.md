@@ -2702,6 +2702,35 @@ the duplicate `push` run 37474977721 also ran to completion, green,
 before it could be cancelled): all six jobs, pytest 1768 passed, 57 skipped on 3.10 and 3.12,
 persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**An earlier run that planned no remediation opens nothing, 2026-10-06.**
+This is the opposite direction, which the entry above left alone. When a quick
+run was followed by a deep or standard one, every item in the later plan was
+new to the earlier run. `compare()` counted each as opened: "N opened" in the
+headline and "Newly raised" on the client report's card. Only a caveat said
+the counts were not a trend. The entry above reasoned that overstating open
+work does not flatter the client. It still misstates the trend, though: a
+client or auditor reading "Newly raised: 2" infers that two gaps appeared
+between the runs, and the record shows nothing of the kind. Reproduced with
+the real engine: the `tiny_framework` fixture run `quick`, then `deep`, gave
+2 of 2 items opened. Such items now go into their own list,
+`remediation_first_planned` (`"first_planned"` under `remediation` in the
+JSON). They are not opened, and a caveat gives their count. Items in both
+plans and items the earlier run alone held are unaffected.
+`test_a_run_without_remediation_planning_is_not_a_remediation_trend` no
+longer asserts the opened count. It asserted that the misleading number was
+still reported.
+`tests/test_compare.py::TestTheComparisonRefusesToMislead::test_an_earlier_run_without_remediation_planning_opens_nothing`
+holds the change. It failed against `2b48f30` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1826 collected, 57 skipped,
+10 failed, the same set as untouched `2b48f30` run in a worktree (1825
+collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the 20-writer lock,
+fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh`
+pass.
+
+CI for this change: pending at the time of writing.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
