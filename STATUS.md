@@ -2976,6 +2976,34 @@ CI for this change: green at `cb2df63` (run 37515209530, `pull_request`;
 the duplicate `push` run 37515201377 was cancelled): all six jobs, pytest 1796 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**The record of a pair that is not comparable carries no trend, 2026-10-06.**
+The §16.7 fix stopped the headline from printing movement for a pair across
+two frameworks or two versions of one. The JSON record that `ironclad compare`
+writes to stdout was not changed with it. For the tiny framework's deep run
+against a copy with its version set to `2.0`, `CC9.9` met and readiness set
+to 80.0, stderr said "not comparable with acme-q3 (the framework version
+changed); no readiness change, control movement or remediation counts are
+reported". Stdout said `"comparable": false`, `"change": 25.9` and `CC9.9`
+under `improved`. Anything reading the record rather than the line got the
+trend the line refused. The record now gives `readiness.change`, `controls`
+and `remediation` as `null` for such a pair. Null, not empty, because an
+empty list would claim that nothing moved. The reason is in a new
+`not_comparable_because` field, which is empty for a comparable pair. Each
+run's own readiness is still given, and the caveats are unchanged. The client
+report and the pipelines' line were already right, because they read the
+comparison object and not this record. The README's comparison section
+documents the shape.
+`tests/test_compare.py::TestTheCompareCommand::test_the_record_of_a_pair_not_comparable_carries_no_trend`
+(two frameworks, and two versions) and
+`test_the_record_of_a_comparable_pair_names_no_reason` hold it. All three
+cases fail with only `ironclad/compare.py` reverted to `17ca7e8`.
+
+Local gates on Windows, 2026-10-06: pytest 1856 collected, 57 skipped,
+10 failed, the same set as untouched `17ca7e8` run in a worktree
+(1853 collected, 57 skipped, 10 failed). `mypy --platform linux`, `ruff check`
+and `ruff format --check` are clean. `scripts/check_white_label.sh` and
+`scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

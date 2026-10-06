@@ -685,6 +685,40 @@ class TestTheCompareCommand:
         main(["compare", "--from", str(a), "--to", str(b)])
         assert "caveat:" in capsys.readouterr().err
 
+    @pytest.mark.parametrize("field, value", [("id", "hipaa"), ("version", "2.0")])
+    def test_the_record_of_a_pair_not_comparable_carries_no_trend(
+        self, earlier, tmp_path: Path, capsys, field: str, value: str
+    ) -> None:
+        # The headline on stderr said "no readiness change, control movement or
+        # remediation counts are reported"; the JSON on stdout reported them:
+        # "change": 25.9 and CC9.9 under "improved", for a pair across versions.
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        later["framework"][field] = value
+        later["summary"]["readiness_score"] = 80.0
+        a = self._write(tmp_path / "q3.json", earlier)
+        b = self._write(tmp_path / "q4.json", later)
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 0
+        reported = json.loads(capsys.readouterr().out)
+        assert reported["comparable"] is False
+        assert reported["not_comparable_because"]
+        assert reported["readiness"]["change"] is None
+        assert reported["readiness"]["after"] == 80.0
+        # Null, not empty: an empty list would say nothing moved, which is a
+        # claim about the pair as much as "1 improved" is.
+        assert reported["controls"] is None
+        assert reported["remediation"] is None
+        assert reported["caveats"]
+
+    def test_the_record_of_a_comparable_pair_names_no_reason(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        a = self._write(tmp_path / "q3.json", earlier)
+        b = self._write(tmp_path / "q4.json", revised(earlier, **{"CC9.9": "compliant"}))
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 0
+        reported = json.loads(capsys.readouterr().out)
+        assert reported["not_comparable_because"] == ""
+        assert reported["readiness"]["change"] is not None
+
     def test_the_report_command_prints_no_trend_across_frameworks(
         self, earlier, tmp_path: Path, capsys
     ) -> None:

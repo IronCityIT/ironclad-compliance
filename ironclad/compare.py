@@ -154,18 +154,33 @@ class Comparison:
         return round(self.readiness_after - self.readiness_before, 1)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        record: dict[str, Any] = {
             "tenant_id": self.tenant_id,
             "framework_id": self.framework_id,
             "earlier": {"assessment_id": self.earlier_id, "at": self.earlier_at},
             "later": {"assessment_id": self.later_id, "at": self.later_at},
             "comparable": self.comparable,
+            "not_comparable_because": self.not_comparable_because,
             "caveats": list(self.caveats),
             "readiness": {
                 "before": self.readiness_before,
                 "after": self.readiness_after,
-                "change": self.readiness_change,
+                "change": self.readiness_change if self.comparable else None,
             },
+        }
+        if not self.comparable:
+            # The headline beside this record says no movement is reported, and
+            # the record reported it: "change": 25.9 and an improved control for
+            # a pair across framework versions. Null rather than empty, because
+            # an empty list would claim that nothing moved.
+            record["controls"] = None
+            record["remediation"] = None
+            return record
+        record.update(self._movement())
+        return record
+
+    def _movement(self) -> dict[str, Any]:
+        return {
             "controls": {
                 "improved": [c.to_dict() for c in self.improved],
                 "regressed": [c.to_dict() for c in self.regressed],
