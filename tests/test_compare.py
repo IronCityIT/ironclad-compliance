@@ -318,6 +318,71 @@ class TestTheComparisonRefusesToMislead:
         assert compare(earlier, revised(earlier)).caveats == []
         assert compare(earlier, revised(earlier)).comparable is True
 
+    def test_a_later_run_without_exception_review_says_the_lapse_may_be_its_own(
+        self, tiny_framework, evidence
+    ) -> None:
+        # A deep run with an acceptance in force, then a quick run the same
+        # day: the quick run never reviews exceptions, so the control read as
+        # "acceptance lapsed" with nothing saying the later run did not look.
+        acceptance = RiskException(
+            exception_id="ex-CC9.9",
+            tenant_id="acme",
+            control_id="CC9.9",
+            justification="Compensating monitoring is in place until the next release.",
+            requested_by="alice",
+            requested_at=NOW,
+            expires_at=NOW + timedelta(days=90),
+            compensating_controls=["Daily review of privileged activity"],
+        )
+        acceptance.submit()
+        acceptance.approve("bob", at=NOW)
+        first, second = (
+            json.loads(
+                json.dumps(
+                    run_assessment(
+                        tenant_id="acme",
+                        framework=tiny_framework,
+                        evidence=evidence,
+                        group=group,
+                        exceptions=[acceptance],
+                        as_of=NOW,
+                        assessment_id=assessment_id,
+                    ).to_dict()
+                )
+            )
+            for assessment_id, group in (("acme-q3", "deep"), ("acme-q4", "quick"))
+        )
+        second["started_at"] = "2026-12-01T00:00:00+00:00"
+        result = compare(first, second)
+        assert [c.control_id for c in result.acceptance_lapsed] == ["CC9.9"]
+        assert any(
+            "later assessment did not run exception review" in c
+            and "1 control(s) listed as acceptance lapsed" in c
+            for c in result.caveats
+        )
+        assert any("later assessment did not run scope review" in c for c in result.caveats)
+
+    @pytest.mark.parametrize(
+        ("module", "listed"),
+        [("exception_review", "risk accepted"), ("scope_review", "scoped out")],
+    )
+    def test_an_earlier_run_without_a_deciding_capability_is_named(
+        self, earlier, module, listed
+    ) -> None:
+        first = json.loads(json.dumps(earlier))
+        first["modules_run"] = [m for m in first["modules_run"] if m != module]
+        result = compare(first, revised(earlier))
+        caveat = [c for c in result.caveats if "earlier assessment did not run" in c]
+        assert len(caveat) == 1
+        assert module.replace("_", " ") in caveat[0]
+        assert f"0 control(s) listed as {listed}" in caveat[0]
+
+    def test_a_record_without_a_module_list_carries_no_capability_caveat(self, earlier) -> None:
+        # Nothing says what the older record ran; guessing would invent a caveat.
+        first = json.loads(json.dumps(earlier))
+        del first["modules_run"]
+        assert compare(first, revised(earlier)).caveats == []
+
 
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:

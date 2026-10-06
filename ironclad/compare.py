@@ -229,6 +229,24 @@ def _planned_remediation(document: dict[str, Any]) -> bool:
     return bool((document.get("remediation") or {}).get("items"))
 
 
+def _ran(document: dict[str, Any], module: str) -> bool | None:
+    """Whether the run included a capability, or None if the record does not say."""
+    modules = document.get("modules_run")
+    if isinstance(modules, list):
+        return module in [str(m) for m in modules]
+    return None
+
+
+#: The capabilities that decide a control rather than assess it, with what a run
+#: without them cannot show, and the movement lists that absence would fill.
+#: A standard run followed by a quick one read every acceptance as lapsed and
+#: every exclusion as scoped back in, and the quick run had looked at neither.
+DECIDING_CAPABILITIES: tuple[tuple[str, str, str, str], ...] = (
+    ("exception_review", "risk acceptances", "risk_accepted", "acceptance_lapsed"),
+    ("scope_review", "scope exclusions", "scoped_out", "scoped_in"),
+)
+
+
 def _controls(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(c.get("control_id")): c for c in document.get("controls") or []}
 
@@ -402,6 +420,19 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"assessment and {len(comparison.only_later)} only in the later one. "
             f"They are named rather than dropped: a control that disappears between "
             f"two runs is either a scope change or a defect."
+        )
+
+    for module, decisions, into, out_of in DECIDING_CAPABILITIES:
+        ran_before, ran_after = _ran(earlier, module), _ran(later, module)
+        if ran_before is None or ran_after is None or ran_before == ran_after:
+            continue
+        which, listed = ("earlier", into) if not ran_before else ("later", out_of)
+        comparison.caveats.append(
+            f"The {which} assessment did not run {module.replace('_', ' ')} (its "
+            f"capability group left it out), so it applied no {decisions}. "
+            f"{len(getattr(comparison, listed))} control(s) listed as "
+            f"{listed.replace('_', ' ')} may reflect that rather than a decision made "
+            f"between the two runs."
         )
 
     # A run without the remediation capability planned nothing, so every item

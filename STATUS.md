@@ -2899,6 +2899,31 @@ CI for this change: green at `012c9e4` (run 37504649959, `pull_request`;
 the duplicate `push` run 37504642993 was cancelled): all six jobs, pytest 1788 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**A run that skipped exception or scope review says so in the trend, 2026-10-06.**
+Exception review and scope review are what make a control `accepted_risk` or
+`not_applicable`. Both are in the standard and deep groups only. A deep run with
+an approved acceptance in force, followed the same day by a quick run, listed
+the control as "acceptance lapsed", and no caveat said the quick run had not
+reviewed exceptions at all. Scope exclusions read as "scoped in" the same way.
+The mirror case (quick, then deep) listed them as newly accepted or scoped out.
+Remediation planning already carried this caveat, but these two capabilities
+did not. `compare()` now adds one caveat per capability that ran on one side
+only. It names the side and the capability, and counts the controls in the
+affected list. The caveat reaches `ironclad compare`, the pipelines' comparison
+line and the client report's "Since the last assessment" section, all of which
+print every caveat. Movement is not reclassified. A record without
+`modules_run` gets no caveat, because nothing says what it ran.
+`tests/test_compare.py::TestTheComparisonRefusesToMislead::test_a_later_run_without_exception_review_says_the_lapse_may_be_its_own`
+(real engine, deep then quick) and
+`test_an_earlier_run_without_a_deciding_capability_is_named` (both
+capabilities) hold it. All three cases fail with the caveat disabled.
+
+Local gates on Windows, 2026-10-06: pytest 1849 collected, 57 skipped,
+10 failed, the same set as untouched `3d90c45` run in a worktree
+(1845 collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the
+20-writer lock, fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
