@@ -811,6 +811,27 @@ class TestTheTrendReachesTheClient:
         assert "Scope changed" in html
         assert "leaves the readiness denominator" in html
 
+    def test_each_decision_is_credited_only_with_the_items_it_set_aside(self, earlier) -> None:
+        # One gap accepted, one scoped out, both items gone from the plan. The
+        # acceptance callout said "the 2 remediation item(s) it set aside", one
+        # of them set aside by the exclusion, and the scope callout said none.
+        planned = sorted({i["control_id"] for i in earlier["remediation"]["items"]})
+        assert len(planned) >= 2, "the fixture must plan items for two controls"
+        accepted, excluded = planned[0], planned[1]
+        later = revised(earlier, **{accepted: "accepted_risk", excluded: "not_applicable"})
+        later["remediation"]["items"] = [
+            i for i in later["remediation"]["items"] if i["control_id"] not in (accepted, excluded)
+        ]
+        result = compare(earlier, later)
+        assert sorted(i["control_id"] for i in result.remediation_set_aside) == [
+            accepted,
+            excluded,
+        ]
+        html = " ".join(self._rendered(earlier, later).split())
+        assert "the 1 remediation item(s) it set aside are not counted as closed" in html
+        assert "the 1 remediation item(s) those exclusions set aside" in html
+        assert "the 2 remediation item(s)" not in html
+
     def test_an_incomparable_pair_says_so_and_shows_no_figure(self, earlier) -> None:
         # A movement figure across two framework versions is a number that looks
         # like a trend and is not.

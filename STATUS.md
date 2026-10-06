@@ -2952,6 +2952,26 @@ CI for this change: green at `cf09dda` (run 37511861317, `pull_request`;
 the duplicate `push` run 37511855583 was cancelled): all six jobs, pytest 1795 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**Each decision in the client report is credited only with its own set-aside
+items, 2026-10-06.** The report's "Decisions, not movement" callout said "the N
+remediation item(s) it set aside are not counted as closed" with N the whole
+set-aside list, which also holds the items a scope exclusion set aside. One gap
+accepted and one scoped out between two runs read "1 control(s) were placed
+under an approved risk acceptance … the 2 remediation item(s) it set aside",
+and the "Scope changed" callout named no items at all. The count is now split
+by decision: an item whose control was scoped out is the exclusion's, the rest
+are the acceptances'. The scope callout ends "the N remediation item(s) those
+exclusions set aside are not counted as closed". The "Set aside by decision"
+card still shows the total, which is what it is labelled as.
+`tests/test_compare.py::TestTheTrendReachesTheClient::test_each_decision_is_credited_only_with_the_items_it_set_aside`
+holds it, and fails with only `ironclad/report/render.py` reverted to `9bb7b47`.
+
+Local gates on Windows, 2026-10-06: pytest 1853 collected, 57 skipped,
+10 failed, the same set as untouched `9bb7b47` run in a worktree
+(1852 collected, 57 skipped, 10 failed). `mypy --platform linux`, `ruff check`
+and `ruff format --check` are clean. `scripts/check_white_label.sh` and
+`scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -286,6 +286,15 @@ def _comparison_section(comparison: Any) -> str:
         </table>
         """
 
+    # Set-aside items, split by the decision that set them aside. One count
+    # under the acceptance callout credited the scope exclusions' items to the
+    # acceptances, and the scope callout said nothing of its own.
+    scoped_out_ids = {c.control_id for c in comparison.scoped_out}
+    set_aside_by_scope = sum(
+        1 for i in comparison.remediation_set_aside if i.get("control_id") in scoped_out_ids
+    )
+    set_aside_by_acceptance = len(comparison.remediation_set_aside) - set_aside_by_scope
+
     scope = ""
     if comparison.scoped_out or comparison.scoped_in:
         scope = f"""
@@ -294,7 +303,8 @@ def _comparison_section(comparison: Any) -> str:
           taken out of scope and {len(comparison.scoped_in)} brought back in. A control
           taken out of scope leaves the readiness denominator, which lifts the score
           without any control being fixed. It is reported here rather than counted as
-          an improvement.
+          an improvement, and the {set_aside_by_scope} remediation item(s) those
+          exclusions set aside are not counted as closed.
         </div>
         {table("Taken out of scope", comparison.scoped_out, "scoped")}
         {table("Brought back into scope", comparison.scoped_in, "scoped")}
@@ -308,7 +318,7 @@ def _comparison_section(comparison: Any) -> str:
           were placed under an approved risk acceptance and {len(comparison.acceptance_lapsed)}
           acceptance(s) lapsed or were withdrawn since the last assessment. An acceptance
           changes who owns the risk, not whether the control is met: it is not counted as
-          an improvement, and the {len(comparison.remediation_set_aside)} remediation item(s)
+          an improvement, and the {set_aside_by_acceptance} remediation item(s)
           it set aside are not counted as closed.
         </div>
         {table("Accepted as risk", comparison.risk_accepted, "scoped")}
