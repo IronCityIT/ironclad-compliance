@@ -34,6 +34,7 @@ from ironclad.compare import (
 from ironclad.engine import run_assessment
 from ironclad.model.assessment import ControlStatus
 from ironclad.model.exception import RiskException
+from ironclad.policy import ScopeExclusion, TenantPolicy
 from tests.conftest import NOW
 
 
@@ -536,6 +537,47 @@ class TestTheHeadline:
 
     def test_no_movement_reads_as_level(self, earlier) -> None:
         assert "level" in compare(earlier, revised(earlier)).headline()
+
+    def test_a_control_scoped_back_in_explains_the_fall(self, tiny_framework, evidence) -> None:
+        # Two real runs: CC9.9 excluded from scope, then the exclusion withdrawn.
+        # The gap rejoins the denominator and readiness falls, and the headline
+        # read "down 25.9, 0 improved, 0 regressed, 0 remediation item(s)
+        # closed, 0 opened" — a fall with nothing named as its cause.
+        exclusion = ScopeExclusion(
+            control_id="CC9.9",
+            justification="No zeppelins are operated from this site.",
+            approved_by="bob",
+            approved_at=NOW,
+        )
+        runs = [
+            json.loads(
+                json.dumps(
+                    run_assessment(
+                        tenant_id="acme",
+                        framework=tiny_framework,
+                        evidence=evidence,
+                        group="deep",
+                        policy=policy,
+                        as_of=as_of,
+                        assessment_id=assessment_id,
+                    ).to_dict()
+                )
+            )
+            for assessment_id, as_of, policy in (
+                ("acme-q3", NOW, TenantPolicy(tenant_id="acme", exclusions=[exclusion])),
+                ("acme-q4", NOW + timedelta(days=30), TenantPolicy(tenant_id="acme")),
+            )
+        ]
+        result = compare(*runs)
+        assert [c.control_id for c in result.scoped_in] == ["CC9.9"]
+        assert result.readiness_change < 0
+        headline = result.headline()
+        assert "down" in headline
+        assert headline.endswith("0 scoped out, 1 scoped back in")
+
+    def test_a_pair_with_no_decision_names_none(self, earlier) -> None:
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        assert "scoped" not in compare(earlier, later).headline()
 
     @pytest.mark.parametrize("field, value", [("id", "hipaa"), ("version", "2.0")])
     def test_a_pair_that_is_not_comparable_reports_no_movement(

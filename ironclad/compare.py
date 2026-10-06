@@ -205,11 +205,15 @@ class Comparison:
             else ("down" if self.readiness_change < 0 else "level")
         )
         decided = ""
-        if self.risk_accepted or self.acceptance_lapsed or self.scoped_out:
+        # Scoped back in belongs here as much as scoped out: the control rejoins
+        # the denominator and pulls the score down. Without it, a withdrawn
+        # exclusion read "down 25.9, 0 regressed, 0 opened" and nothing else.
+        if self.risk_accepted or self.acceptance_lapsed or self.scoped_out or self.scoped_in:
             decided = (
                 f"; {len(self.risk_accepted)} accepted as risk, "
                 f"{len(self.acceptance_lapsed)} acceptance(s) lapsed, "
-                f"{len(self.scoped_out)} scoped out"
+                f"{len(self.scoped_out)} scoped out, "
+                f"{len(self.scoped_in)} scoped back in"
             )
         return (
             f"readiness {self.readiness_before}% → {self.readiness_after}% "

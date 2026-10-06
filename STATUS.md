@@ -2928,6 +2928,26 @@ CI for this change: green at `0612b10` (run 37508566563, `pull_request`;
 the duplicate `push` run 37508557728 was cancelled): all six jobs, pytest 1792 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**A control scoped back in is named in the trend headline, 2026-10-06.** The
+headline listed acceptances, lapses and exclusions, but not a control brought
+back into scope. That control rejoins the denominator and pulls readiness down,
+and its item is counted as resumed, not opened. Two real engine runs of the
+tiny framework, with `CC9.9` excluded and then the exclusion withdrawn, read
+"readiness 80.0% → 54.1% (down 25.9), 0 improved, 0 regressed, 0 remediation
+item(s) closed, 0 opened". The fall had no stated cause. The client report's
+"Scope changed" block already counted it; the line printed by `ironclad compare`
+and by both pipelines did not. The headline now ends "0 scoped out, 1 scoped
+back in" whenever any decision moved.
+`tests/test_compare.py::TestTheHeadline::test_a_control_scoped_back_in_explains_the_fall`
+(real engine, exclusion then none) holds it and fails with the old headline;
+`test_a_pair_with_no_decision_names_none` holds the clean case.
+
+Local gates on Windows, 2026-10-06: pytest 1851 collected, 57 skipped,
+10 failed, the same set as untouched `9af0fdc` run in a worktree
+(1849 collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the
+20-writer lock, fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.
