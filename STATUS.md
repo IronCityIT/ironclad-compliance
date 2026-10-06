@@ -2871,6 +2871,30 @@ CI for this change: green at `107f32f` (run 37501187067, `pull_request`;
 the duplicate `push` run 37501179253 was cancelled): all six jobs, pytest 1786 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**An assessment is not compared with itself, 2026-10-06.** `compare()`
+accepted one record on both sides. Give `ironclad compare` the same stored
+assessment as `--from` and `--to`, or `ironclad report` the run as both
+`--input` and `--compare-to`, and it printed
+`readiness 46.5% → 46.5% (level 0.0), 0 improved, 0 regressed, 0 remediation item(s) closed, 0 opened`
+with exit 0. The client report also gained a "Since the last assessment"
+section that measured the run against itself. A copy of the record under
+another file name did the same. The pipelines were not affected: they fetch
+the previous run with `store latest --before` and the current id. `compare()`
+now refuses two records with the same assessment id, so both commands exit 2,
+name the id and write no report. Two runs that started at the same moment
+under different ids still compare. Five existing tests compared the fixture
+with itself to mean "nothing moved"; they now compare it with an unchanged
+later run, and assert what they did before.
+`tests/test_compare.py::TestTheComparisonRefusesToMislead::test_an_assessment_is_not_compared_with_itself`
+and `TestTheCompareCommand::test_a_record_compared_with_itself_is_refused_and_no_report_written`
+hold it, and both failed against `3adaef7` before the change.
+
+Local gates on Windows, 2026-10-06: pytest 1845 collected, 57 skipped,
+10 failed, the same set as untouched `3adaef7` run in a worktree
+(1843 collected, 57 skipped, 10 failed: symlinks, CRLF checkout, the
+20-writer lock, fcntl). `mypy --platform linux`, `ruff check` and `ruff format --check` are
+clean. `scripts/check_white_label.sh` and `scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

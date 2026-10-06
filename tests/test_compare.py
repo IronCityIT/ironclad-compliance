@@ -157,7 +157,7 @@ class TestMovement:
         assert change.control_name
 
     def test_an_unchanged_control_is_counted_not_listed(self, earlier) -> None:
-        result = compare(earlier, earlier)
+        result = compare(earlier, revised(earlier))
         assert result.improved == [] and result.regressed == []
         assert len(result.unchanged) == len(earlier["controls"])
         assert result.to_dict()["controls"]["unchanged"] == len(earlier["controls"])
@@ -205,7 +205,17 @@ class TestTheComparisonRefusesToMislead:
             compare(later, earlier)
         # the right way round still works, and the same moment is not "after"
         assert compare(earlier, later).improved
-        assert compare(earlier, earlier).comparable
+        same_moment = revised(earlier)
+        same_moment["started_at"] = earlier["started_at"]
+        assert compare(earlier, same_moment).comparable
+
+    def test_an_assessment_is_not_compared_with_itself(self, earlier) -> None:
+        # One record on both sides read "level 0.0, 0 improved, 0 regressed":
+        # a trend of nothing, and a client report section saying so.
+        with pytest.raises(ValueError, match="acme-q3; an assessment compared with itself"):
+            compare(earlier, earlier)
+        with pytest.raises(ValueError, match="compared with itself"):
+            compare(earlier, revised(earlier, assessment_id="acme-q3"))
 
     def test_a_record_without_a_start_time_is_not_ordered(self, earlier) -> None:
         later = revised(earlier)
@@ -305,8 +315,8 @@ class TestTheComparisonRefusesToMislead:
         assert any("not counted as closed" in c for c in result.caveats)
 
     def test_an_identical_pair_carries_no_caveat(self, earlier) -> None:
-        assert compare(earlier, earlier).caveats == []
-        assert compare(earlier, earlier).comparable is True
+        assert compare(earlier, revised(earlier)).caveats == []
+        assert compare(earlier, revised(earlier)).comparable is True
 
 
 class TestRemediationMovement:
@@ -429,7 +439,7 @@ class TestRemediationMovement:
         assert [i["item_id"] for i in result.remediation_opened] == ["rm-new"]
 
     def test_items_present_in_both_are_counted_as_still_open(self, earlier) -> None:
-        result = compare(earlier, earlier)
+        result = compare(earlier, revised(earlier))
         assert result.to_dict()["remediation"]["still_open"] == len(earlier["remediation"]["items"])
 
     def test_a_closed_item_carries_enough_to_be_recognised(self, earlier) -> None:
@@ -460,7 +470,7 @@ class TestTheHeadline:
         assert "down" in compare(earlier, later).headline()
 
     def test_no_movement_reads_as_level(self, earlier) -> None:
-        assert "level" in compare(earlier, earlier).headline()
+        assert "level" in compare(earlier, revised(earlier)).headline()
 
     @pytest.mark.parametrize("field, value", [("id", "hipaa"), ("version", "2.0")])
     def test_a_pair_that_is_not_comparable_reports_no_movement(
@@ -621,6 +631,21 @@ class TestTheCompareCommand:
         out = tmp_path / "report.html"
         assert main(["report", "--input", str(b), "--compare-to", str(a), "--out", str(out)]) == 0
         assert "caveat:" not in capsys.readouterr().err
+
+    def test_a_record_compared_with_itself_is_refused_and_no_report_written(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        # The report gained a "Since the last assessment" section measuring
+        # the run against itself: nothing moved, which nothing had claimed.
+        a = self._write(tmp_path / "q3.json", earlier)
+        b = self._write(tmp_path / "copy.json", earlier)
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 2
+        assert "compared with itself" in capsys.readouterr().err
+        out = tmp_path / "report.html"
+        code = main(["report", "--input", str(a), "--compare-to", str(b), "--out", str(out)])
+        assert code == 2
+        assert "compared with itself" in capsys.readouterr().err
+        assert not out.exists()
 
 
 class TestTheTrendReachesTheClient:

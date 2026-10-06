@@ -277,6 +277,17 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"{earlier_tenant!r} and {later_tenant!r}"
         )
 
+    # One record on both sides read "level 0.0, 0 improved, 0 regressed", and
+    # the client report gained a "Since the last assessment" section saying
+    # nothing had moved since itself. The pipelines pass `store latest
+    # --before` for this reason; the commands an operator runs did not check.
+    earlier_id = str(earlier.get("assessment_id") or "")
+    if earlier_id and earlier_id == str(later.get("assessment_id") or ""):
+        raise ValueError(
+            f"both sides are assessment {earlier_id}; an assessment compared with "
+            f"itself is not a trend"
+        )
+
     # The flags are trusted for which is which, so a swapped pair would read
     # every improvement as a regression. Where both records say when they
     # started, a "later" that started before the "earlier" is refused.
