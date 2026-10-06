@@ -331,6 +331,26 @@ class TestRemediationMovement:
         assert any("not counted as closed" in c for c in result.caveats)
         assert "0 remediation item(s) closed" in result.headline()
 
+    def test_an_item_whose_control_joined_the_assessment_is_not_opened(self, earlier) -> None:
+        # The control is not in the earlier run at all, so its item could not
+        # have been there either. Nothing says the gap is new: it read as one
+        # more item newly raised.
+        first = json.loads(json.dumps(earlier))
+        first["controls"] = [c for c in first["controls"] if c["control_id"] != "CC9.9"]
+        first["remediation"]["items"] = [
+            i for i in first["remediation"]["items"] if i["control_id"] != "CC9.9"
+        ]
+        later = revised(earlier)
+        assert any(i["control_id"] == "CC9.9" for i in later["remediation"]["items"]), (
+            "the fixture must plan an item for CC9.9"
+        )
+        result = compare(first, later)
+        assert result.remediation_opened == []
+        assert [i["control_id"] for i in result.remediation_control_new] == ["CC9.9"]
+        assert result.to_dict()["remediation"]["control_new"] == result.remediation_control_new
+        assert any("not counted as opened" in c for c in result.caveats)
+        assert result.headline().endswith(", 0 opened")
+
     def test_a_new_item_is_opened(self, earlier) -> None:
         later = revised(earlier)
         later["remediation"]["items"].append(
