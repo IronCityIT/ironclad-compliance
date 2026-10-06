@@ -141,6 +141,10 @@ class Comparison:
     # Items whose control is not in the earlier assessment at all. The item
     # came with the control; nothing says the gap is new. Not "opened" either.
     remediation_control_new: list[dict[str, Any]] = field(default_factory=list)
+    # Items whose control was accepted as risk, or out of scope, in the earlier
+    # assessment. The decision ended and the gap came back into the plan; it
+    # was there all along. The mirror of set-aside. Not "opened".
+    remediation_resumed: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def readiness_change(self) -> float:
@@ -178,6 +182,7 @@ class Comparison:
                 "unplanned": self.remediation_unplanned,
                 "first_planned": self.remediation_first_planned,
                 "control_new": self.remediation_control_new,
+                "resumed": self.remediation_resumed,
                 "still_open": len(self.remediation_carried),
             },
         }
@@ -430,6 +435,14 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"plan were not re-planned by the later assessment. Whether they were fixed "
             f"is unknown; they are not counted as closed."
         )
+    # The mirror of set-aside: a control that sat under an acceptance or out
+    # of scope had no item, and when the decision ended its gap came back.
+    decided_before = {
+        str(cid)
+        for cid, was in before.items()
+        if str(was.get("status"))
+        in (str(ControlStatus.ACCEPTED_RISK), str(ControlStatus.NOT_APPLICABLE))
+    }
     for item_id in sorted(set(items_after) - set(items_before)):
         control_id = str(items_after[item_id].get("control_id", ""))
         if not planned_before:
@@ -438,6 +451,8 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         elif control_id not in before:
             # The control joined the assessment and brought its item with it.
             comparison.remediation_control_new.append(_brief(items_after[item_id]))
+        elif control_id in decided_before:
+            comparison.remediation_resumed.append(_brief(items_after[item_id]))
         else:
             comparison.remediation_opened.append(_brief(items_after[item_id]))
     if comparison.remediation_first_planned:
@@ -451,6 +466,12 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"{len(comparison.remediation_control_new)} remediation item(s) belong to "
             f"controls that are not in the earlier assessment. They joined the plan with "
             f"their control and are not counted as opened."
+        )
+    if comparison.remediation_resumed:
+        comparison.caveats.append(
+            f"{len(comparison.remediation_resumed)} remediation item(s) returned to the "
+            f"plan because a risk acceptance ended or a control came back into scope. "
+            f"The gaps were there before; they are not counted as opened."
         )
     comparison.remediation_carried = [
         _brief(items_after[i]) for i in sorted(set(items_after) & set(items_before))

@@ -14,6 +14,7 @@ two runs is either a scope change or a defect, and dropping it hides which.
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from ironclad.compare import (
 )
 from ironclad.engine import run_assessment
 from ironclad.model.assessment import ControlStatus
+from ironclad.model.exception import RiskException
 from tests.conftest import NOW
 
 
@@ -350,6 +352,66 @@ class TestRemediationMovement:
         assert result.to_dict()["remediation"]["control_new"] == result.remediation_control_new
         assert any("not counted as opened" in c for c in result.caveats)
         assert result.headline().endswith(", 0 opened")
+
+    @pytest.mark.parametrize("decided", ["accepted_risk", "not_applicable"])
+    def test_an_item_whose_decision_ended_is_not_opened(self, earlier, decided) -> None:
+        # The mirror of set-aside. The control sat under an acceptance, or out
+        # of scope, so the earlier run planned nothing for it. The acceptance
+        # lapsed, or the control came back into scope, and its item returned:
+        # the gap was there all along. It read as one more item newly raised.
+        first = revised(earlier, assessment_id="acme-q2", **{"CC9.9": decided})
+        first["started_at"] = "2026-06-01T00:00:00+00:00"
+        first["remediation"]["items"] = [
+            i for i in first["remediation"]["items"] if i["control_id"] != "CC9.9"
+        ]
+        later = revised(earlier)
+        assert any(i["control_id"] == "CC9.9" for i in later["remediation"]["items"]), (
+            "the fixture must plan an item for CC9.9"
+        )
+        result = compare(first, later)
+        assert result.remediation_opened == []
+        assert [i["control_id"] for i in result.remediation_resumed] == ["CC9.9"]
+        assert result.to_dict()["remediation"]["resumed"] == result.remediation_resumed
+        assert any("1 remediation item(s) returned" in c for c in result.caveats)
+        assert ", 0 opened" in result.headline()
+
+    def test_a_lapsed_acceptance_opens_nothing_with_the_real_engine(
+        self, tiny_framework, evidence
+    ) -> None:
+        # The same case end to end: the acceptance is in force for the first
+        # run and gone by the second, and the engine plans the gap again.
+        acceptance = RiskException(
+            exception_id="ex-CC9.9",
+            tenant_id="acme",
+            control_id="CC9.9",
+            justification="Compensating monitoring is in place until the next release.",
+            requested_by="alice",
+            requested_at=NOW,
+            expires_at=NOW + timedelta(days=20),
+            compensating_controls=["Daily review of privileged activity"],
+        )
+        acceptance.submit()
+        acceptance.approve("bob", at=NOW)
+        runs = [
+            json.loads(
+                json.dumps(
+                    run_assessment(
+                        tenant_id="acme",
+                        framework=tiny_framework,
+                        evidence=evidence,
+                        group="deep",
+                        exceptions=[acceptance],
+                        as_of=as_of,
+                        assessment_id=assessment_id,
+                    ).to_dict()
+                )
+            )
+            for assessment_id, as_of in (("acme-q3", NOW), ("acme-q4", NOW + timedelta(days=30)))
+        ]
+        result = compare(*runs)
+        assert [c.control_id for c in result.acceptance_lapsed] == ["CC9.9"]
+        assert result.remediation_opened == []
+        assert [i["control_id"] for i in result.remediation_resumed] == ["CC9.9"]
 
     def test_a_new_item_is_opened(self, earlier) -> None:
         later = revised(earlier)
