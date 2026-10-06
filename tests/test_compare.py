@@ -541,6 +541,44 @@ class TestTheCompareCommand:
         assert "not comparable with acme-q4" in err
         assert "→" not in err
 
+    def test_the_report_command_prints_the_caveats_beside_the_headline(
+        self, earlier, tiny_framework, evidence, tmp_path: Path, capsys
+    ) -> None:
+        # Both pipelines run `report --compare-to`. After a deep run, a quick
+        # one printed "0 remediation item(s) closed, 0 opened" and nothing
+        # else: the reason every earlier item had left the plan was only in
+        # the HTML. `ironclad compare` printed it; this command did not.
+        quick = run_assessment(
+            tenant_id="acme",
+            framework=tiny_framework,
+            evidence=evidence,
+            group="quick",
+            as_of=NOW,
+            assessment_id="acme-q4",
+        )
+        later = json.loads(json.dumps(quick.to_dict()))
+        later["started_at"] = "2026-12-01T00:00:00+00:00"
+        assert earlier["remediation"]["items"], "the fixture must plan something"
+        a = self._write(tmp_path / "q3.json", earlier)
+        b = self._write(tmp_path / "q4.json", later)
+        out = tmp_path / "report.html"
+        code = main(["report", "--input", str(b), "--compare-to", str(a), "--out", str(out)])
+        assert code == 0
+        err = capsys.readouterr().err
+        assert "0 remediation item(s) closed" in err
+        assert "caveat:" in err
+        assert "did not run remediation planning" in err
+        assert "not counted as closed" in err
+
+    def test_the_report_command_prints_no_caveat_for_a_clean_pair(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        a = self._write(tmp_path / "q3.json", earlier)
+        b = self._write(tmp_path / "q4.json", revised(earlier, **{"CC9.9": "compliant"}))
+        out = tmp_path / "report.html"
+        assert main(["report", "--input", str(b), "--compare-to", str(a), "--out", str(out)]) == 0
+        assert "caveat:" not in capsys.readouterr().err
+
 
 class TestTheTrendReachesTheClient:
     """The comparison existed as JSON and never reached the deliverable.

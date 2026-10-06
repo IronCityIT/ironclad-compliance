@@ -2826,6 +2826,23 @@ CI for this change: green at `7ad312a` (run 37491023671, `pull_request`;
 the duplicate `push` run 37491014501 was cancelled): all six jobs, pytest 1778 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**The pipelines' comparison line carries its caveats, 2026-10-06.** Both
+pipelines render the client report with `ironclad report --compare-to`, and
+the line it prints is the one an operator reads in the build log. It printed
+the headline and nothing more. `ironclad compare` prints every caveat after
+the headline; this command did not. Run a `deep` assessment, then a `quick`
+one, of the same fixture, and the log said
+`readiness 54.1% → 54.1% (level 0.0), 0 improved, 0 regressed, 0 remediation item(s) closed, 0 opened`.
+Every earlier item had left the plan because the quick run plans none. The
+reason was in the HTML and nowhere in the log. The command now prints each
+caveat on its own `caveat:` line after the headline, as `ironclad compare`
+does. A pair with no caveat prints none. The report and the JSON are
+unchanged.
+`tests/test_compare.py::TestTheCompareCommand::test_the_report_command_prints_the_caveats_beside_the_headline`
+holds it and failed against `63b250e` before the change.
+`test_the_report_command_prints_no_caveat_for_a_clean_pair` holds the other
+side.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

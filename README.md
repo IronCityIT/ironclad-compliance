@@ -453,7 +453,9 @@ whether the work done in between showed up, and an answer buried under thirty
 control rows is an answer nobody reads. The honesty rules travel with it — a
 scope change appears in its own callout explaining that it lifts the score
 without any control being fixed, and a comparison the engine has marked not
-comparable renders its reason and no movement figure at all.
+comparable renders its reason and no movement figure at all. The line it
+prints for the build log is the headline followed by each caveat, as
+`ironclad compare` prints them.
 
 ## Where a result comes to rest
 

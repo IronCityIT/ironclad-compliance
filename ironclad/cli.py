@@ -1063,6 +1063,11 @@ def cmd_report(args: argparse.Namespace) -> int:
     print(f"report written: {output}", file=sys.stderr)
     if comparison is not None:
         print(f"  {comparison.headline()}", file=sys.stderr)
+        # Both pipelines run this command, so this is the line an operator
+        # reads. Without the caveats, "0 closed, 0 opened" after a quick run
+        # gave no hint that the later run had planned nothing at all.
+        for caveat in comparison.caveats:
+            print(f"  caveat: {caveat}", file=sys.stderr)
     return EXIT_OK
 
 
