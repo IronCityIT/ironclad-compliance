@@ -268,6 +268,35 @@ def _ran(document: dict[str, Any], module: str) -> bool | None:
     return None
 
 
+def _failed(document: dict[str, Any]) -> list[str]:
+    """The capabilities that failed during the run, by name.
+
+    The engine records a dict of name to error; a record rebuilt elsewhere may
+    hold the names alone.
+    """
+    failed = document.get("failed_modules")
+    if isinstance(failed, (dict, list)):
+        return sorted(str(name) for name in failed)
+    return []
+
+
+def _why_not_run(document: dict[str, Any], module: str) -> str:
+    """Why a run has no output from a capability: it failed, or was not selected.
+
+    A failed capability is left out of `modules_run` too, so both read alike
+    there, and the caveat blamed the capability group for a crash.
+    """
+    if module in _failed(document):
+        return "it failed during that run"
+    return "its capability group left it out"
+
+
+#: The capability that gives each control its verdict. A run where it failed
+#: has no verdicts at all, and read against a healthy one as "54.1% → 0.0%
+#: (down 54.1)", every control "a scope change or a defect".
+ASSESSING_CAPABILITY = "control_mapping"
+
+
 #: The capabilities that decide a control rather than assess it, with what a run
 #: without them cannot show, and the movement lists that absence would fill.
 #: A standard run followed by a quick one read every acceptance as lapsed and
@@ -382,6 +411,34 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"like-for-like comparison, and the readiness figures are not a trend."
         )
 
+    # A capability that failed produced nothing, and its absence reads as a
+    # change: no verdicts read as a collapse, no plan as every item gone. The
+    # engine names each failure; this is the comparison saying so.
+    failed_sides = []
+    for which, document in (("earlier", earlier), ("later", later)):
+        failed = _failed(document)
+        if not failed:
+            continue
+        comparison.caveats.append(
+            f"{len(failed)} of the {which} assessment's capabilities failed during the "
+            f"run ({', '.join(failed)}). What they decide is missing from that "
+            f"assessment, not changed in it."
+        )
+        if ASSESSING_CAPABILITY in failed:
+            failed_sides.append(which)
+    if failed_sides and comparison.comparable:
+        comparison.comparable = False
+        comparison.not_comparable_because = (
+            f"control mapping failed in the {' and '.join(failed_sides)} "
+            f"assessment{'s' if len(failed_sides) > 1 else ''}"
+        )
+        comparison.caveats.append(
+            f"Control mapping, which gives each control its verdict, failed in the "
+            f"{' and '.join(failed_sides)} assessment{'s' if len(failed_sides) > 1 else ''}. "
+            f"Without verdicts the readiness figures are not a trend and the controls "
+            f"do not correspond."
+        )
+
     before = _controls(earlier)
     after = _controls(later)
 
@@ -458,9 +515,10 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         if ran_before is None or ran_after is None or ran_before == ran_after:
             continue
         which, listed = ("earlier", into) if not ran_before else ("later", out_of)
+        absent = earlier if which == "earlier" else later
         comparison.caveats.append(
-            f"The {which} assessment did not run {module.replace('_', ' ')} (its "
-            f"capability group left it out), so it applied no {decisions}. "
+            f"The {which} assessment did not run {module.replace('_', ' ')} "
+            f"({_why_not_run(absent, module)}), so it applied no {decisions}. "
             f"{len(getattr(comparison, listed))} control(s) listed as "
             f"{listed.replace('_', ' ')} may reflect that rather than a decision made "
             f"between the two runs."
@@ -474,10 +532,11 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
     planned_after = _planned_remediation(later)
     if planned_before != planned_after:
         which = "earlier" if not planned_before else "later"
+        absent = earlier if which == "earlier" else later
         comparison.caveats.append(
-            f"The {which} assessment did not run remediation planning (its capability "
-            f"group left it out), so the counts of remediation items opened and closed "
-            f"are not a trend."
+            f"The {which} assessment did not run remediation planning "
+            f"({_why_not_run(absent, 'remediation_plan')}), so the counts of remediation "
+            f"items opened and closed are not a trend."
         )
     elif _ran(earlier, "remediation_plan") is False and _ran(later, "remediation_plan") is False:
         # Two quick runs, a gap fixed between them: the line read "1 improved,
@@ -485,10 +544,15 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         # Only on the module lists' word: a record without one and an empty
         # plan may have planned and found nothing to fix.
         comparison.remediation_tracked = False
+        failed_in = sum("remediation_plan" in _failed(d) for d in (earlier, later))
+        why = (
+            "their capability groups left it out",
+            "it failed during one run and the other's capability group left it out",
+            "it failed during both runs",
+        )[failed_in]
         comparison.caveats.append(
-            "Neither assessment ran remediation planning (their capability groups "
-            "left it out), so no remediation items were planned, and none are "
-            "counted as opened or closed."
+            f"Neither assessment ran remediation planning ({why}), so no remediation "
+            f"items were planned, and none are counted as opened or closed."
         )
 
     items_before, items_after = _items(earlier), _items(later)

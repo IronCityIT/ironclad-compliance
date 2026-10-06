@@ -457,6 +457,11 @@ items to open or close. The record's `remediation` is `null`, the headline says
 "no remediation planned by either run" in place of the counts, and a caveat says
 why. The control movement is still reported.
 
+A capability that failed during a run is named in a caveat, so a missing
+plan or a missing review reads as a failure, not a choice. When control
+mapping failed on either side there are no verdicts to compare, and the pair
+is not comparable: "control mapping failed in the later assessment".
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty

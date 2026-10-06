@@ -3039,6 +3039,30 @@ CI for this change: green at `6a601a5` (run 37522836491, `pull_request`;
 the duplicate `push` run 37522831203 was cancelled): all six jobs, pytest 1804 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
+**A failed capability is not a change, 2026-10-06.** The engine completes a
+run when one capability raises: the failure goes in `failed_modules` and the
+report's caveats, and the capability is left out of `modules_run`. `compare`
+read only `modules_run`. A real deep run of the tiny framework against a second
+with `control_mapping` made to raise compared to "readiness 54.1% → 0.0% (down
+54.1), 0 improved, 0 regressed", and its caveat called the three missing
+controls "either a scope change or a defect". That line is what the pipelines
+print, and the client report's trend section showed the same fall. A failed
+`remediation_plan` or `exception_review` read as "its capability group left it
+out". Now each side's failures are named in a caveat. A failed control mapping
+on either side makes the pair not comparable ("control mapping failed in the
+later assessment"), so the record, the headline and the report carry no trend.
+A missing plan or review says "it failed during that run". Failures recorded
+as a list of names, not the engine's dict, are read too. The README's
+comparison section documents this.
+`tests/test_compare.py::TestAFailedCapabilityIsNotAChange` holds it, 6 cases
+on real engine runs with a capability monkeypatched to raise. Five fail with only
+`ironclad/compare.py` reverted to `f454fa4`; the sixth is the clean-pair control.
+
+Local gates on Windows, 2026-10-06: pytest 1867 collected, 57 skipped,
+10 failed. The same 10 fail on untouched `f454fa4` run in a worktree.
+`mypy --platform linux`, `ruff check` and `ruff format --check` are clean.
+`scripts/check_white_label.sh` and `scripts/check_secret_literals.sh` pass.
+
 Still open for this workspace: the page still writes Firestore. Pointing it at
 these routes needs a browser sign-in to `ironclad serve` (B6). Loading the seed into the real NAS store needs B1–B3 and is out of
 the REVIEW ONLY posture; into a volume it is `load_seed` and is tested.

@@ -438,6 +438,96 @@ class TestTheComparisonRefusesToMislead:
         assert result.to_dict()["remediation"] is not None
 
 
+def _failing_run(tiny_framework, evidence, monkeypatch, module: str) -> dict[str, Any]:
+    """A real deep run, later, in which one capability raises."""
+    from ironclad import registry
+
+    target = registry.discover()[module]
+
+    def boom(self, ctx):  # noqa: ANN001, ARG001
+        raise RuntimeError(f"{module} blew up")
+
+    monkeypatch.setattr(type(target), "run", boom)
+    result = run_assessment(
+        tenant_id="acme",
+        framework=tiny_framework,
+        evidence=evidence,
+        group="deep",
+        as_of=NOW,
+        assessment_id="acme-q4",
+    )
+    monkeypatch.undo()
+    document = json.loads(json.dumps(result.to_dict()))
+    document["started_at"] = "2026-12-01T00:00:00+00:00"
+    assert module in document["failed_modules"]
+    return document
+
+
+class TestAFailedCapabilityIsNotAChange:
+    def test_a_run_whose_control_mapping_failed_is_not_comparable(
+        self, earlier, tiny_framework, evidence, monkeypatch
+    ) -> None:
+        # The engine completes a run when a capability fails, and names it in
+        # failed_modules. With control mapping down the later run had no
+        # verdicts, and the comparison read "54.1% -> 0.0% (down 54.1)" with
+        # every control "a scope change or a defect". Nothing had changed.
+        later = _failing_run(tiny_framework, evidence, monkeypatch, "control_mapping")
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == "control mapping failed in the later assessment"
+        assert "down" not in result.headline()
+        assert result.headline().startswith("not comparable with acme-q3 (control mapping failed")
+        assert any("control_mapping" in c and "failed during the run" in c for c in result.caveats)
+        record = result.to_dict()
+        assert record["readiness"]["change"] is None
+        assert record["controls"] is None
+
+    def test_an_earlier_failure_is_named_for_that_side(
+        self, earlier, tiny_framework, evidence, monkeypatch
+    ) -> None:
+        broken = _failing_run(tiny_framework, evidence, monkeypatch, "control_mapping")
+        broken["assessment_id"] = "acme-q2"
+        broken["started_at"] = "2026-01-01T00:00:00+00:00"
+        result = compare(broken, earlier)
+        assert result.not_comparable_because == "control mapping failed in the earlier assessment"
+
+    def test_a_failed_plan_is_named_as_a_failure_not_a_choice(
+        self, earlier, tiny_framework, evidence, monkeypatch
+    ) -> None:
+        # A failed capability is left out of modules_run too, so the caveat
+        # said the capability group left remediation planning out. It crashed.
+        later = _failing_run(tiny_framework, evidence, monkeypatch, "remediation_plan")
+        result = compare(earlier, later)
+        assert result.comparable is True
+        assert result.remediation_closed == []
+        planning = [c for c in result.caveats if "did not run remediation planning" in c]
+        assert len(planning) == 1
+        assert "it failed during that run" in planning[0]
+        assert "capability group" not in planning[0]
+        assert any("remediation_plan" in c and "failed during the run" in c for c in result.caveats)
+
+    def test_a_failed_exception_review_is_named_as_a_failure(
+        self, earlier, tiny_framework, evidence, monkeypatch
+    ) -> None:
+        later = _failing_run(tiny_framework, evidence, monkeypatch, "exception_review")
+        result = compare(earlier, later)
+        review = [c for c in result.caveats if "did not run exception review" in c]
+        assert len(review) == 1
+        assert "it failed during that run" in review[0]
+
+    def test_a_clean_pair_says_nothing_about_failures(self, earlier) -> None:
+        result = compare(earlier, revised(earlier, **{"CC9.9": "compliant"}))
+        assert result.comparable is True
+        assert not any("failed" in c for c in result.caveats)
+
+    def test_failures_recorded_as_names_alone_are_read(self, earlier) -> None:
+        # A record rebuilt from a store may carry the names without the errors.
+        later = revised(earlier)
+        later["failed_modules"] = ["control_mapping"]
+        result = compare(earlier, later)
+        assert result.comparable is False
+
+
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:
         later = revised(earlier)
