@@ -2867,8 +2867,8 @@ Local gates on Windows, 2026-10-06: pytest 1843 collected, 57 skipped,
 clean. `scripts/check_white_label.sh` passes. Dashboard oversight and render
 tests 104/104.
 
-CI for this change: green at `c089d0b` (run 37495089408, `pull_request`;
-the duplicate `push` run 37495081319 was cancelled): all six jobs, pytest 1783 passed,
+CI for this change: green at `107f32f` (run 37501187067, `pull_request`;
+the duplicate `push` run 37501179253 was cancelled): all six jobs, pytest 1786 passed,
 57 skipped on 3.10 and 3.12, persistence 339, dashboard 117/117, Firestore rules 96/96.
 
 Still open for this workspace: the page still writes Firestore. Pointing it at
