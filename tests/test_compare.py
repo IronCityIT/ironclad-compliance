@@ -135,6 +135,17 @@ class TestMovement:
         assert [c.control_id for c in result.improved] == ["CC9.9"]
         assert result.acceptance_lapsed == []
 
+    def test_a_met_control_accepted_as_risk_is_a_regression(self, earlier) -> None:
+        # The mirror of the case above. Filed as a decision alone, the control
+        # that stopped working read "0 regressed" while the score fell.
+        later = revised(earlier, **{"CC6.1": "accepted_risk"})
+        result = compare(earlier, later)
+        assert [c.control_id for c in result.regressed] == ["CC6.1"]
+        assert result.regressed[0].movement == REGRESSED
+        assert result.regressed[0].was == "compliant"
+        assert result.risk_accepted == []
+        assert "1 regressed" in result.headline()
+
     def test_every_change_records_both_ends(self, earlier) -> None:
         later = revised(earlier, **{"CC9.9": "compliant"})
         change = compare(earlier, later).improved[0]

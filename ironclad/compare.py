@@ -61,7 +61,8 @@ SCOPED_IN = "scoped_in"
 # been fixed: accepting every gap in the sample read as "11 improved, 27
 # remediation items closed" (PRODUCTIZE_NOTES §16.36). Out of acceptance —
 # lapsed, revoked — reopens a gap that was never fixed, and is not a
-# regression either. Both are reported under their own names.
+# regression either. Both are reported under their own names. The exception
+# is a met control going into acceptance: it stopped working, so it regressed.
 RISK_ACCEPTED = "risk_accepted"
 ACCEPTANCE_LAPSED = "acceptance_lapsed"
 
@@ -315,6 +316,13 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             continue
 
         accepted = str(ControlStatus.ACCEPTED_RISK)
+        if now_status == accepted and was_status == str(ControlStatus.COMPLIANT):
+            # Met, and now not: the control stopped working and the acceptance
+            # is a decision about that. The mirror of accepted-then-fixed below.
+            # As a decision alone it read "0 regressed" over a falling score.
+            change.movement = REGRESSED
+            comparison.regressed.append(change)
+            continue
         if now_status == accepted and was_status != accepted:
             change.movement = RISK_ACCEPTED
             comparison.risk_accepted.append(change)
