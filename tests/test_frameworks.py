@@ -155,6 +155,69 @@ class TestInheritance:
         assert crosswalk.inherit("a", {"A1": ControlStatus.ACCEPTED_RISK}, "b") == {}
 
 
+class TestCoverage:
+    """Coverage counts only what a verdict can reach.
+
+    A `related` edge never carries a verdict, so a target reached only by one
+    still needs a direct assessment. Counting it told a client a SOC 2
+    assessment addressed 96% of the HIPAA Security Rule when it was 91%.
+    """
+
+    def test_a_target_reached_only_by_a_related_edge_is_not_covered(self) -> None:
+        crosswalk = Crosswalk([CrosswalkEdge("a", "A1", "b", "B1", Relationship.RELATED)])
+        assert crosswalk.addressed("a", "b") == set()
+        assert crosswalk.coverage("a", "b", ["B1"]) == 0.0
+
+    @pytest.mark.parametrize(
+        "relationship", [Relationship.EQUIVALENT, Relationship.SUPERSET, Relationship.SUBSET]
+    )
+    def test_a_target_a_verdict_can_reach_is_covered(self, relationship: Relationship) -> None:
+        crosswalk = Crosswalk(
+            [
+                CrosswalkEdge("a", "A1", "b", "B1", Relationship.RELATED),
+                CrosswalkEdge("a", "A2", "b", "B1", relationship),
+            ]
+        )
+        assert crosswalk.coverage("a", "b", ["B1", "B2"]) == 0.5
+
+    def test_an_edge_authored_the_other_way_still_counts(self) -> None:
+        crosswalk = Crosswalk([CrosswalkEdge("b", "B1", "a", "A1", Relationship.SUBSET)])
+        assert crosswalk.addressed("a", "b") == {"B1"}
+
+    @pytest.mark.parametrize("alias", ["nist-csf", "pci-dss", "hipaa"])
+    def test_shipped_coverage_is_exactly_what_inheritance_reaches(
+        self, framework_dir: Path, alias: str
+    ) -> None:
+        # Every SOC 2 control met: the targets that receive a verdict are the
+        # ones coverage may claim, no more and no fewer.
+        crosswalk = load_crosswalks(framework_dir / "crosswalks")
+        hub = load_framework("soc2", framework_dir)
+        target = load_framework(alias, framework_dir)
+        target_ids = [c.id for c in target.controls]
+        reached = crosswalk.inherit(
+            hub.id, {c.id: ControlStatus.COMPLIANT for c in hub.controls}, target.id
+        )
+        assert crosswalk.addressed(hub.id, target.id) == set(reached)
+        assert crosswalk.coverage(hub.id, target.id, target_ids) == round(
+            len(reached) / len(target_ids), 3
+        )
+
+    def test_the_readme_quotes_the_coverage_the_engine_computes(self, framework_dir: Path) -> None:
+        readme = (framework_dir.parent / "README.md").read_text(encoding="utf-8")
+        paragraph = " ".join(readme.replace("\r\n", "\n").split())
+        crosswalk = load_crosswalks(framework_dir / "crosswalks")
+        hub = load_framework("soc2", framework_dir)
+        assert f"{len(crosswalk)} crosswalk mappings connect them" in paragraph
+        for alias, label in (
+            ("hipaa", "the HIPAA Security Rule"),
+            ("pci-dss", "PCI DSS 4.0"),
+            ("nist-csf", "NIST CSF 2.0"),
+        ):
+            target = load_framework(alias, framework_dir)
+            share = crosswalk.coverage(hub.id, target.id, [c.id for c in target.controls])
+            assert f"**{share:.0%}** of {label}" in paragraph, alias
+
+
 class TestShippedCrosswalks:
     def test_the_shipped_crosswalks_load(self, framework_dir: Path) -> None:
         crosswalk = load_crosswalks(framework_dir / "crosswalks")

@@ -1997,8 +1997,10 @@ def cmd_crosswalk(args: argparse.Namespace) -> int:
             "source": source.to_dict(),
             "target": target.to_dict(),
             "coverage": crosswalk.coverage(source.id, target.id, target_ids),
+            # A target reached only by a `related` edge still needs direct
+            # review: it is listed here, as it is left out of `coverage`.
             "unmapped_target_controls": sorted(
-                set(target_ids) - {m["target_control"] for m in mappings}
+                set(target_ids) - crosswalk.addressed(source.id, target.id)
             ),
             "mappings": mappings,
         }

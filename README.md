@@ -43,8 +43,8 @@ frameworks.
 | PCI Data Security Standard | 4.0 | 27 | Active |
 | HIPAA Security Rule | 45 CFR 164 Subpart C | 23 | Active |
 
-94 crosswalk mappings connect them. A SOC 2 assessment already addresses **96%**
-of the HIPAA Security Rule, **82%** of PCI DSS 4.0 and **67%** of NIST CSF 2.0 —
+94 crosswalk mappings connect them. A SOC 2 assessment already addresses **91%**
+of the HIPAA Security Rule, **82%** of PCI DSS 4.0 and **65%** of NIST CSF 2.0 —
 so a client evidences a control once and sees where they stand everywhere.
 
 ```sh

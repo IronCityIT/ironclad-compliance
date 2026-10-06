@@ -30,9 +30,9 @@ is not an answer to a different framework's auditor.
 
 | Target framework | Controls | Addressed by a SOC 2 assessment | Needs direct review |
 |---|---|---|---|
-| NIST CSF 2.0 | 43 | 67% | 14 |
+| NIST CSF 2.0 | 43 | 65% | 15 |
 | PCI DSS 4.0 | 27 | 82% | 5 |
-| HIPAA Security Rule | 23 | 96% | 1 |
+| HIPAA Security Rule | 23 | 91% | 2 |
 
 ## SOC 2 → NIST CSF 2.0
 
@@ -80,7 +80,7 @@ is not an answer to a different framework's auditor.
 | `CC9.2` | Vendor Risk Management | `GV.SC-01` | equivalent | Vendor and business partner risk management. |
 | `CC9.2` | Vendor Risk Management | `GV.SC-04` | subset | Supplier prioritization is part of vendor risk management. |
 
-**No SOC 2 mapping (14):** `DE.AE-06`, `DE.CM-03`, `GV.OC-01`, `GV.OC-03`, `GV.RM-02`, `ID.AM-01`, `ID.AM-02`, `PR.AA-03`, `PR.DS-11`, `PR.PS-04`, `RC.CO-03`, `RC.RP-05`, `RS.AN-03`, `RS.MA-02`. These require a direct assessment against NIST CSF 2.0.
+**No SOC 2 mapping that carries a verdict (15):** `DE.AE-06`, `DE.CM-03`, `GV.OC-01`, `GV.OC-03`, `GV.RM-02`, `ID.AM-01`, `ID.AM-02`, `ID.AM-05`, `PR.AA-03`, `PR.DS-11`, `PR.PS-04`, `RC.CO-03`, `RC.RP-05`, `RS.AN-03`, `RS.MA-02`. A `related` edge is a pointer only. These require a direct assessment against NIST CSF 2.0.
 
 ## SOC 2 → PCI DSS 4.0
 
@@ -116,7 +116,7 @@ is not an answer to a different framework's auditor.
 | `CC8.1` | Change Management | `6.3` | subset | Patching is part of change management. |
 | `CC9.2` | Vendor Risk Management | `12.8` | equivalent | Third-party service provider risk management. |
 
-**No SOC 2 mapping (5):** `1.1`, `10.3`, `2.3`, `3.3`, `6.4`. These require a direct assessment against PCI DSS 4.0.
+**No SOC 2 mapping that carries a verdict (5):** `1.1`, `10.3`, `2.3`, `3.3`, `6.4`. A `related` edge is a pointer only. These require a direct assessment against PCI DSS 4.0.
 
 ## SOC 2 → HIPAA Security Rule
 
@@ -147,4 +147,4 @@ is not an answer to a different framework's auditor.
 | `CC9.1` | Risk Mitigation | `164.308(a)(7)(ii)(A)` | subset | Backup plan supports business disruption mitigation. |
 | `CC9.2` | Vendor Risk Management | `164.308(b)(1)` | equivalent | Business associate assurances. |
 
-**No SOC 2 mapping (1):** `164.316(b)(2)(i)`. These require a direct assessment against HIPAA Security Rule.
+**No SOC 2 mapping that carries a verdict (2):** `164.308(a)(3)(ii)(A)`, `164.316(b)(2)(i)`. A `related` edge is a pointer only. These require a direct assessment against HIPAA Security Rule.

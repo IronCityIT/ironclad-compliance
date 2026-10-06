@@ -793,6 +793,12 @@ class TestCli:
         payload = json.loads(capsys.readouterr().out)
         assert payload["coverage"] > 0.5
         assert payload["mappings"]
+        # Coverage and the controls left for direct review account for the
+        # whole framework, a `related`-only target among the latter.
+        controls = payload["target"]["control_count"]
+        unmapped = payload["unmapped_target_controls"]
+        assert payload["coverage"] == round((controls - len(unmapped)) / controls, 3)
+        assert "164.308(a)(3)(ii)(A)" in unmapped
 
 
 class TestUpdateChecker:

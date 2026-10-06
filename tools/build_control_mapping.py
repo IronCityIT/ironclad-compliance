@@ -110,13 +110,16 @@ def build(crosswalk: Crosswalk) -> str:
         ):
             lines.append(f"| `{control_id}` | {name} | `{target}` | {relationship} | {note} |")
 
-        unmapped = sorted({c.id for c in framework.controls} - {row[2] for row in rows})
+        unmapped = sorted(
+            {c.id for c in framework.controls} - crosswalk.addressed(hub.id, framework.id)
+        )
         if unmapped:
             lines += [
                 "",
-                f"**No SOC 2 mapping ({len(unmapped)}):** "
+                f"**No SOC 2 mapping that carries a verdict ({len(unmapped)}):** "
                 + ", ".join(f"`{control_id}`" for control_id in unmapped)
-                + f". These require a direct assessment against {label}.",
+                + f". A `related` edge is a pointer only. These require a direct "
+                f"assessment against {label}.",
             ]
 
     lines.append("")

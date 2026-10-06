@@ -152,23 +152,33 @@ class Crosswalk:
             found = [e for e in found if e.target_framework == to_framework]
         return list(found)
 
-    def coverage(self, framework_id: str, target_framework: str, control_ids: list[str]) -> float:
-        """Fraction of `control_ids` in the target that any source control maps to.
+    def addressed(self, framework_id: str, target_framework: str) -> set[str]:
+        """Target controls that some source control can carry a verdict to.
 
-        This is what tells a tenant "your SOC 2 programme already addresses 68%
-        of NIST CSF" before they commission a second assessment.
+        A `related` edge is a pointer for a human and never carries a verdict,
+        so a target reached only by one still needs a direct assessment and is
+        not counted here.
         """
-        if not control_ids:
-            return 0.0
         # _by_source already holds both directions, so a mapping authored as
         # NIST -> SOC 2 still counts when asking what SOC 2 covers in NIST.
-        mapped = {
+        return {
             edge.target_control
             for (source_fw, _control), edges in self._by_source.items()
             if source_fw == framework_id
             for edge in edges
             if edge.target_framework == target_framework
+            and INHERITANCE[edge.relationship][1] is not None
         }
+
+    def coverage(self, framework_id: str, target_framework: str, control_ids: list[str]) -> float:
+        """Fraction of `control_ids` in the target that a source verdict can reach.
+
+        This is what tells a tenant "your SOC 2 programme already addresses 65%
+        of NIST CSF" before they commission a second assessment.
+        """
+        if not control_ids:
+            return 0.0
+        mapped = self.addressed(framework_id, target_framework)
         return round(len(mapped & set(control_ids)) / len(control_ids), 3)
 
     def inherit(
