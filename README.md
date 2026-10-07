@@ -462,6 +462,11 @@ plan or a missing review reads as a failure, not a choice. When control
 mapping failed on either side there are no verdicts to compare, and the pair
 is not comparable: "control mapping failed in the later assessment".
 
+Two runs of different tenants are refused, exit 2. So is a record that does
+not say whose it is: one naming no tenant ("the earlier assessment names no
+tenant"), or one whose `tenant_id` and `client_id` disagree. Either name alone
+is enough.
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty

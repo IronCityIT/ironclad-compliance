@@ -194,9 +194,54 @@ class TestTheComparisonRefusesToMislead:
     def test_two_tenants_cannot_be_compared(self, earlier) -> None:
         # Meaningless as a trend, and a cross-tenant read besides.
         other = json.loads(json.dumps(earlier))
-        other["tenant_id"] = "beta"
+        other["tenant_id"] = other["client_id"] = "beta"
         with pytest.raises(ValueError, match="different tenants"):
             compare(earlier, other)
+
+    def test_two_records_naming_no_tenant_are_not_the_same_tenant(self, earlier) -> None:
+        # Both read as tenant "" and passed the same-tenant check, so two
+        # records of unknown ownership produced a trend.
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("tenant_id")
+        bare.pop("client_id")
+        later = revised(bare, **{"CC9.9": "partial"})
+        with pytest.raises(ValueError, match="earlier assessment names no tenant"):
+            compare(bare, later)
+        with pytest.raises(ValueError, match="later assessment names no tenant"):
+            compare(earlier, revised(bare))
+
+    def test_a_record_naming_two_tenants_is_refused(self, earlier) -> None:
+        # The engine writes tenant_id and client_id alike. A record where they
+        # differ was read as its tenant_id, while the retired ingest path files
+        # it under client_id.
+        later = revised(earlier, **{"CC9.9": "partial"})
+        later["client_id"] = "beta"
+        with pytest.raises(
+            ValueError, match=r"later assessment names two tenants \('acme' and 'beta'\)"
+        ):
+            compare(earlier, later)
+
+    def test_either_name_alone_is_enough(self, earlier) -> None:
+        # A record rebuilt elsewhere may carry one of the two.
+        only_client = json.loads(json.dumps(earlier))
+        only_client.pop("tenant_id")
+        only_tenant = revised(earlier, **{"CC9.9": "partial"})
+        only_tenant.pop("client_id")
+        assert compare(only_client, only_tenant).tenant_id == "acme"
+
+    def test_the_command_refuses_records_naming_no_tenant(
+        self, earlier, tmp_path: Path, capsys
+    ) -> None:
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("tenant_id")
+        bare.pop("client_id")
+        a, b = tmp_path / "a.json", tmp_path / "b.json"
+        a.write_text(json.dumps(bare), encoding="utf-8")
+        b.write_text(json.dumps(revised(bare, **{"CC9.9": "partial"})), encoding="utf-8")
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 2
+        captured = capsys.readouterr()
+        assert "names no tenant" in captured.err
+        assert captured.out == ""
 
     def test_a_swapped_pair_is_refused_rather_than_read_backwards(self, earlier) -> None:
         # The flags say which is which. Passed the wrong way round, every

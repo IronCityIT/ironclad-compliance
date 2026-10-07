@@ -339,16 +339,45 @@ def _started(document: dict[str, Any]) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _tenant(document: dict[str, Any], which: str) -> str:
+    """The tenant a record belongs to, or ValueError if it does not say plainly.
+
+    The engine writes the tenant twice, as `tenant_id` and `client_id`. Two
+    records naming neither compared as tenant "" and passed the same-tenant
+    check, and a record whose two names disagree was read as the first one
+    while the retired ingest path files it under the second.
+    """
+    names = {
+        str(document.get(key) or "")
+        for key in ("tenant_id", "client_id")
+        if str(document.get(key) or "").strip()
+    }
+    if not names:
+        raise ValueError(
+            f"the {which} assessment names no tenant; a record that does not say "
+            f"whose it is cannot be compared"
+        )
+    if len(names) > 1:
+        raise ValueError(
+            f"the {which} assessment names two tenants "
+            f"({' and '.join(repr(n) for n in sorted(names))}); "
+            f"a record that contradicts itself cannot be compared"
+        )
+    return names.pop()
+
+
 def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
     """What changed between two assessments of the same tenant.
 
     Refuses two tenants outright — a trend across clients is meaningless and
-    would be a cross-tenant read besides. A different framework, or a different
-    version of one, produces a comparison marked not comparable with the reason
-    stated, rather than a number that looks like a trend and is not.
+    would be a cross-tenant read besides. A record that names no tenant, or two,
+    is refused too: the same-tenant check cannot be made on it. A different
+    framework, or a different version of one, produces a comparison marked not
+    comparable with the reason stated, rather than a number that looks like a
+    trend and is not.
     """
-    earlier_tenant = str(earlier.get("tenant_id") or earlier.get("client_id") or "")
-    later_tenant = str(later.get("tenant_id") or later.get("client_id") or "")
+    earlier_tenant = _tenant(earlier, "earlier")
+    later_tenant = _tenant(later, "later")
     if earlier_tenant != later_tenant:
         raise ValueError(
             f"cannot compare assessments of different tenants: "
