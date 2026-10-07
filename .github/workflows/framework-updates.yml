@@ -1,23 +1,33 @@
 name: Framework Update Checker
 
+# Quarterly watch on the official sources. Opens a PR only when something
+# actually changed: a version token higher than the one this repository tracks,
+# or a change in the source page's content fingerprint since the last run. The
+# fingerprints are committed alongside the PR, so the next run compares against
+# what was really seen rather than re-reporting the same change every quarter.
+
 on:
   schedule:
-    # Quarterly: First day of Jan, Apr, Jul, Oct at midnight UTC
+    # 00:00 UTC on the first of January, April, July and October.
     - cron: '0 0 1 1,4,7,10 *'
   workflow_dispatch:
     inputs:
       framework:
-        description: 'Specific framework to check (leave empty for all)'
+        description: 'Framework to check'
         required: false
         type: choice
         options:
+          # 'all' rather than an empty default: a workflow_dispatch choice
+          # option cannot be the empty string, GitHub rejects the file outright.
+          # The checker treats 'all' and '' identically.
           - all
           - soc2
           - nist-csf
           - pci-dss
           - hipaa
-      force_update:
-        description: 'Force update even if no changes detected'
+        default: all
+      open_pr:
+        description: 'Open a PR even if nothing changed'
         required: false
         type: boolean
         default: false
@@ -26,81 +36,93 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: framework-updates
+  cancel-in-progress: false
+
 jobs:
-  check-updates:
+  check:
+    name: Check the official sources
     runs-on: ubuntu-latest
     outputs:
       updates_found: ${{ steps.check.outputs.updates_found }}
-      frameworks_updated: ${{ steps.check.outputs.frameworks_updated }}
-    
+      frameworks: ${{ steps.check.outputs.frameworks }}
+      summary: ${{ steps.check.outputs.summary }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install requests beautifulsoup4
+      - name: Install HTTP support
+        # The checker parses HTML with the standard library; only the fetch
+        # needs a dependency.
+        run: pip install --quiet requests
 
       - name: Check for framework updates
         id: check
         run: |
+          set -euo pipefail
           python scripts/check_framework_updates.py \
-            --framework "${{ inputs.framework }}" \
-            --output updates.json
-          
-          if [ -f updates.json ]; then
-            updates_found=$(jq -r '.updates_found' updates.json)
-            frameworks=$(jq -r '.frameworks | join(",")' updates.json)
-            echo "updates_found=$updates_found" >> $GITHUB_OUTPUT
-            echo "frameworks_updated=$frameworks" >> $GITHUB_OUTPUT
-          else
-            echo "updates_found=false" >> $GITHUB_OUTPUT
-          fi
+            --framework "${{ inputs.framework || 'all' }}" \
+            --output updates.json \
+            --state frameworks/framework-check-state.json
 
-      - name: Upload check results
-        uses: actions/upload-artifact@v4
+          python scripts/validate_artifacts.py updates.json
+
+          {
+            echo "updates_found=$(jq -r '.updates_found' updates.json)"
+            echo "frameworks=$(jq -r '.frameworks | join(", ")' updates.json)"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo 'summary<<SUMMARY_EOF'
+            jq -r '.checks[] | "- **\(.name)** — \(.status): \(if .error != "" then .error else .detail end)"' updates.json
+            echo 'SUMMARY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report to the run summary
+        run: |
+          {
+            echo "## Framework update check"
+            echo
+            echo "${{ steps.check.outputs.summary }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
         with:
           name: update-check-results
           path: updates.json
-          retention-days: 30
+          retention-days: 90
 
-  create-pr:
-    needs: check-updates
-    if: needs.check-updates.outputs.updates_found == 'true' || inputs.force_update == true
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download check results
-        uses: actions/download-artifact@v4
-        with:
-          name: update-check-results
-
-      - name: Create Pull Request
+      - name: Open a pull request
+        if: steps.check.outputs.updates_found == 'true' || inputs.open_pr
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore: Update compliance frameworks"
-          title: "[Auto] Compliance Framework Updates Detected"
+          commit-message: 'chore(frameworks): record a change at the official sources'
+          title: '[Auto] Framework change detected at the source'
           body: |
-            ## Framework Updates Detected
-            
-            This PR was automatically generated by the quarterly framework update checker.
-            
-            ### Frameworks Updated
-            ${{ needs.check-updates.outputs.frameworks_updated }}
-            
-            ### Review Required
-            - [ ] Verify control text accuracy
-            - [ ] Check points of focus completeness
-            - [ ] Validate cross-framework mappings
+            The quarterly source check found a change.
+
+            ### What changed
+            ${{ steps.check.outputs.summary }}
+
+            ### What this PR contains
+            Only the updated source fingerprints. **No control text has been
+            changed** — the checker never edits a control set, because a
+            regulator's wording is not something to transcribe automatically.
+
+            ### Before merging
+            - [ ] Read the published document at the source
+            - [ ] Update the affected `frameworks/*.json` control text and points of focus
+            - [ ] Update `current_version` in `frameworks/framework-versions.json`
+            - [ ] Review the crosswalks in `frameworks/crosswalks/` for controls that moved
+            - [ ] Run `python scripts/validate_artifacts.py`
           branch: framework-updates-${{ github.run_number }}
+          add-paths: |
+            frameworks/framework-check-state.json
           labels: |
             compliance
             auto-generated

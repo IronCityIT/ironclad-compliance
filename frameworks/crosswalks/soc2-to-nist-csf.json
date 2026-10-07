@@ -1,0 +1,338 @@
+{
+  "crosswalk": {
+    "id": "soc2-to-nist-csf",
+    "description": "SOC 2 Trust Service Criteria (2017) to NIST Cybersecurity Framework 2.0",
+    "maintained_by": "Iron City IT Advisors",
+    "method": "Control-text comparison. relationship records direction: 'equivalent' carries a verdict in full, 'subset' means the source is narrower and can only support a partial, 'related' is informational and never carries a verdict."
+  },
+  "mappings": [
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.1",
+      "target_framework": "nist-csf",
+      "target_control": "GV.RR-01",
+      "relationship": "equivalent",
+      "note": "Tone at the top and leadership accountability."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.1",
+      "target_framework": "nist-csf",
+      "target_control": "GV.PO-01",
+      "relationship": "subset",
+      "note": "Code of conduct is one part of the cybersecurity policy set."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.2",
+      "target_framework": "nist-csf",
+      "target_control": "GV.RR-01",
+      "relationship": "subset",
+      "note": "Board oversight is one facet of leadership accountability."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.3",
+      "target_framework": "nist-csf",
+      "target_control": "GV.RR-02",
+      "relationship": "equivalent",
+      "note": "Structures, reporting lines and authorities."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.4",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AT-01",
+      "relationship": "subset",
+      "note": "Competence includes but exceeds awareness training."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.5",
+      "target_framework": "nist-csf",
+      "target_control": "GV.RR-02",
+      "relationship": "subset",
+      "note": "Accountability enforcement within roles and responsibilities."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC2.1",
+      "target_framework": "nist-csf",
+      "target_control": "ID.AM-05",
+      "relationship": "related",
+      "note": "Information quality supports asset classification."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC2.2",
+      "target_framework": "nist-csf",
+      "target_control": "GV.PO-01",
+      "relationship": "subset",
+      "note": "Internal communication of policy."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC2.2",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AT-01",
+      "relationship": "subset",
+      "note": "Communicating responsibilities to personnel."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC2.3",
+      "target_framework": "nist-csf",
+      "target_control": "GV.OC-02",
+      "relationship": "equivalent",
+      "note": "External communication with stakeholders."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.1",
+      "target_framework": "nist-csf",
+      "target_control": "GV.RM-01",
+      "relationship": "equivalent",
+      "note": "Objectives specified to enable risk identification."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "nist-csf",
+      "target_control": "ID.RA-05",
+      "relationship": "equivalent",
+      "note": "Risk identification and analysis."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "nist-csf",
+      "target_control": "ID.RA-01",
+      "relationship": "subset",
+      "note": "Vulnerability identification is part of risk analysis."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.3",
+      "target_framework": "nist-csf",
+      "target_control": "ID.RA-03",
+      "relationship": "equivalent",
+      "note": "Consideration of fraud and threat sources."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.4",
+      "target_framework": "nist-csf",
+      "target_control": "ID.IM-01",
+      "relationship": "equivalent",
+      "note": "Identifying and assessing changes, feeding improvement."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC4.1",
+      "target_framework": "nist-csf",
+      "target_control": "ID.IM-01",
+      "relationship": "equivalent",
+      "note": "Ongoing and separate evaluations."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC4.2",
+      "target_framework": "nist-csf",
+      "target_control": "RS.CO-02",
+      "relationship": "subset",
+      "note": "Communicating deficiencies to responsible parties."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC5.1",
+      "target_framework": "nist-csf",
+      "target_control": "GV.PO-01",
+      "relationship": "subset",
+      "note": "Control activities selected to mitigate risk."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC5.2",
+      "target_framework": "nist-csf",
+      "target_control": "PR.PS-01",
+      "relationship": "subset",
+      "note": "Technology general controls include configuration management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC5.3",
+      "target_framework": "nist-csf",
+      "target_control": "GV.PO-02",
+      "relationship": "equivalent",
+      "note": "Control activities deployed through policy and procedure."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AA-05",
+      "relationship": "equivalent",
+      "note": "Logical access security over protected assets."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "nist-csf",
+      "target_control": "PR.DS-01",
+      "relationship": "subset",
+      "note": "Encryption at rest is one logical access measure."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AA-01",
+      "relationship": "equivalent",
+      "note": "Registration and authorization of users."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.3",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AA-05",
+      "relationship": "equivalent",
+      "note": "Access is modified and removed based on roles."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.4",
+      "target_framework": "nist-csf",
+      "target_control": "PR.AA-06",
+      "relationship": "equivalent",
+      "note": "Physical access to facilities and protected assets."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.5",
+      "target_framework": "nist-csf",
+      "target_control": "PR.DS-01",
+      "relationship": "subset",
+      "note": "Protecting data on decommissioned assets."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.6",
+      "target_framework": "nist-csf",
+      "target_control": "PR.IR-01",
+      "relationship": "equivalent",
+      "note": "Protection against threats from outside the boundary."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.7",
+      "target_framework": "nist-csf",
+      "target_control": "PR.DS-02",
+      "relationship": "equivalent",
+      "note": "Restricting transmission, movement and removal of data."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.8",
+      "target_framework": "nist-csf",
+      "target_control": "DE.CM-09",
+      "relationship": "equivalent",
+      "note": "Detecting and preventing unauthorized software."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.1",
+      "target_framework": "nist-csf",
+      "target_control": "DE.CM-09",
+      "relationship": "equivalent",
+      "note": "Detection of configuration change and vulnerabilities."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.1",
+      "target_framework": "nist-csf",
+      "target_control": "ID.RA-01",
+      "relationship": "subset",
+      "note": "Vulnerability identification feeds detection."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "nist-csf",
+      "target_control": "DE.CM-01",
+      "relationship": "equivalent",
+      "note": "Monitoring for anomalies and adverse events."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.3",
+      "target_framework": "nist-csf",
+      "target_control": "DE.AE-02",
+      "relationship": "equivalent",
+      "note": "Evaluating events to determine whether they are incidents."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.4",
+      "target_framework": "nist-csf",
+      "target_control": "RS.MA-01",
+      "relationship": "equivalent",
+      "note": "Responding to identified security incidents."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.4",
+      "target_framework": "nist-csf",
+      "target_control": "RS.MI-01",
+      "relationship": "subset",
+      "note": "Containment is one part of incident response."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.5",
+      "target_framework": "nist-csf",
+      "target_control": "RC.RP-01",
+      "relationship": "equivalent",
+      "note": "Recovery from identified security incidents."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC8.1",
+      "target_framework": "nist-csf",
+      "target_control": "PR.PS-01",
+      "relationship": "equivalent",
+      "note": "Change management over infrastructure and software."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC8.1",
+      "target_framework": "nist-csf",
+      "target_control": "PR.PS-02",
+      "relationship": "subset",
+      "note": "Software maintenance is part of change management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.1",
+      "target_framework": "nist-csf",
+      "target_control": "RC.RP-01",
+      "relationship": "subset",
+      "note": "Business disruption risk mitigation includes recovery."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.2",
+      "target_framework": "nist-csf",
+      "target_control": "GV.SC-01",
+      "relationship": "equivalent",
+      "note": "Vendor and business partner risk management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.2",
+      "target_framework": "nist-csf",
+      "target_control": "GV.SC-04",
+      "relationship": "subset",
+      "note": "Supplier prioritization is part of vendor risk management."
+    }
+  ]
+}

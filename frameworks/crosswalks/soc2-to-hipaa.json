@@ -1,0 +1,202 @@
+{
+  "crosswalk": {
+    "id": "soc2-to-hipaa",
+    "description": "SOC 2 Trust Service Criteria (2017) to the HIPAA Security Rule",
+    "maintained_by": "Iron City IT Advisors",
+    "method": "Control-text comparison. relationship records direction: 'equivalent' carries a verdict in full, 'subset' means the source is narrower and can only support a partial, 'related' is informational and never carries a verdict."
+  },
+  "mappings": [
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.3",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(3)(ii)(A)",
+      "relationship": "related",
+      "note": "Structures and authorization of workforce."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC1.4",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(5)(ii)(B)",
+      "relationship": "related",
+      "note": "Workforce competence and awareness."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(1)(ii)(A)",
+      "relationship": "equivalent",
+      "note": "Risk analysis over ePHI."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC3.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(1)(ii)(B)",
+      "relationship": "subset",
+      "note": "Risk identification feeds risk management."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC4.1",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(8)",
+      "relationship": "equivalent",
+      "note": "Periodic evaluation of safeguards."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC5.3",
+      "target_framework": "hipaa",
+      "target_control": "164.316(a)",
+      "relationship": "equivalent",
+      "note": "Policies and procedures implementing the standards."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.1",
+      "target_framework": "hipaa",
+      "target_control": "164.312(a)(1)",
+      "relationship": "equivalent",
+      "note": "Technical access control over ePHI."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(4)(ii)(B)",
+      "relationship": "equivalent",
+      "note": "Granting access based on authorization."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.2",
+      "target_framework": "hipaa",
+      "target_control": "164.312(d)",
+      "relationship": "subset",
+      "note": "Authentication of the person seeking access."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.3",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(4)(ii)(C)",
+      "relationship": "equivalent",
+      "note": "Establishing, reviewing and modifying access."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.3",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(3)(ii)(C)",
+      "relationship": "subset",
+      "note": "Termination removes access."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.4",
+      "target_framework": "hipaa",
+      "target_control": "164.310(a)(1)",
+      "relationship": "equivalent",
+      "note": "Facility access controls."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.5",
+      "target_framework": "hipaa",
+      "target_control": "164.310(d)(2)(i)",
+      "relationship": "equivalent",
+      "note": "Disposal of media holding ePHI."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.6",
+      "target_framework": "hipaa",
+      "target_control": "164.312(e)(1)",
+      "relationship": "subset",
+      "note": "Boundary protection supports transmission security."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.7",
+      "target_framework": "hipaa",
+      "target_control": "164.312(e)(1)",
+      "relationship": "equivalent",
+      "note": "Transmission security over open networks."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC6.8",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(5)(ii)(B)",
+      "relationship": "equivalent",
+      "note": "Guarding against malicious software."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.1",
+      "target_framework": "hipaa",
+      "target_control": "164.312(c)(1)",
+      "relationship": "subset",
+      "note": "Integrity monitoring detects improper alteration."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(1)(ii)(D)",
+      "relationship": "equivalent",
+      "note": "Information system activity review."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "hipaa",
+      "target_control": "164.312(b)",
+      "relationship": "equivalent",
+      "note": "Audit controls recording and examining activity."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(5)(ii)(C)",
+      "relationship": "subset",
+      "note": "Log-in monitoring is one monitored activity."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.4",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(6)(ii)",
+      "relationship": "equivalent",
+      "note": "Security incident response and reporting."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC7.5",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(7)(ii)(B)",
+      "relationship": "equivalent",
+      "note": "Recovery and restoration of lost data."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.1",
+      "target_framework": "hipaa",
+      "target_control": "164.308(a)(7)(ii)(A)",
+      "relationship": "subset",
+      "note": "Backup plan supports business disruption mitigation."
+    },
+    {
+      "source_framework": "soc2-tsc",
+      "source_control": "CC9.2",
+      "target_framework": "hipaa",
+      "target_control": "164.308(b)(1)",
+      "relationship": "equivalent",
+      "note": "Business associate assurances."
+    }
+  ]
+}
