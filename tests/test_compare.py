@@ -700,6 +700,74 @@ class TestARecordThatDoesNotNameItsFrameworkIsNotLikeForLike:
         assert "no framework and version named" in captured.err
 
 
+class TestControlsThatCannotBeMatchedAreNotUnchanged:
+    @pytest.mark.parametrize("status", ["Compliant", "fixed", None, ""])
+    def test_a_status_the_engine_does_not_write_is_not_unchanged(self, earlier, status) -> None:
+        # CC9.9 went from gap to "Compliant" and was counted as unchanged:
+        # "0 improved, 0 regressed" with no caveat.
+        later = revised(earlier, **{"CC9.9": status})
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == (
+            "controls that cannot be matched in the later assessment"
+        )
+        assert any(f"CC9.9 with status {status!r}" in c for c in result.caveats)
+        assert "improved" not in result.headline()
+        assert result.to_dict()["controls"] is None
+
+    def test_a_control_listed_twice_is_not_read_as_the_last_one(self, earlier) -> None:
+        # The second CC6.1 won and read as "1 regressed".
+        later = revised(earlier)
+        twin = dict(later["controls"][0], status="gap")
+        later["controls"].append(twin)
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert any("CC6.1 listed more than once" in c for c in result.caveats)
+        assert "regressed" not in result.headline()
+
+    def test_controls_with_no_id_are_not_one_control(self, earlier) -> None:
+        # Every control matched as one called "None", and the pair read
+        # "0 improved, 0 regressed" whatever had moved.
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        bare = json.loads(json.dumps(earlier))
+        for document in (bare, later):
+            for control in document["controls"]:
+                control.pop("control_id")
+        result = compare(bare, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == (
+            "controls that cannot be matched in the earlier and later assessments"
+        )
+        assert any("a control with no id" in c for c in result.caveats)
+
+    def test_an_entry_that_is_not_a_control_does_not_raise(self, earlier) -> None:
+        later = revised(earlier)
+        later["controls"].append("CC9.9")
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert any("an entry that is not a control" in c for c in result.caveats)
+
+    def test_a_scoped_out_control_on_both_sides_is_still_readable(self, earlier) -> None:
+        # not_applicable has no movement rank and is a status the engine writes.
+        bare = revised(earlier, "acme-q3b", **{"CC9.9": "not_applicable"})
+        later = revised(bare, **{"CC1.1": "compliant"})
+        result = compare(bare, later)
+        assert result.comparable is True
+        assert [c.control_id for c in result.improved] == ["CC1.1"]
+
+    def test_the_report_shows_the_reason_and_no_movement(self, earlier) -> None:
+        from ironclad.cli import _StoredResult
+        from ironclad.report.render import render_html
+
+        # The earlier record is the malformed one; the report is of the later.
+        bare = revised(earlier, "acme-q3b", **{"CC9.9": "Compliant"})
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        html = render_html(_StoredResult(later), "Acme Corp", comparison=compare(bare, later))
+        assert "Since the last assessment" in html
+        assert "cannot be compared one by one" in html
+        assert "Readiness change" not in html
+
+
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:
         later = revised(earlier)

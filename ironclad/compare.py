@@ -310,7 +310,40 @@ DECIDING_CAPABILITIES: tuple[tuple[str, str, str, str], ...] = (
 
 
 def _controls(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {str(c.get("control_id")): c for c in document.get("controls") or []}
+    return {
+        str(c.get("control_id")): c for c in document.get("controls") or [] if isinstance(c, dict)
+    }
+
+
+#: The statuses the engine writes. Anything else has no place in the movement
+#: ranking, and was counted as unchanged.
+STATUSES = frozenset(str(status) for status in ControlStatus)
+
+
+def _unreadable(document: dict[str, Any]) -> list[str]:
+    """What stops a record's controls being compared one by one, in a few words each.
+
+    Controls are matched by id. Controls with no id all matched as one control
+    called "None"; a control listed twice was read as whichever came last; a
+    status the engine does not write ("Compliant", "fixed") was counted as
+    unchanged. Each read "0 improved, 0 regressed" with no caveat.
+    """
+    problems: list[str] = []
+    seen: set[str] = set()
+    for control in document.get("controls") or []:
+        if not isinstance(control, dict):
+            problems.append("an entry that is not a control")
+            continue
+        control_id = str(control.get("control_id") or "").strip()
+        if not control_id:
+            problems.append("a control with no id")
+            continue
+        if control_id in seen:
+            problems.append(f"{control_id} listed more than once")
+        seen.add(control_id)
+        if str(control.get("status")) not in STATUSES:
+            problems.append(f"{control_id} with status {control.get('status')!r}")
+    return list(dict.fromkeys(problems))
 
 
 def _items(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -538,6 +571,25 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         if comparison.comparable:
             comparison.comparable = False
             comparison.not_comparable_because = f"no readiness score in the {sides}"
+
+    unreadable = []
+    for which, document in (("earlier", earlier), ("later", later)):
+        problems = _unreadable(document)
+        if not problems:
+            continue
+        unreadable.append(which)
+        shown = ", ".join(problems[:5])
+        more = f" and {len(problems) - 5} more" if len(problems) > 5 else ""
+        comparison.caveats.append(
+            f"The {which} assessment's controls cannot be compared one by one: "
+            f"{shown}{more}. Controls are matched by id and moved by status, so its "
+            f"controls are not taken to correspond, and the readiness figures are not "
+            f"a trend."
+        )
+    if unreadable and comparison.comparable:
+        sides = f"{' and '.join(unreadable)} assessment{'s' if len(unreadable) > 1 else ''}"
+        comparison.comparable = False
+        comparison.not_comparable_because = f"controls that cannot be matched in the {sides}"
 
     before = _controls(earlier)
     after = _controls(later)

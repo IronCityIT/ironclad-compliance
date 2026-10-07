@@ -476,6 +476,12 @@ cannot be checked like for like, so the pair is not comparable: "no framework
 and version named in the earlier assessment". Two records that both name
 neither are not taken to match.
 
+Controls are matched by id and moved by status. A record with a control that
+has no id, a control listed more than once, or a status the engine does not
+write (`"Compliant"`, `"fixed"`) cannot be compared one by one, so the pair is
+not comparable: "controls that cannot be matched in the later assessment". The
+caveat names the controls.
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty
