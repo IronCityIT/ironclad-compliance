@@ -260,10 +260,6 @@ def _comparison_section(comparison: Any) -> str:
     stops. Showing a movement figure across two framework versions would be a
     number that looks like a trend and is not.
     """
-    change = comparison.readiness_change
-    arrow = "▲" if change > 0 else ("▼" if change < 0 else "—")
-    tone = "improved" if change > 0 else ("regressed" if change < 0 else "")
-
     caveats = "".join(
         f'<div class="callout warn"><strong>Read with care</strong> — {escape(c)}</div>'
         for c in comparison.caveats
@@ -274,6 +270,12 @@ def _comparison_section(comparison: Any) -> str:
         <h2>Since the last assessment</h2>
         {caveats}
         """
+
+    # Only a comparable pair has a change; one whose record states no readiness
+    # has none to draw an arrow for.
+    change = comparison.readiness_change or 0.0
+    arrow = "▲" if change > 0 else ("▼" if change < 0 else "—")
+    tone = "improved" if change > 0 else ("regressed" if change < 0 else "")
 
     def table(title: str, changes: list[Any], direction: str) -> str:
         if not changes:

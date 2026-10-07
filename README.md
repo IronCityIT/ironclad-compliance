@@ -467,6 +467,10 @@ not say whose it is: one naming no tenant ("the earlier assessment names no
 tenant"), or one whose `tenant_id` and `client_id` disagree. Either name alone
 is enough.
 
+A record that states no usable readiness score (no `summary`, or a score that
+is not a number from 0 to 100) is not read as 0%. The pair is not comparable:
+"no readiness score in the earlier assessment". A stated 0 is still a score.
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty

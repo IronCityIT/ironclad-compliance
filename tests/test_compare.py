@@ -573,6 +573,62 @@ class TestAFailedCapabilityIsNotAChange:
         assert result.comparable is False
 
 
+class TestAReadinessTheRecordDoesNotStateIsNotZero:
+    def test_a_record_with_no_summary_is_not_comparable(self, earlier) -> None:
+        # Read as 0.0, it compared as "0.0% -> 54.1% (up 54.1), 0 improved": a
+        # gain of 54 points that no control showed.
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("summary")
+        result = compare(bare, revised(earlier))
+        assert result.comparable is False
+        assert result.not_comparable_because == "no readiness score in the earlier assessment"
+        assert "up" not in result.headline()
+        assert any("not read as 0%" in c for c in result.caveats)
+        record = result.to_dict()
+        assert record["readiness"] == {"before": None, "after": 54.1, "change": None}
+        assert record["controls"] is None
+
+    @pytest.mark.parametrize(
+        "score", [None, "54.1%", float("nan"), float("inf"), 541.0, -5.0, True]
+    )
+    def test_a_score_that_is_not_a_percentage_is_not_one(self, earlier, score) -> None:
+        # "54.1%" raised a bare float() error; NaN read "nan% -> 54.1% (level nan)".
+        later = revised(earlier)
+        later["summary"]["readiness_score"] = score
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == "no readiness score in the later assessment"
+        assert result.readiness_change is None
+
+    def test_both_sides_are_named(self, earlier) -> None:
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("summary")
+        result = compare(bare, revised(bare))
+        assert result.not_comparable_because == (
+            "no readiness score in the earlier and later assessments"
+        )
+
+    def test_a_stated_zero_is_still_a_score(self, earlier) -> None:
+        # 0.0 is a real readiness; only an absent or unusable one is refused.
+        zero = json.loads(json.dumps(earlier))
+        zero["summary"]["readiness_score"] = 0
+        result = compare(zero, revised(earlier))
+        assert result.comparable is True
+        assert result.readiness_change == 54.1
+
+    def test_the_report_shows_no_trend(self, earlier) -> None:
+        from ironclad.cli import _StoredResult
+        from ironclad.report.render import render_html
+
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("summary")
+        later = revised(earlier)
+        html = render_html(_StoredResult(later), "Acme Corp", comparison=compare(bare, later))
+        assert "Since the last assessment" in html
+        assert "not read as 0%" in html
+        assert "Readiness change" not in html
+
+
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:
         later = revised(earlier)
@@ -758,7 +814,7 @@ class TestTheHeadline:
         ]
         result = compare(*runs)
         assert [c.control_id for c in result.scoped_in] == ["CC9.9"]
-        assert result.readiness_change < 0
+        assert (result.readiness_change or 0) < 0
         headline = result.headline()
         assert "down" in headline
         assert headline.endswith("0 scoped out, 1 scoped back in")

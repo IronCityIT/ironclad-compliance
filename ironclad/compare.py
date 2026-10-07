@@ -28,6 +28,7 @@ silently omitting it from both lists hides which.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -109,8 +110,10 @@ class Comparison:
     later_id: str
     earlier_at: str
     later_at: str
-    readiness_before: float
-    readiness_after: float
+    # None where the record states no usable readiness score. Read as 0.0, a
+    # record with no summary compared as "0.0% → 54.1% (up 54.1)".
+    readiness_before: float | None
+    readiness_after: float | None
     comparable: bool = True
     # Why it is not comparable, in a few words for the headline. The caveat
     # says it in full.
@@ -153,7 +156,9 @@ class Comparison:
     remediation_resumed: list[dict[str, Any]] = field(default_factory=list)
 
     @property
-    def readiness_change(self) -> float:
+    def readiness_change(self) -> float | None:
+        if self.readiness_before is None or self.readiness_after is None:
+            return None
         return round(self.readiness_after - self.readiness_before, 1)
 
     def to_dict(self) -> dict[str, Any]:
@@ -221,11 +226,8 @@ class Comparison:
                 f"not comparable with {self.earlier_id} ({self.not_comparable_because}); "
                 f"no readiness change, control movement or remediation counts are reported"
             )
-        direction = (
-            "up"
-            if self.readiness_change > 0
-            else ("down" if self.readiness_change < 0 else "level")
-        )
+        change = self.readiness_change or 0.0
+        direction = "up" if change > 0 else ("down" if change < 0 else "level")
         decided = ""
         # Scoped back in belongs here as much as scoped out: the control rejoins
         # the denominator and pulls the score down. Without it, a withdrawn
@@ -245,7 +247,7 @@ class Comparison:
         )
         return (
             f"readiness {self.readiness_before}% → {self.readiness_after}% "
-            f"({direction} {abs(self.readiness_change)}), "
+            f"({direction} {abs(change)}), "
             f"{len(self.improved)} improved, {len(self.regressed)} regressed, "
             f"{remediation}{decided}"
         )
@@ -339,6 +341,22 @@ def _started(document: dict[str, Any]) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _readiness(document: dict[str, Any]) -> float | None:
+    """The readiness score a record states, or None if it states no usable one.
+
+    The engine always writes one. A record rebuilt elsewhere may not, or may
+    hold "54.1%", NaN or 541: none of those is a percentage to trend against.
+    """
+    summary = document.get("summary")
+    raw = summary.get("readiness_score") if isinstance(summary, dict) else None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    score = float(raw)
+    if not math.isfinite(score) or not 0.0 <= score <= 100.0:
+        return None
+    return score
+
+
 def _tenant(document: dict[str, Any], which: str) -> str:
     """The tenant a record belongs to, or ValueError if it does not say plainly.
 
@@ -419,8 +437,8 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         later_id=str(later.get("assessment_id", "")),
         earlier_at=str(earlier.get("started_at", "")),
         later_at=str(later.get("started_at", "")),
-        readiness_before=float((earlier.get("summary") or {}).get("readiness_score") or 0.0),
-        readiness_after=float((later.get("summary") or {}).get("readiness_score") or 0.0),
+        readiness_before=_readiness(earlier),
+        readiness_after=_readiness(later),
     )
 
     if earlier_framework != later_framework:
@@ -467,6 +485,27 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"Without verdicts the readiness figures are not a trend and the controls "
             f"do not correspond."
         )
+
+    # A record that states no readiness score was read as 0.0%, and against a
+    # healthy run that is "0.0% → 54.1% (up 54.1)": a gain nobody made.
+    unstated = [
+        which
+        for which, score in (
+            ("earlier", comparison.readiness_before),
+            ("later", comparison.readiness_after),
+        )
+        if score is None
+    ]
+    if unstated:
+        sides = f"{' and '.join(unstated)} assessment{'s' if len(unstated) > 1 else ''}"
+        comparison.caveats.append(
+            f"The {sides} state{'' if len(unstated) > 1 else 's'} no usable readiness "
+            f"score (none, or not a percentage from 0 to 100). A missing score is not "
+            f"read as 0%, and the readiness figures are not a trend."
+        )
+        if comparison.comparable:
+            comparison.comparable = False
+            comparison.not_comparable_because = f"no readiness score in the {sides}"
 
     before = _controls(earlier)
     after = _controls(later)
