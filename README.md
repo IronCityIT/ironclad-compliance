@@ -471,6 +471,11 @@ A record that states no usable readiness score (no `summary`, or a score that
 is not a number from 0 to 100) is not read as 0%. The pair is not comparable:
 "no readiness score in the earlier assessment". A stated 0 is still a score.
 
+A record that does not name the framework and version it was assessed against
+cannot be checked like for like, so the pair is not comparable: "no framework
+and version named in the earlier assessment". Two records that both name
+neither are not taken to match.
+
 `ironclad report --compare-to <previous>` puts the same answer in the client's
 report, high in the document: at a second assessment the first question is
 whether the work done in between showed up, and an answer buried under thirty

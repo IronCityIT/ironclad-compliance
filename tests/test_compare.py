@@ -629,6 +629,77 @@ class TestAReadinessTheRecordDoesNotStateIsNotZero:
         assert "Readiness change" not in html
 
 
+class TestARecordThatDoesNotNameItsFrameworkIsNotLikeForLike:
+    def test_two_records_naming_no_framework_are_not_comparable(self, earlier) -> None:
+        # Both compared as framework "" version "", passed the like-for-like
+        # check and read "1 improved" with no caveat at all.
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("framework")
+        later = revised(bare, **{"CC9.9": "compliant"})
+        result = compare(bare, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == (
+            "no framework and version named in the earlier and later assessments"
+        )
+        assert "improved" not in result.headline()
+        assert any("whether the controls correspond cannot be checked" in c for c in result.caveats)
+        assert result.to_dict()["controls"] is None
+
+    @pytest.mark.parametrize(
+        "framework",
+        [
+            {"version": "1.0"},
+            {"id": "test-fw"},
+            {"id": "  ", "version": "1.0"},
+            {"id": "test-fw", "version": None},
+            None,
+        ],
+    )
+    def test_a_record_missing_either_half_is_not_comparable(self, earlier, framework) -> None:
+        bare = json.loads(json.dumps(earlier))
+        bare["framework"] = framework
+        later = revised(bare, **{"CC9.9": "compliant"})
+        later["framework"] = dict(earlier["framework"])
+        result = compare(bare, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == (
+            "no framework and version named in the earlier assessment"
+        )
+
+    def test_a_framework_given_as_a_bare_string_is_not_named(self, earlier) -> None:
+        # Raised AttributeError: 'str' object has no attribute 'get'.
+        later = revised(earlier)
+        later["framework"] = "test-fw"
+        result = compare(earlier, later)
+        assert result.comparable is False
+        assert result.not_comparable_because == (
+            "no framework and version named in the later assessment"
+        )
+
+    def test_a_version_written_as_a_number_is_the_same_version(self, earlier) -> None:
+        # A record rebuilt from YAML may hold 1.0 where the engine wrote "1.0".
+        later = revised(earlier, **{"CC9.9": "compliant"})
+        later["framework"]["version"] = 1.0
+        result = compare(earlier, later)
+        assert result.comparable is True
+        assert [c.control_id for c in result.improved] == ["CC9.9"]
+
+    def test_the_compare_command_records_no_trend(self, earlier, tmp_path: Path, capsys) -> None:
+        bare = json.loads(json.dumps(earlier))
+        bare.pop("framework")
+        a = tmp_path / "q3.json"
+        b = tmp_path / "q4.json"
+        a.write_text(json.dumps(bare), encoding="utf-8")
+        b.write_text(json.dumps(revised(bare, **{"CC9.9": "compliant"})), encoding="utf-8")
+        assert main(["compare", "--from", str(a), "--to", str(b)]) == 0
+        captured = capsys.readouterr()
+        reported = json.loads(captured.out)
+        assert reported["comparable"] is False
+        assert reported["readiness"]["change"] is None
+        assert reported["controls"] is None
+        assert "no framework and version named" in captured.err
+
+
 class TestRemediationMovement:
     def test_an_item_that_went_away_is_closed(self, earlier) -> None:
         later = revised(earlier)

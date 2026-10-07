@@ -357,6 +357,21 @@ def _readiness(document: dict[str, Any]) -> float | None:
     return score
 
 
+def _framework(document: dict[str, Any]) -> tuple[str, str]:
+    """The framework id and version a record states, each blank where it states none.
+
+    Two records naming neither compared as framework "" version "" and passed
+    the like-for-like check, and a framework given as a bare string raised.
+    """
+    framework = document.get("framework")
+    if not isinstance(framework, dict):
+        return "", ""
+    return (
+        str(framework.get("id") or "").strip(),
+        str(framework.get("version") or "").strip(),
+    )
+
+
 def _tenant(document: dict[str, Any], which: str) -> str:
     """The tenant a record belongs to, or ValueError if it does not say plainly.
 
@@ -425,14 +440,12 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
             f"swap them, or the trend reads backwards"
         )
 
-    earlier_framework = (earlier.get("framework") or {}).get("id", "")
-    later_framework = (later.get("framework") or {}).get("id", "")
-    earlier_version = (earlier.get("framework") or {}).get("version", "")
-    later_version = (later.get("framework") or {}).get("version", "")
+    earlier_framework, earlier_version = _framework(earlier)
+    later_framework, later_version = _framework(later)
 
     comparison = Comparison(
         tenant_id=later_tenant,
-        framework_id=str(later_framework),
+        framework_id=later_framework,
         earlier_id=str(earlier.get("assessment_id", "")),
         later_id=str(later.get("assessment_id", "")),
         earlier_at=str(earlier.get("started_at", "")),
@@ -441,7 +454,26 @@ def compare(earlier: dict[str, Any], later: dict[str, Any]) -> Comparison:
         readiness_after=_readiness(later),
     )
 
-    if earlier_framework != later_framework:
+    # A framework the record does not name cannot be checked like for like:
+    # two such records compared as "1 improved" with no caveat at all.
+    unnamed = [
+        which
+        for which, (framework_id, version) in (
+            ("earlier", (earlier_framework, earlier_version)),
+            ("later", (later_framework, later_version)),
+        )
+        if not framework_id or not version
+    ]
+    if unnamed:
+        sides = f"{' and '.join(unnamed)} assessment{'s' if len(unnamed) > 1 else ''}"
+        comparison.comparable = False
+        comparison.not_comparable_because = f"no framework and version named in the {sides}"
+        comparison.caveats.append(
+            f"The {sides} {'do' if len(unnamed) > 1 else 'does'} not name the framework "
+            f"and version assessed against, so whether the controls correspond cannot be "
+            f"checked. The readiness figures are not a trend."
+        )
+    elif earlier_framework != later_framework:
         comparison.comparable = False
         comparison.not_comparable_because = "different frameworks"
         comparison.caveats.append(
